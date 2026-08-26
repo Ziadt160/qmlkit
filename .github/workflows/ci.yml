@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        python: ["3.10", "3.11", "3.12", "3.13"]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
         include:
           - os: windows-latest
             python: "3.12"
@@ -47,14 +47,20 @@ jobs:
           path: .coverage.*
           include-hidden-files: true
 
-  # Qiskit and Cirq: the cross-backend equivalence suite actually runs here.
+  # Every optional dependency gets a job where its marked tests actually execute.
+  # The core job installs none of them, so without this they would only ever skip:
+  # a suite that silently skips its hardest tests is worse than no suite.
+  #
+  #   qiskit, cirq -> the cross-backend equivalence suite
+  #   torch        -> the autograd bridge and the backprop gradient
+  #   pennylane    -> 301 cross-validation cases against a second implementation
   sdk:
     name: ${{ matrix.sdk }} · py3.12
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        sdk: [qiskit, cirq]
+        sdk: [qiskit, cirq, torch, pennylane]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -62,7 +68,14 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -e ".[dev,${{ matrix.sdk }}]"
-      - name: Cross-backend equivalence
+      # This line is load-bearing. If the SDK were missing, importorskip and skipif
+      # would turn every test in this job green by skipping it -- verified locally:
+      # `pytest -m spinqit` without SpinQit installed exits 0, not 5, because the
+      # tests are collected and then skipped. An SDK job that proves nothing is worse
+      # than no SDK job, so assert the import before trusting the run below.
+      - name: Confirm ${{ matrix.sdk }} actually imports
+        run: python -c "import ${{ matrix.sdk }}"
+      - name: Run the ${{ matrix.sdk }}-marked tests
         run: coverage run --parallel-mode --source=qmlkit -m pytest -q -m ${{ matrix.sdk }}
       - uses: actions/upload-artifact@v4
         with:
@@ -131,6 +144,14 @@ jobs:
       - run: pip install build twine
       - run: python -m build
       - run: twine check dist/*
+      # Install the built wheel into an environment that has nothing else, and run
+      # the library from there. An editable install imports out of src/ and would
+      # keep working even if a module were missing from the wheel entirely.
+      - name: Verify the wheel in a clean environment
+        run: |
+          python -m venv /tmp/clean
+          /tmp/clean/bin/pip install --quiet dist/*.whl
+          /tmp/clean/bin/python scripts/verify_install.py
       - uses: actions/upload-artifact@v4
         with:
           name: dist

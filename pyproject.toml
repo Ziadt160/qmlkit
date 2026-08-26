@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "qmlkit"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "A backend-agnostic quantum machine learning library for SpinQit, Qiskit, Cirq and PyTorch"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -20,6 +20,7 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Scientific/Engineering :: Physics",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
   "Typing :: Typed",
@@ -45,6 +46,7 @@ dev = [
   "mypy>=1.8",
   "hypothesis>=6",
 ]
+pennylane = ["pennylane>=0.40"]
 
 [project.urls]
 Homepage = "https://github.com/Ziadt160/qmlkit"
@@ -79,8 +81,8 @@ files = ["src/qmlkit/core", "src/qmlkit/gradients", "src/qmlkit/ansatz"]
 strict = true
 warn_return_any = false
 
-# The SpinQit backend arrives in Phase 1; until then the lazy import has no module
-# to resolve. Silencing it here keeps `mypy --strict` meaningful for everything else.
+# Optional SDKs ship no type stubs (or stubs we do not want to depend on). Silencing
+# just these keeps `mypy --strict` meaningful for everything we actually own.
 [[tool.mypy.overrides]]
 module = ["spinqit.*", "qiskit.*", "cirq.*", "torch.*"]
 ignore_missing_imports = true

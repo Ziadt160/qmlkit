@@ -455,6 +455,16 @@ future change rather than only today's:
 pytest tests/test_pennylane_parity.py    # 301 parity cases
 ```
 
+Before a release, verify the *built* artifact rather than the source tree — an
+editable install imports out of `src/` and keeps working even if a module never made
+it into the wheel:
+
+```bash
+python -m build && python -m venv /tmp/clean && /tmp/clean/bin/pip install dist/qmlkit-*.whl && /tmp/clean/bin/python scripts/verify_install.py
+```
+
+[`RELEASING.md`](RELEASING.md) has the rest of the process.
+
 ## License
 
 Apache-2.0 · © 2026 Ziad Tarek Mohammed
