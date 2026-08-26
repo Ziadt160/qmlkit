@@ -47,6 +47,11 @@ dev = [
   "hypothesis>=6",
 ]
 pennylane = ["pennylane>=0.40"]
+docs = [
+  "mkdocs>=1.6",
+  "mkdocs-material>=9.5",
+  "mkdocstrings[python]>=0.25",
+]
 
 [project.urls]
 Homepage = "https://github.com/Ziadt160/qmlkit"

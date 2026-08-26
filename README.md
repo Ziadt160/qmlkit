@@ -15,6 +15,8 @@ precision.
 circuit runs on SpinQit, Qiskit, Cirq, or the built-in exact NumPy reference.
 Expectations are exact unless you ask for shots.
 
+**[Documentation](https://ziadt160.github.io/qmlkit/)** — tutorials, guides and a generated API reference.
+
 ## Two lines
 
 ```python

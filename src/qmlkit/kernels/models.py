@@ -232,8 +232,11 @@ class TrainableKernel:
         def loss(p: np.ndarray) -> float:
             return -self.alignment(p, X, y)  # minimise the negative
 
-        best, history = minimize_spsa(loss, start, n_iterations=n_iterations, seed=seed)
-        self.params_ = best
+        # minimize_spsa returns the *final* iterate, not the best one seen, so a short
+        # run can legitimately end below where it started. history_ is the alignment
+        # trajectory and its last entry always corresponds to params_.
+        final, history = minimize_spsa(loss, start, n_iterations=n_iterations, seed=seed)
+        self.params_ = final
         self.history_ = [-h for h in history]
         return self
 

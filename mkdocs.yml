@@ -1,0 +1,128 @@
+site_name: qmlkit
+site_description: A backend-agnostic quantum machine learning library for SpinQit, Qiskit, Cirq and PyTorch
+site_url: https://ziadt160.github.io/qmlkit/
+repo_url: https://github.com/Ziadt160/qmlkit
+repo_name: Ziadt160/qmlkit
+copyright: Apache-2.0 &copy; 2026 Ziad Tarek Mohammed
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - toc.follow
+    - content.code.copy
+    - content.code.annotate
+    - search.suggest
+    - search.highlight
+  palette:
+    # The viewer's OS preference decides, and both themes are designed rather than
+    # one being an inversion of the other.
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Follow the system theme
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: deep purple
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: deep purple
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: numpy
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            show_signature_annotations: true
+            separate_signature: true
+            signature_crossrefs: true
+            merge_init_into_class: true
+            members_order: source
+            filters: ["!^_"]
+            heading_level: 3
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  # Enables the :material-xxx: icon shortcodes used in the card grids.
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path: [., docs]
+      check_paths: true
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.arithmatex:
+      generic: true
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+
+nav:
+  - Home: index.md
+  - Install: install.md
+  - Tutorials:
+      - tutorials/index.md
+      - 1. Circuits are data: tutorials/01-first-circuit.md
+      - 2. Getting data in: tutorials/02-encoding-data.md
+      - 3. Gradients: tutorials/03-gradients.md
+      - 4. Designing an ansatz: tutorials/04-ansatz-design.md
+      - 5. Training with PyTorch: tutorials/05-training-torch.md
+      - 6. Quantum kernels: tutorials/06-quantum-kernels.md
+      - 7. Re-uploading and Fourier: tutorials/07-reuploading.md
+      - 8. Trainability: tutorials/08-trainability.md
+  - Guides:
+      - guides/index.md
+      - The parameter-shift rule: guides/parameter-shift.md
+      - Choosing a gradient method: guides/choosing-a-gradient.md
+      - Backends and conventions: guides/backends.md
+      - Extending qmlkit: guides/extending.md
+  - Reference:
+      - reference/index.md
+      - Core: reference/core.md
+      - Gradients: reference/gradients.md
+      - Encoding: reference/encoding.md
+      - Ansatz: reference/ansatz.md
+      - Kernels: reference/kernels.md
+      - PyTorch: reference/nn.md
+      - Analysis: reference/analysis.md
+  - About:
+      - Validation: about/validation.md
+      - Changelog: about/changelog.md
+      - Releasing: about/releasing.md

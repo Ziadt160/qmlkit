@@ -1,0 +1,56 @@
+# Build the documentation on every change, and publish it from main.
+#
+# The build runs `pytest tests/test_docs.py` first, which executes every Python
+# block on every page. Docs that no longer run are treated as a broken build, not
+# as cosmetic drift -- the first thing a new reader does is copy the first snippet
+# on the page, and a tutorial that stopped working two releases ago looks exactly
+# like one that still works.
+name: Docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      # sklearn and torch so the pages that need them run rather than skip
+      - run: pip install -e ".[docs,dev,sklearn,torch]"
+      - name: Every snippet in the docs must run
+        run: pytest tests/test_docs.py -q
+      # --strict turns broken internal links and missing nav entries into failures
+      - run: mkdocs build --strict
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: Publish to GitHub Pages
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
