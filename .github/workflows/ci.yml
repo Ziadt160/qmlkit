@@ -1,0 +1,137 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Core: no optional SDK installed. Proves `pip install qmlkit` is genuinely
+  # self-sufficient and that a missing backend degrades to a clear message.
+  core:
+    name: core · py${{ matrix.python }} · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.10", "3.11", "3.12", "3.13"]
+        include:
+          - os: windows-latest
+            python: "3.12"
+          - os: macos-latest
+            python: "3.12"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - name: Lint
+        run: |
+          ruff check src tests
+          ruff format --check src tests
+      - name: Type-check
+        run: mypy
+      - name: Test
+        run: coverage run --parallel-mode --source=qmlkit -m pytest -q
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-core-${{ matrix.os }}-${{ matrix.python }}
+          path: .coverage.*
+          include-hidden-files: true
+
+  # Qiskit and Cirq: the cross-backend equivalence suite actually runs here.
+  sdk:
+    name: ${{ matrix.sdk }} · py3.12
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: [qiskit, cirq]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev,${{ matrix.sdk }}]"
+      - name: Cross-backend equivalence
+        run: coverage run --parallel-mode --source=qmlkit -m pytest -q -m ${{ matrix.sdk }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.sdk }}
+          path: .coverage.*
+          include-hidden-files: true
+
+  # SpinQit only has wheels for 3.8-3.10 and pins numpy<2, so it gets its own job
+  # on 3.10. Allowed to fail without blocking: the NumPy backend is the reference,
+  # and a SpinQit packaging problem upstream is not a qmlkit regression.
+  spinqit:
+    name: spinqit · py3.10
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+      - run: pip install -e ".[dev,spinqit]"
+      - name: Convention self-check
+        run: |
+          python -c "
+          import qmlkit as qk
+          r = qk.get_backend('spinqit').verify_conventions()
+          print(r)
+          assert all(r.values()), [k for k, v in r.items() if not v]
+          "
+      - name: Cross-backend equivalence
+        run: pytest -q -m spinqit
+
+  # One honest coverage number, measured across every environment, because no
+  # single interpreter can import all four backends.
+  coverage:
+    name: Combined coverage
+    needs: [core, sdk]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          merge-multiple: true
+      - run: |
+          coverage combine
+          coverage report --fail-under=90
+          coverage xml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
+  build:
+    name: Build and check the distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build twine
+      - run: python -m build
+      - run: twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
