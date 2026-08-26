@@ -21,6 +21,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 import torch
 from torch import nn
 
@@ -105,10 +106,10 @@ class _Runner:
                 else enc
             )
 
-    def _full(self, x_row: np.ndarray, theta: np.ndarray) -> np.ndarray:
+    def _full(self, x_row: npt.NDArray[Any], theta: npt.NDArray[Any]) -> npt.NDArray[Any]:
         return np.concatenate([self.feature_map.angles(x_row), theta])
 
-    def forward_batch(self, x: np.ndarray, theta: np.ndarray) -> np.ndarray:
+    def forward_batch(self, x: npt.NDArray[Any], theta: npt.NDArray[Any]) -> npt.NDArray[Any]:
         from qmlkit.core.execute import expectation
 
         rows = np.atleast_2d(x)
@@ -129,8 +130,8 @@ class _Runner:
         return out if x.ndim == 2 else out[0]
 
     def backward_batch(
-        self, x: np.ndarray, theta: np.ndarray, grad_out: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
+        self, x: npt.NDArray[Any], theta: npt.NDArray[Any], grad_out: npt.NDArray[Any]
+    ) -> tuple[npt.NDArray[Any], npt.NDArray[Any]]:
         rows = np.atleast_2d(x)
         upstream = np.atleast_2d(grad_out)
         gx = np.zeros_like(rows)

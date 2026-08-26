@@ -28,8 +28,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import cache
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 from qmlkit.core.gates import get_gate
 
@@ -67,7 +69,7 @@ class ShiftRule:
         return f"ShiftRule({pairs})"
 
 
-def _positive_shifts(frequencies: Sequence[float]) -> np.ndarray:
+def _positive_shifts(frequencies: Sequence[float]) -> npt.NDArray[Any]:
     """Equidistant positive shifts: (2j-1)*pi / (2*max_freq), j = 1..R."""
     r = len(frequencies)
     scale = float(max(frequencies))

@@ -16,8 +16,10 @@ structure a general optimiser cannot see:
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 from qmlkit.core.execute import BackendLike, expval
 from qmlkit.core.ir import CircuitSpec
@@ -33,13 +35,13 @@ __all__ = [
     "shots_for_precision",
 ]
 
-LossFn = Callable[[np.ndarray], float]
+LossFn = Callable[[npt.NDArray[Any]], float]
 
 
 # --------------------------------------------------------------------------- #
 # Rotosolve
 # --------------------------------------------------------------------------- #
-def _optimal_angle(f: LossFn, theta: np.ndarray, k: int) -> float:
+def _optimal_angle(f: LossFn, theta: npt.NDArray[Any], k: int) -> float:
     r"""Closed-form minimiser of ``f`` in coordinate ``k``.
 
     Along one Pauli-rotation angle the loss is
@@ -58,7 +60,7 @@ def _optimal_angle(f: LossFn, theta: np.ndarray, k: int) -> float:
 
 def rotosolve_step(
     f: LossFn, theta: Sequence[float], indices: Sequence[int] | None = None
-) -> np.ndarray:
+) -> npt.NDArray[Any]:
     """One sweep: set every coordinate to its exact optimum, in turn.
 
     Three evaluations per parameter, and each one lands on that coordinate's minimum
@@ -75,8 +77,8 @@ def minimize_rotosolve(
     theta0: Sequence[float],
     n_sweeps: int = 20,
     tol: float = 1e-9,
-    callback: Callable[[int, np.ndarray, float], None] | None = None,
-) -> tuple[np.ndarray, list[float]]:
+    callback: Callable[[int, npt.NDArray[Any], float], None] | None = None,
+) -> tuple[npt.NDArray[Any], list[float]]:
     """Minimise by repeated Rotosolve sweeps. No learning rate to choose."""
     theta = np.asarray(theta0, dtype=float).ravel().copy()
     history = [float(f(theta))]
@@ -95,8 +97,8 @@ def minimize_rotosolve(
 # quantum natural gradient
 # --------------------------------------------------------------------------- #
 def _exact_derivative_states(
-    spec: CircuitSpec, theta: np.ndarray, backend: BackendLike = None
-) -> tuple[np.ndarray, np.ndarray]:
+    spec: CircuitSpec, theta: npt.NDArray[Any], backend: BackendLike = None
+) -> tuple[npt.NDArray[Any], npt.NDArray[Any]]:
     r""":math:`|\psi\rangle` and every :math:`|\partial_k\psi\rangle`, exactly.
 
     One forward sweep. Each already-open derivative state is carried through the next
@@ -152,7 +154,7 @@ def metric_tensor(
     approx: str = "block-diag",
     backend: BackendLike = None,
     eps: float = 1e-4,
-) -> np.ndarray:
+) -> npt.NDArray[Any]:
     r"""Fubini–Study metric — the curvature of parameter space.
 
     ``approx="diag"`` keeps only the diagonal (cheapest). ``"block-diag"`` and
@@ -201,7 +203,7 @@ def metric_tensor(
 
 def quantum_fisher_information(
     spec: CircuitSpec, theta: Sequence[float], backend: BackendLike = None
-) -> np.ndarray:
+) -> npt.NDArray[Any]:
     """QFIM — exactly ``4 x`` the Fubini–Study metric.
 
     Distinct from the *classical* Fisher information in :mod:`qmlkit.metrics`, which
@@ -218,7 +220,7 @@ def qng_step(
     approx: str = "block-diag",
     regularization: float = 1e-6,
     backend: BackendLike = None,
-) -> np.ndarray:
+) -> npt.NDArray[Any]:
     r"""One natural-gradient step: ``theta <- theta - lr * g^+ grad``.
 
     The pseudo-inverse of the metric rescales each direction by how much the *state*
@@ -242,8 +244,8 @@ def minimize_qng(
     lr: float = 0.1,
     approx: str = "block-diag",
     backend: BackendLike = None,
-    callback: Callable[[int, np.ndarray, float], None] | None = None,
-) -> tuple[np.ndarray, list[float]]:
+    callback: Callable[[int, npt.NDArray[Any], float], None] | None = None,
+) -> tuple[npt.NDArray[Any], list[float]]:
     """Minimise ``<obs>`` by quantum natural gradient descent."""
     obs = Z(0) if obs is None else obs
     theta = np.asarray(theta0, dtype=float).ravel().copy()

@@ -28,8 +28,10 @@ block inside a larger controlled circuit, that factor stops being global; use
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 from qmlkit.core.builder import QCircuit
 from qmlkit.core.ir import CircuitSpec
@@ -42,7 +44,7 @@ __all__ = [
 ]
 
 
-def pad_to_power_of_two(vec: Sequence[float] | np.ndarray) -> np.ndarray:
+def pad_to_power_of_two(vec: Sequence[float] | npt.NDArray[Any]) -> npt.NDArray[Any]:
     """Zero-pad a vector up to the next power of two."""
     arr = np.atleast_1d(np.asarray(vec)).ravel()
     if arr.size == 0:
@@ -58,7 +60,7 @@ def pad_to_power_of_two(vec: Sequence[float] | np.ndarray) -> np.ndarray:
 
 
 def uniformly_controlled_rotation(
-    qc: QCircuit, rotation: str, angles: np.ndarray, controls: Sequence[int], target: int
+    qc: QCircuit, rotation: str, angles: npt.NDArray[Any], controls: Sequence[int], target: int
 ) -> None:
     """Apply ``R(angles[k])`` to ``target`` for each control basis state ``k``.
 
@@ -86,18 +88,20 @@ def uniformly_controlled_rotation(
     qc.cx(controls[0], target)
 
 
-def state_preparation_angles(amplitudes: np.ndarray) -> tuple[list[np.ndarray], list[np.ndarray]]:
+def state_preparation_angles(
+    amplitudes: npt.NDArray[Any],
+) -> tuple[list[npt.NDArray[Any]], list[npt.NDArray[Any]]]:
     """Ry angles per level (magnitudes) and Rz angles per level (phases)."""
     amps = np.asarray(amplitudes, dtype=complex).ravel()
     n = int(np.log2(amps.size))
 
     # --- magnitudes: a binary tree of partial norms -------------------------
-    norms: list[np.ndarray] = [np.abs(amps)]
+    norms: list[npt.NDArray[Any]] = [np.abs(amps)]
     for _ in range(n):
         prev = norms[0]
         norms.insert(0, np.sqrt(prev[0::2] ** 2 + prev[1::2] ** 2))
 
-    ry_angles: list[np.ndarray] = []
+    ry_angles: list[npt.NDArray[Any]] = []
     for level in range(n):
         parent = norms[level]
         child = norms[level + 1]
@@ -110,7 +114,7 @@ def state_preparation_angles(amplitudes: np.ndarray) -> tuple[list[np.ndarray], 
         ry_angles.append(theta)
 
     # --- phases: pair up, emit the difference, recurse on the mean ----------
-    rz_angles: list[np.ndarray] = []
+    rz_angles: list[npt.NDArray[Any]] = []
     phases = np.angle(amps)
     if np.allclose(phases, 0.0, atol=1e-15):
         return ry_angles, rz_angles
@@ -124,7 +128,7 @@ def state_preparation_angles(amplitudes: np.ndarray) -> tuple[list[np.ndarray], 
 
 
 def amplitude_encode(
-    vec: Sequence[float] | np.ndarray,
+    vec: Sequence[float] | npt.NDArray[Any],
     normalize: bool = True,
     pad: bool = True,
     check: bool = False,

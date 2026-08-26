@@ -17,8 +17,10 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 from numpy.typing import ArrayLike
 
 from qmlkit.core.gates import get_gate
@@ -181,7 +183,7 @@ class CircuitSpec:
     def gates_using(self, param_index: int) -> tuple[str, ...]:
         return tuple(dict.fromkeys(s.gate for s in self.occurrences_of(param_index)))
 
-    def bind_slots(self, theta: ArrayLike) -> np.ndarray:
+    def bind_slots(self, theta: ArrayLike) -> npt.NDArray[Any]:
         """Resolve the logical parameter vector into one angle per slot."""
         arr = np.asarray(theta, dtype=float).ravel()
         if arr.size != self.n_params:

@@ -12,7 +12,10 @@ four separate re-implementations of the measurement logic.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
+import numpy.typing as npt
 
 from qmlkit.core.backends._sampling import sample_counts_from_probs
 from qmlkit.core.ir import CircuitSpec, Op
@@ -44,7 +47,7 @@ class Backend:
         self._rng = np.random.default_rng(seed)
 
     # ------------------------------------------------------------ primitives --
-    def statevector(self, spec: CircuitSpec) -> np.ndarray:
+    def statevector(self, spec: CircuitSpec) -> npt.NDArray[Any]:
         """Final state as a flat ``2**n`` complex vector, qubit 0 most significant."""
         raise NotImplementedError(
             f"the {self.name!r} backend cannot produce a statevector; use shots=N to sample instead"
@@ -62,7 +65,7 @@ class Backend:
         rng = np.random.default_rng(seed) if seed is not None else self._rng
         return sample_counts_from_probs(self.probabilities(spec), shots, spec.n_qubits, rng)
 
-    def probabilities(self, spec: CircuitSpec) -> np.ndarray:
+    def probabilities(self, spec: CircuitSpec) -> npt.NDArray[Any]:
         """Exact outcome probabilities over the ``2**n`` basis states."""
         return np.abs(self.statevector(spec)) ** 2
 

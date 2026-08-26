@@ -11,19 +11,21 @@ there is no sklearn dependency. The PCA reduction is a plain SVD.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 __all__ = ["AngleScaler", "to_angle_range", "reduce_to_qubits", "PCAReducer"]
 
 
 def to_angle_range(
-    x: np.ndarray,
+    x: npt.NDArray[Any],
     lo: float = 0.0,
     hi: float = 2 * np.pi,
-    data_min: np.ndarray | None = None,
-    data_max: np.ndarray | None = None,
-) -> np.ndarray:
+    data_min: npt.NDArray[Any] | None = None,
+    data_max: npt.NDArray[Any] | None = None,
+) -> npt.NDArray[Any]:
     """Rescale features into an angle window, per column.
 
     Fit the range on training data and reuse it on test data by passing
@@ -48,21 +50,21 @@ class AngleScaler:
 
     lo: float = 0.0
     hi: float = 2 * np.pi
-    data_min: np.ndarray | None = None
-    data_max: np.ndarray | None = None
+    data_min: npt.NDArray[Any] | None = None
+    data_max: npt.NDArray[Any] | None = None
 
-    def fit(self, x: np.ndarray) -> AngleScaler:
+    def fit(self, x: npt.NDArray[Any]) -> AngleScaler:
         arr = np.atleast_2d(np.asarray(x, dtype=float))
         self.data_min = arr.min(axis=0)
         self.data_max = arr.max(axis=0)
         return self
 
-    def transform(self, x: np.ndarray) -> np.ndarray:
+    def transform(self, x: npt.NDArray[Any]) -> npt.NDArray[Any]:
         if self.data_min is None or self.data_max is None:
             raise ValueError("AngleScaler must be fitted before transform()")
         return to_angle_range(x, self.lo, self.hi, self.data_min, self.data_max)
 
-    def fit_transform(self, x: np.ndarray) -> np.ndarray:
+    def fit_transform(self, x: npt.NDArray[Any]) -> npt.NDArray[Any]:
         return self.fit(x).transform(x)
 
 
@@ -76,11 +78,11 @@ class PCAReducer:
     """
 
     n_components: int
-    mean_: np.ndarray | None = None
-    components_: np.ndarray | None = None
-    explained_variance_ratio_: np.ndarray | None = None
+    mean_: npt.NDArray[Any] | None = None
+    components_: npt.NDArray[Any] | None = None
+    explained_variance_ratio_: npt.NDArray[Any] | None = None
 
-    def fit(self, x: np.ndarray) -> PCAReducer:
+    def fit(self, x: npt.NDArray[Any]) -> PCAReducer:
         arr = np.atleast_2d(np.asarray(x, dtype=float))
         if self.n_components > arr.shape[1]:
             raise ValueError(
@@ -97,24 +99,24 @@ class PCAReducer:
         )
         return self
 
-    def transform(self, x: np.ndarray) -> np.ndarray:
+    def transform(self, x: npt.NDArray[Any]) -> npt.NDArray[Any]:
         if self.components_ is None or self.mean_ is None:
             raise ValueError("PCAReducer must be fitted before transform()")
         arr = np.atleast_2d(np.asarray(x, dtype=float))
         return (arr - self.mean_) @ self.components_.T
 
-    def fit_transform(self, x: np.ndarray) -> np.ndarray:
+    def fit_transform(self, x: npt.NDArray[Any]) -> npt.NDArray[Any]:
         return self.fit(x).transform(x)
 
 
 def reduce_to_qubits(
-    x: np.ndarray,
+    x: npt.NDArray[Any],
     n_qubits: int,
     method: str = "pca",
     to_angles: bool = True,
     lo: float = 0.0,
     hi: float = 2 * np.pi,
-) -> np.ndarray:
+) -> npt.NDArray[Any]:
     """Reduce a feature matrix to ``n_qubits`` columns, ready for angle encoding.
 
     ``method="pca"`` keeps the leading principal components; ``method="truncate"``

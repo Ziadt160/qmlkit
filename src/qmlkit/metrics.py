@@ -20,8 +20,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 from qmlkit.ansatz.library import Ansatz
 from qmlkit.core.execute import BackendLike, statevector
@@ -49,7 +51,7 @@ __all__ = [
 # --------------------------------------------------------------------------- #
 # expressibility
 # --------------------------------------------------------------------------- #
-def haar_fidelity_pdf(f: np.ndarray, n_qubits: int) -> np.ndarray:
+def haar_fidelity_pdf(f: npt.NDArray[Any], n_qubits: int) -> npt.NDArray[Any]:
     """Haar-random fidelity density: ``(N-1)(1-F)^(N-2)`` for ``N = 2^n``."""
     n_states = 2**n_qubits
     fid = np.clip(np.asarray(f, dtype=float), 0.0, 1.0)
@@ -61,7 +63,7 @@ def fidelity_samples(
     n_samples: int = 2000,
     seed: int | None = None,
     backend: BackendLike = None,
-) -> np.ndarray:
+) -> npt.NDArray[Any]:
     """Fidelities between pairs of states from independently sampled parameters."""
     rng = np.random.default_rng(seed)
     out = np.empty(n_samples, dtype=float)
@@ -100,7 +102,7 @@ def expressibility(
 # --------------------------------------------------------------------------- #
 # entanglement
 # --------------------------------------------------------------------------- #
-def meyer_wallach(state: np.ndarray, n_qubits: int | None = None) -> float:
+def meyer_wallach(state: npt.NDArray[Any], n_qubits: int | None = None) -> float:
     """Meyer–Wallach ``Q = 2(1 - (1/n) sum_k Tr rho_k^2)``.
 
     0 for any product state, 1 for a maximally entangled one.
@@ -207,11 +209,11 @@ def _decay_rate(widths: Sequence[int], variances: Sequence[float]) -> float | No
 # --------------------------------------------------------------------------- #
 def fisher_information(
     ansatz: Ansatz,
-    X: np.ndarray,
-    theta: np.ndarray,
+    X: npt.NDArray[Any],
+    theta: npt.NDArray[Any],
     obs: Observable | None = None,
     backend: BackendLike = None,
-) -> np.ndarray:
+) -> npt.NDArray[Any]:
     """Classical Fisher information of the model output, averaged over inputs.
 
     This is the *classical* FIM of the output distribution — the object effective
@@ -231,7 +233,9 @@ def fisher_information(
     return total / max(len(rows), 1)
 
 
-def effective_dimension(fisher: np.ndarray, n_samples: int = 1000, gamma: float = 1.0) -> float:
+def effective_dimension(
+    fisher: npt.NDArray[Any], n_samples: int = 1000, gamma: float = 1.0
+) -> float:
     """Normalised effective dimension of a model, from its Fisher information.
 
     How many parameters are *usefully* independent, which is generally far fewer

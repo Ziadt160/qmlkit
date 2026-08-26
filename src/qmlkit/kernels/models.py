@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 from qmlkit.core.execute import BackendLike
 from qmlkit.encoding.feature_maps import FeatureMap
@@ -65,30 +66,30 @@ class _KernelEstimator:
         )
         self.repair_psd = repair_psd
         self.solver_kwargs = solver_kwargs
-        self.X_train_: np.ndarray | None = None
+        self.X_train_: npt.NDArray[Any] | None = None
 
-    def _gram(self, X: np.ndarray, Y: np.ndarray | None = None) -> np.ndarray:
+    def _gram(self, X: npt.NDArray[Any], Y: npt.NDArray[Any] | None = None) -> npt.NDArray[Any]:
         K = self.kernel(X, Y)
         # only a square training matrix needs (or admits) a PSD repair
         if Y is None and self.repair_psd and not is_psd(K):
             K = closest_psd_matrix(K, self.repair_psd)
         return K
 
-    def fit(self, X: np.ndarray, y: np.ndarray) -> _KernelEstimator:
+    def fit(self, X: npt.NDArray[Any], y: npt.NDArray[Any]) -> _KernelEstimator:
         self.X_train_ = np.atleast_2d(np.asarray(X, dtype=float))
         self._svm.fit(self._gram(self.X_train_), np.asarray(y).ravel())
         return self
 
-    def _check_fitted(self) -> np.ndarray:
+    def _check_fitted(self) -> npt.NDArray[Any]:
         if self.X_train_ is None:
             raise ValueError(f"{type(self).__name__} must be fitted before use")
         return self.X_train_
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
+    def predict(self, X: npt.NDArray[Any]) -> npt.NDArray[Any]:
         train = self._check_fitted()
         return np.asarray(self._svm.predict(self.kernel(np.atleast_2d(X), train)))
 
-    def decision_function(self, X: np.ndarray) -> np.ndarray:
+    def decision_function(self, X: npt.NDArray[Any]) -> npt.NDArray[Any]:
         train = self._check_fitted()
         return np.asarray(self._svm.decision_function(self.kernel(np.atleast_2d(X), train)))
 
@@ -109,7 +110,7 @@ class QSVC(_KernelEstimator):
         svm = _require_sklearn("QSVC")
         self._svm = svm.SVC(kernel="precomputed", C=C, **self.solver_kwargs)
 
-    def score(self, X: np.ndarray, y: np.ndarray) -> float:
+    def score(self, X: npt.NDArray[Any], y: npt.NDArray[Any]) -> float:
         return float((self.predict(X) == np.asarray(y).ravel()).mean())
 
 
@@ -123,7 +124,7 @@ class QSVR(_KernelEstimator):
         svm = _require_sklearn("QSVR")
         self._svm = svm.SVR(kernel="precomputed", C=C, epsilon=epsilon, **self.solver_kwargs)
 
-    def score(self, X: np.ndarray, y: np.ndarray) -> float:
+    def score(self, X: npt.NDArray[Any], y: npt.NDArray[Any]) -> float:
         """R^2."""
         pred = np.asarray(self.predict(X)).ravel()
         truth = np.asarray(y, dtype=float).ravel()
@@ -148,10 +149,10 @@ class NearestFidelityClassifier:
         self.feature_map = feature_map
         self.shots = shots
         self.backend = backend
-        self.classes_: np.ndarray | None = None
-        self.anchors_: dict[Any, np.ndarray] = {}
+        self.classes_: npt.NDArray[Any] | None = None
+        self.anchors_: dict[Any, npt.NDArray[Any]] = {}
 
-    def fit(self, X: np.ndarray, y: np.ndarray) -> NearestFidelityClassifier:
+    def fit(self, X: npt.NDArray[Any], y: npt.NDArray[Any]) -> NearestFidelityClassifier:
         from qmlkit.core.execute import statevector
 
         rows = np.atleast_2d(np.asarray(X, dtype=float))
@@ -167,7 +168,7 @@ class NearestFidelityClassifier:
             self.anchors_[c] = mean / norm if norm > 1e-12 else mean
         return self
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
+    def predict(self, X: npt.NDArray[Any]) -> npt.NDArray[Any]:
         from qmlkit.core.execute import statevector
 
         if self.classes_ is None:
@@ -180,7 +181,7 @@ class NearestFidelityClassifier:
             out.append(max(scores, key=lambda c: scores[c]))
         return np.array(out)
 
-    def score(self, X: np.ndarray, y: np.ndarray) -> float:
+    def score(self, X: npt.NDArray[Any], y: npt.NDArray[Any]) -> float:
         return float((self.predict(X) == np.asarray(y).ravel()).mean())
 
 
@@ -204,17 +205,17 @@ class TrainableKernel:
         self.n_params = n_params
         self.shots = shots
         self.backend = backend
-        self.params_: np.ndarray | None = None
+        self.params_: npt.NDArray[Any] | None = None
         self.history_: list[float] = []
 
-    def alignment(self, params: Sequence[float], X: np.ndarray, y: np.ndarray) -> float:
+    def alignment(self, params: Sequence[float], X: npt.NDArray[Any], y: npt.NDArray[Any]) -> float:
         kernel = QuantumKernel(self.factory(params), shots=self.shots, backend=self.backend)
         return target_alignment(kernel(X), y)
 
     def fit(
         self,
-        X: np.ndarray,
-        y: np.ndarray,
+        X: npt.NDArray[Any],
+        y: npt.NDArray[Any],
         n_iterations: int = 40,
         theta0: Sequence[float] | None = None,
         seed: int | None = None,
@@ -229,7 +230,7 @@ class TrainableKernel:
             else rng.uniform(0.5, 1.5, self.n_params)
         )
 
-        def loss(p: np.ndarray) -> float:
+        def loss(p: npt.NDArray[Any]) -> float:
             return -self.alignment(p, X, y)  # minimise the negative
 
         # minimize_spsa returns the *final* iterate, not the best one seen, so a short
@@ -248,10 +249,10 @@ class TrainableKernel:
 
 def projected_kernel_matrix(
     feature_map: FeatureMap,
-    X: np.ndarray,
+    X: npt.NDArray[Any],
     gamma: float = 1.0,
     backend: BackendLike = None,
-) -> np.ndarray:
+) -> npt.NDArray[Any]:
     r"""Projected quantum kernel — the standard answer to exponential concentration.
 
     Instead of a *global* fidelity, compare the **one-qubit reduced density
@@ -285,7 +286,7 @@ def projected_kernel_matrix(
 
 def rkhs_model(
     alphas: Sequence[float],
-    anchors: np.ndarray,
+    anchors: npt.NDArray[Any],
     x: Sequence[float],
     kernel: Any,
 ) -> float:

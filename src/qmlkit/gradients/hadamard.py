@@ -33,7 +33,10 @@ Pauli, and this method refuses it rather than guessing.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
+import numpy.typing as npt
 
 from qmlkit.core.execute import BackendLike, expval
 from qmlkit.core.ir import CircuitSpec, Op
@@ -53,12 +56,12 @@ def supports_hadamard_grad(spec: CircuitSpec) -> bool:
 
 def hadamard_grad(
     spec: CircuitSpec,
-    theta: np.ndarray,
+    theta: npt.NDArray[Any],
     obs: Observable | None = None,
     backend: BackendLike = None,
     shots: int | None = None,
     seed: int | None = None,
-) -> np.ndarray:
+) -> npt.NDArray[Any]:
     """Exact gradient using one extra qubit and one circuit per parameter."""
     obs = Z(0) if obs is None else obs
     if not supports_hadamard_grad(spec):

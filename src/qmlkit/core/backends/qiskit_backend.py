@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
 
 from qmlkit.core.backends.base import Backend, BackendNotAvailable
 from qmlkit.core.ir import CircuitSpec, ParamRef
@@ -98,6 +99,6 @@ class QiskitBackend(Backend):
         return float(p)
 
     # ----------------------------------------------------------------- run --
-    def statevector(self, spec: CircuitSpec) -> np.ndarray:
+    def statevector(self, spec: CircuitSpec) -> npt.NDArray[Any]:
         data = self._Statevector.from_instruction(self.to_qiskit(spec)).data
         return np.asarray(data, dtype=complex)

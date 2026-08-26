@@ -7,8 +7,10 @@ circuit the library can build and shows exactly what a backend will run.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 from qmlkit.core.gates import get_gate
 from qmlkit.core.ir import CircuitSpec, ParamRef
@@ -104,7 +106,7 @@ def draw_ansatz(ansatz: object, max_width: int = 160) -> str:
     return draw(ansatz.build(), max_width)  # type: ignore[attr-defined]
 
 
-def probabilities_bar(probs: np.ndarray, n_qubits: int, top: int = 8, width: int = 30) -> str:
+def probabilities_bar(probs: npt.NDArray[Any], n_qubits: int, top: int = 8, width: int = 30) -> str:
     """A text histogram of outcome probabilities — the most likely bitstrings."""
     p = np.asarray(probs, dtype=float).ravel()
     order = np.argsort(p)[::-1][:top]

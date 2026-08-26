@@ -9,8 +9,10 @@ implementation from one that only appears to work.
 from __future__ import annotations
 
 import itertools
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 __all__ = [
     "ad_hoc_data",
@@ -29,7 +31,7 @@ def ad_hoc_data(
     gap: float = 0.3,
     seed: int | None = None,
     scale: float = 2 * np.pi,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[npt.NDArray[Any], npt.NDArray[Any]]:
     """The Havlíček-style separable-by-construction dataset.
 
     Labels come from the sign of a hidden observable measured on a ZZ-feature-mapped
@@ -45,7 +47,7 @@ def ad_hoc_data(
     fmap = ZZFeatureMap(n_features, reps=2)
     witness = PauliString(tuple((q, "Z") for q in range(n_features)))
 
-    xs: list[np.ndarray] = []
+    xs: list[npt.NDArray[Any]] = []
     ys: list[int] = []
     attempts = 0
     while len(xs) < n_samples and attempts < 200 * n_samples:
@@ -61,7 +63,7 @@ def ad_hoc_data(
     return np.array(xs), np.array(ys)
 
 
-def bars_and_stripes(size: int = 2, seed: int | None = None) -> np.ndarray:
+def bars_and_stripes(size: int = 2, seed: int | None = None) -> npt.NDArray[Any]:
     """Every bars-and-stripes pattern on a ``size x size`` grid, flattened.
 
     The standard target distribution for a quantum circuit Born machine: a sparse,
@@ -82,7 +84,7 @@ def bars_and_stripes(size: int = 2, seed: int | None = None) -> np.ndarray:
 
 def make_moons(
     n_samples: int = 100, noise: float = 0.1, seed: int | None = None, to_angles: bool = True
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[npt.NDArray[Any], npt.NDArray[Any]]:
     """Two interleaving half-circles — not linearly separable."""
     rng = np.random.default_rng(seed)
     n_out = n_samples // 2
@@ -106,7 +108,7 @@ def make_circles(
     factor: float = 0.5,
     seed: int | None = None,
     to_angles: bool = True,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[npt.NDArray[Any], npt.NDArray[Any]]:
     """One circle inside another — needs a nonlinear boundary."""
     rng = np.random.default_rng(seed)
     n_out = n_samples // 2
@@ -131,7 +133,7 @@ def make_blobs(
     n_features: int = 2,
     seed: int | None = None,
     to_angles: bool = True,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[npt.NDArray[Any], npt.NDArray[Any]]:
     """Gaussian clusters — the easy baseline every model should pass."""
     rng = np.random.default_rng(seed)
     middles = rng.uniform(-2, 2, (centers, n_features))
@@ -147,7 +149,7 @@ def make_blobs(
 
 def make_parity(
     n_samples: int = 100, n_features: int = 4, seed: int | None = None
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[npt.NDArray[Any], npt.NDArray[Any]]:
     """Label is the parity of the bits — the classic hard case for shallow models."""
     rng = np.random.default_rng(seed)
     bits = rng.integers(0, 2, (n_samples, n_features))
@@ -155,15 +157,15 @@ def make_parity(
     return bits * np.pi, y  # 0 or pi, already an angle
 
 
-def _to_angles(x: np.ndarray, lo: float = 0.0, hi: float = np.pi) -> np.ndarray:
+def _to_angles(x: npt.NDArray[Any], lo: float = 0.0, hi: float = np.pi) -> npt.NDArray[Any]:
     from qmlkit.encoding.scaling import to_angle_range
 
     return to_angle_range(x, lo, hi)
 
 
 def train_test_split(
-    X: np.ndarray, y: np.ndarray, test_size: float = 0.3, seed: int | None = None
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    X: npt.NDArray[Any], y: npt.NDArray[Any], test_size: float = 0.3, seed: int | None = None
+) -> tuple[npt.NDArray[Any], npt.NDArray[Any], npt.NDArray[Any], npt.NDArray[Any]]:
     """Shuffle and split. Here so a quickstart needs no extra dependency."""
     rows = np.atleast_2d(np.asarray(X))
     labels = np.asarray(y).ravel()

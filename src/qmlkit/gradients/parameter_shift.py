@@ -17,8 +17,10 @@ naturally: several slots simply map back to the same parameter index.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 from qmlkit.core.backends.registry import get_backend
 from qmlkit.core.execute import BackendLike
@@ -33,7 +35,7 @@ __all__ = [
     "finite_diff_grad",
 ]
 
-SlotFn = Callable[[np.ndarray], float]
+SlotFn = Callable[[npt.NDArray[Any]], float]
 
 
 def param_shift_grad(
@@ -42,7 +44,7 @@ def param_shift_grad(
     theta: Sequence[float],
     rules: dict[int, ShiftRule] | None = None,
     f0: float | None = None,
-) -> np.ndarray:
+) -> npt.NDArray[Any]:
     """Exact gradient of ``f`` with respect to the logical parameter vector.
 
     Parameters
@@ -89,12 +91,12 @@ def param_shift_grad_circuit(
     shots: int | None = None,
     backend: BackendLike = None,
     seed: int | None = None,
-) -> np.ndarray:
+) -> npt.NDArray[Any]:
     """Convenience wrapper: parameter-shift gradient of ``<obs>`` for a circuit."""
     obs = Z(0) if obs is None else obs
     be = get_backend(backend)
 
-    def f_slots(angles: np.ndarray) -> float:
+    def f_slots(angles: npt.NDArray[Any]) -> float:
         return be.expectation(spec.with_slot_angles(angles), obs, shots, seed)
 
     return param_shift_grad(f_slots, spec, theta)
@@ -111,11 +113,11 @@ def grad_circuit_cost(spec: CircuitSpec) -> int:
 
 
 def finite_diff_grad(
-    f: Callable[[np.ndarray], float],
+    f: Callable[[npt.NDArray[Any]], float],
     theta: Sequence[float],
     eps: float = 1e-6,
     mode: str = "central",
-) -> np.ndarray:
+) -> npt.NDArray[Any]:
     """Finite differences. For debugging and tests only — never for training.
 
     Carries an ``O(eps**2)`` bias and amplifies any sampling noise by ``1/eps``,

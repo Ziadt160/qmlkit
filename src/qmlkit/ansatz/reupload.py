@@ -26,8 +26,9 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Sequence
+from typing import Any
 
-import numpy as np
+import numpy.typing as npt
 from numpy.typing import ArrayLike
 
 from qmlkit.ansatz.blocks import (
@@ -146,11 +147,11 @@ class ReuploadModel(Ansatz):
         """Reachable frequencies ``0..L``, so ``L + 1`` of them."""
         return self.n_uploads + 1
 
-    def angles(self, x: ArrayLike) -> np.ndarray:
+    def angles(self, x: ArrayLike) -> npt.NDArray[Any]:
         """The encoding angles for ``x`` — the first ``n_inputs`` parameters."""
         return self.feature_map.angles(x)  # type: ignore[attr-defined]
 
-    def angle_jacobian(self, x: ArrayLike) -> np.ndarray:
+    def angle_jacobian(self, x: ArrayLike) -> npt.NDArray[Any]:
         """``d(angle)/d(feature)``, for the chain rule down to the data."""
         return self.feature_map.angle_jacobian(x)  # type: ignore[attr-defined]
 

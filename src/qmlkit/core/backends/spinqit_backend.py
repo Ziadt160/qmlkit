@@ -25,6 +25,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 from qmlkit.core.backends.base import Backend, BackendNotAvailable
 from qmlkit.core.ir import CircuitSpec, ParamRef
@@ -162,7 +163,7 @@ class SpinQitBackend(Backend):
             config.configure_shots(shots)
         return self._engine.execute(exe, config)
 
-    def statevector(self, spec: CircuitSpec) -> np.ndarray:
+    def statevector(self, spec: CircuitSpec) -> npt.NDArray[Any]:
         return np.asarray(self._execute(spec).states, dtype=complex).ravel()
 
     def counts(self, spec: CircuitSpec, shots: int, seed: int | None = None) -> dict[str, int]:

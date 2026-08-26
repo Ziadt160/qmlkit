@@ -9,8 +9,10 @@ not ask for is not a feature. Pass ``shots=N`` to model a real device.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 from numpy.typing import ArrayLike
 
 from qmlkit.core.backends.base import Backend
@@ -43,7 +45,7 @@ def statevector(
     spec: CircuitSpec,
     theta: ArrayLike | None = None,
     backend: BackendLike = None,
-) -> np.ndarray:
+) -> npt.NDArray[Any]:
     """Final state as a flat ``2**n`` complex vector."""
     return get_backend(backend).statevector(_prepare(spec, theta))
 
@@ -63,7 +65,7 @@ def probabilities(
     spec: CircuitSpec,
     theta: ArrayLike | None = None,
     backend: BackendLike = None,
-) -> np.ndarray:
+) -> npt.NDArray[Any]:
     """Exact outcome probabilities over the ``2**n`` basis states."""
     return get_backend(backend).probabilities(_prepare(spec, theta))
 
@@ -99,7 +101,7 @@ def expectation_batch(
     shots: int | None = None,
     backend: BackendLike = None,
     seed: int | None = None,
-) -> np.ndarray:
+) -> npt.NDArray[Any]:
     """``<O>`` for several circuits, resolving the backend once."""
     be = get_backend(backend)
     obs = Z(0) if obs is None else obs

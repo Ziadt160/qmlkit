@@ -9,8 +9,10 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 __all__ = ["PauliString", "PauliSum", "I", "X", "Y", "Z", "ZZ", "Observable"]
 
@@ -130,7 +132,7 @@ def as_sum(obs: Observable) -> PauliSum:
 
 
 # ------------------------------------------------------------------ evaluation
-def _pauli_matrix(p: str) -> np.ndarray:
+def _pauli_matrix(p: str) -> npt.NDArray[Any]:
     return {
         "I": np.eye(2, dtype=complex),
         "X": np.array([[0, 1], [1, 0]], dtype=complex),
@@ -139,7 +141,7 @@ def _pauli_matrix(p: str) -> np.ndarray:
     }[p]
 
 
-def expectation_from_statevector(obs: Observable, state: np.ndarray, n_qubits: int) -> float:
+def expectation_from_statevector(obs: Observable, state: npt.NDArray[Any], n_qubits: int) -> float:
     """Exact <psi|O|psi>. ``state`` is a flat 2**n complex vector, qubit 0 most significant."""
     psi = np.asarray(state, dtype=complex).reshape((2,) * n_qubits)
     total = 0.0 + 0.0j
@@ -156,7 +158,7 @@ def expectation_from_statevector(obs: Observable, state: np.ndarray, n_qubits: i
     return float(total.real)
 
 
-def diagonal_eigenvalues(term: PauliString, n_qubits: int) -> np.ndarray:
+def diagonal_eigenvalues(term: PauliString, n_qubits: int) -> npt.NDArray[Any]:
     """+-1 eigenvalue per computational basis state, for a Z-only Pauli string."""
     if any(p not in ("I", "Z") for _, p in term.paulis):
         raise ValueError("diagonal_eigenvalues expects a Z-only string (rotate the basis first)")

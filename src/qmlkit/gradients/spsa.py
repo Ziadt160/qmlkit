@@ -18,13 +18,15 @@ iteration count is the usual choice.
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 from numpy.typing import ArrayLike
 
 __all__ = ["spsa_grad", "spsa_step", "SPSASchedule", "minimize_spsa"]
 
-LossFn = Callable[[np.ndarray], float]
+LossFn = Callable[[npt.NDArray[Any]], float]
 
 
 def spsa_grad(
@@ -34,7 +36,7 @@ def spsa_grad(
     n_avg: int = 1,
     seed: int | None = None,
     rng: np.random.Generator | None = None,
-) -> np.ndarray:
+) -> npt.NDArray[Any]:
     """A stochastic gradient estimate from ``2 * n_avg`` evaluations.
 
     ``n_avg`` averages several random directions, trading evaluations for variance
@@ -94,7 +96,7 @@ def spsa_step(
     k: int,
     schedule: SPSASchedule | None = None,
     rng: np.random.Generator | None = None,
-) -> np.ndarray:
+) -> npt.NDArray[Any]:
     """One SPSA update at iteration ``k``."""
     sched = schedule or SPSASchedule()
     arr = np.asarray(theta, dtype=float).ravel()
@@ -108,8 +110,8 @@ def minimize_spsa(
     n_iterations: int = 100,
     schedule: SPSASchedule | None = None,
     seed: int | None = None,
-    callback: Callable[[int, np.ndarray, float], None] | None = None,
-) -> tuple[np.ndarray, list[float]]:
+    callback: Callable[[int, npt.NDArray[Any], float], None] | None = None,
+) -> tuple[npt.NDArray[Any], list[float]]:
     """Minimise ``f`` with SPSA. Returns the final parameters and the loss history.
 
     Two evaluations per iteration regardless of how many parameters there are.

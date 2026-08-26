@@ -9,12 +9,15 @@ compare sampled results at all.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
+import numpy.typing as npt
 
 __all__ = ["sample_counts_from_probs", "normalise_probabilities"]
 
 
-def normalise_probabilities(probs: np.ndarray) -> np.ndarray:
+def normalise_probabilities(probs: npt.NDArray[Any]) -> npt.NDArray[Any]:
     """Clip tiny negatives from floating-point error and renormalise."""
     p = np.clip(np.asarray(probs, dtype=float).ravel(), 0.0, None)
     total = p.sum()
@@ -24,7 +27,7 @@ def normalise_probabilities(probs: np.ndarray) -> np.ndarray:
 
 
 def sample_counts_from_probs(
-    probs: np.ndarray, shots: int, n_qubits: int, rng: np.random.Generator
+    probs: npt.NDArray[Any], shots: int, n_qubits: int, rng: np.random.Generator
 ) -> dict[str, int]:
     """Draw ``shots`` samples, keyed by ``n_qubits``-wide bitstrings.
 

@@ -16,8 +16,10 @@ target's frequency is not in the spectrum, no amount of training will reach it.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 __all__ = [
     "fourier_coefficients",
@@ -30,7 +32,9 @@ __all__ = [
 ScalarFn = Callable[[float], float]
 
 
-def fourier_coefficients(f: ScalarFn, degree: int = 5, n_samples: int | None = None) -> np.ndarray:
+def fourier_coefficients(
+    f: ScalarFn, degree: int = 5, n_samples: int | None = None
+) -> npt.NDArray[Any]:
     """Complex Fourier coefficients ``c_-d .. c_d`` of a ``2*pi``-periodic function.
 
     Sampled on a uniform grid and transformed exactly — no fitting, no optimiser.
@@ -70,7 +74,7 @@ def spectrum(
     return out
 
 
-def reconstruct(coeffs: np.ndarray, x: float | np.ndarray) -> np.ndarray:
+def reconstruct(coeffs: npt.NDArray[Any], x: float | npt.NDArray[Any]) -> npt.NDArray[Any]:
     """Evaluate the series these coefficients describe."""
     c = np.asarray(coeffs, dtype=complex)
     degree = (c.size - 1) // 2

@@ -24,7 +24,10 @@ keeps the library hardware-ready.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
+import numpy.typing as npt
 
 from qmlkit.core.backends.base import Backend
 from qmlkit.core.backends.numpy_backend import _apply
@@ -53,7 +56,7 @@ def supports_adjoint(spec: CircuitSpec, backend: Backend | str | None = None) ->
     return all(get_gate(s.gate).has_derivative for s in spec.slots())
 
 
-def _apply_observable(state: np.ndarray, obs: Observable, n_qubits: int) -> np.ndarray:
+def _apply_observable(state: npt.NDArray[Any], obs: Observable, n_qubits: int) -> npt.NDArray[Any]:
     """``O|psi>`` for a Pauli sum, in tensor shape."""
     total = np.zeros_like(state)
     for term in as_sum(obs).terms:
@@ -69,10 +72,10 @@ def _apply_observable(state: np.ndarray, obs: Observable, n_qubits: int) -> np.n
 
 def adjoint_grad(
     spec: CircuitSpec,
-    theta: np.ndarray,
+    theta: npt.NDArray[Any],
     obs: Observable | None = None,
     backend: Backend | str | None = None,
-) -> np.ndarray:
+) -> npt.NDArray[Any]:
     """Exact gradient of ``<obs>`` with respect to the logical parameter vector.
 
     One forward pass and one backward pass, whatever ``P`` is. Weight-tied
@@ -126,7 +129,10 @@ def adjoint_grad(
 
 
 def adjoint_grad_terms(
-    spec: CircuitSpec, theta: np.ndarray, obs: Observable, backend: Backend | str | None = None
-) -> dict[PauliString, np.ndarray]:  # pragma: no cover - convenience for diagnostics
+    spec: CircuitSpec,
+    theta: npt.NDArray[Any],
+    obs: Observable,
+    backend: Backend | str | None = None,
+) -> dict[PauliString, npt.NDArray[Any]]:  # pragma: no cover - convenience for diagnostics
     """Per-term gradients, for diagnosing which observable term drives a parameter."""
     return {t: adjoint_grad(spec, theta, t, backend) for t in as_sum(obs).terms}

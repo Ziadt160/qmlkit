@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 from qmlkit.core.backends.base import Backend, BackendNotAvailable
 from qmlkit.core.ir import CircuitSpec, ParamRef
@@ -166,7 +167,7 @@ class TorchBackend(Backend):
             ) from exc
         self._torch = torch
 
-    def statevector(self, spec: CircuitSpec) -> np.ndarray:
+    def statevector(self, spec: CircuitSpec) -> npt.NDArray[Any]:
         self._check_bound(spec)
         torch = self._torch
         n = spec.n_qubits

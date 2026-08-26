@@ -20,6 +20,7 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 from qmlkit.ansatz.library import Ansatz, hardware_efficient
 from qmlkit.core.execute import BackendLike, probabilities, run_counts
@@ -43,7 +44,9 @@ __all__ = [
 # --------------------------------------------------------------------------- #
 # sample-based losses — the only kind an implicit model admits
 # --------------------------------------------------------------------------- #
-def gaussian_kernel(a: np.ndarray, b: np.ndarray, gamma: float = 1.0) -> np.ndarray:
+def gaussian_kernel(
+    a: npt.NDArray[Any], b: npt.NDArray[Any], gamma: float = 1.0
+) -> npt.NDArray[Any]:
     """``exp(-gamma |a - b|^2)`` over all pairs."""
     x = np.atleast_2d(np.asarray(a, dtype=float))
     y = np.atleast_2d(np.asarray(b, dtype=float))
@@ -53,7 +56,9 @@ def gaussian_kernel(a: np.ndarray, b: np.ndarray, gamma: float = 1.0) -> np.ndar
     return np.exp(-gamma * sq)
 
 
-def mmd_squared(x: np.ndarray, y: np.ndarray, gamma: float | Sequence[float] = 1.0) -> float:
+def mmd_squared(
+    x: npt.NDArray[Any], y: npt.NDArray[Any], gamma: float | Sequence[float] = 1.0
+) -> float:
     """Maximum mean discrepancy between two sample sets.
 
     Zero exactly when the distributions match. A *sample* statistic — it never needs
@@ -72,7 +77,7 @@ def mmd_squared(x: np.ndarray, y: np.ndarray, gamma: float | Sequence[float] = 1
     return total / len(gammas)
 
 
-def kl_divergence(p: np.ndarray, q: np.ndarray, eps: float = 1e-12) -> float:
+def kl_divergence(p: npt.NDArray[Any], q: npt.NDArray[Any], eps: float = 1e-12) -> float:
     """``KL(p || q)`` over two discrete distributions."""
     a = np.clip(np.asarray(p, dtype=float), eps, None)
     b = np.clip(np.asarray(q, dtype=float), eps, None)
@@ -80,7 +85,7 @@ def kl_divergence(p: np.ndarray, q: np.ndarray, eps: float = 1e-12) -> float:
     return float(np.sum(a * np.log(a / b)))
 
 
-def total_variation(p: np.ndarray, q: np.ndarray) -> float:
+def total_variation(p: npt.NDArray[Any], q: npt.NDArray[Any]) -> float:
     """``0.5 * sum |p - q|`` — bounded in ``[0, 1]``, unlike KL."""
     a = np.asarray(p, dtype=float)
     b = np.asarray(q, dtype=float)
@@ -120,12 +125,12 @@ class QCBM:
     def circuit(self, params: Sequence[float] | None = None) -> CircuitSpec:
         return self.ansatz.build(self.params_ if params is None else params)
 
-    def probabilities(self, params: Sequence[float] | None = None) -> np.ndarray:
+    def probabilities(self, params: Sequence[float] | None = None) -> npt.NDArray[Any]:
         return probabilities(self.circuit(params), backend=self.backend)
 
     def sample(
         self, n_samples: int = 512, params: Sequence[float] | None = None, seed: int | None = None
-    ) -> np.ndarray:
+    ) -> npt.NDArray[Any]:
         """Draw bitstrings as a ``(n_samples, n_qubits)`` array of 0/1."""
         counts = run_counts(self.circuit(params), shots=n_samples, backend=self.backend, seed=seed)
         rows = [[int(b) for b in bits] for bits, n in counts.items() for _ in range(n)]
@@ -133,12 +138,12 @@ class QCBM:
 
     def fit(
         self,
-        data: np.ndarray,
+        data: npt.NDArray[Any],
         n_iterations: int = 100,
         gamma: float | Sequence[float] = (0.25, 1.0, 4.0),
         n_samples: int = 512,
         seed: int | None = None,
-        callback: Callable[[int, np.ndarray, float], None] | None = None,
+        callback: Callable[[int, npt.NDArray[Any], float], None] | None = None,
     ) -> QCBM:
         """Train by minimising MMD against ``data``, using SPSA.
 
@@ -150,7 +155,7 @@ class QCBM:
         target = np.atleast_2d(np.asarray(data, dtype=float))
         rng = np.random.default_rng(seed)
 
-        def loss(p: np.ndarray) -> float:
+        def loss(p: npt.NDArray[Any]) -> float:
             drawn = self.sample(n_samples, p, seed=int(rng.integers(1 << 31)))
             return mmd_squared(drawn, target, gamma)
 
@@ -163,7 +168,7 @@ class QCBM:
 
     def score(
         self,
-        data: np.ndarray,
+        data: npt.NDArray[Any],
         gamma: float | Sequence[float] = (0.25, 1.0, 4.0),
         n_samples: int = 1024,
         seed: int | None = None,
@@ -177,7 +182,7 @@ class QCBM:
         return mmd_squared(self.sample(n_samples, seed=seed), np.atleast_2d(data), gamma)
 
     def exact_distance(
-        self, data: np.ndarray, metric: str = "tv", params: Sequence[float] | None = None
+        self, data: npt.NDArray[Any], metric: str = "tv", params: Sequence[float] | None = None
     ) -> float:
         """Distance to the target distribution with **no sampling**.
 
@@ -213,7 +218,7 @@ class QGAN:
     def __init__(
         self,
         generator: QCBM,
-        discriminator: Callable[[np.ndarray], np.ndarray],
+        discriminator: Callable[[npt.NDArray[Any]], npt.NDArray[Any]],
         seed: int | None = None,
     ) -> None:
         self.generator = generator
@@ -221,7 +226,7 @@ class QGAN:
         self.rng = np.random.default_rng(seed)
         self.history_: list[float] = []
 
-    def generator_loss(self, params: np.ndarray, n_samples: int = 256) -> float:
+    def generator_loss(self, params: npt.NDArray[Any], n_samples: int = 256) -> float:
         """Generator wants the discriminator to call its samples real."""
         fake = self.generator.sample(n_samples, params, seed=int(self.rng.integers(1 << 31)))
         scores = np.asarray(self.discriminator(fake), dtype=float)
@@ -243,7 +248,7 @@ class QGAN:
         self.history_ = history
         return self
 
-    def equilibrium_gap(self, real: np.ndarray, n_samples: int = 256) -> float:
+    def equilibrium_gap(self, real: npt.NDArray[Any], n_samples: int = 256) -> float:
         """``|accuracy - 0.5|`` — zero when the discriminator is guessing."""
         fake = self.generator.sample(n_samples)
         real_scores = np.asarray(self.discriminator(np.atleast_2d(real)), dtype=float)
@@ -255,7 +260,7 @@ class QGAN:
 # --------------------------------------------------------------------------- #
 # energy-based models — explicit
 # --------------------------------------------------------------------------- #
-def boltzmann(energies: np.ndarray, beta: float = 1.0) -> tuple[np.ndarray, float]:
+def boltzmann(energies: npt.NDArray[Any], beta: float = 1.0) -> tuple[npt.NDArray[Any], float]:
     """``(p, Z)`` for ``p(x) = exp(-beta E(x)) / Z``."""
     e = np.asarray(energies, dtype=float)
     weights = np.exp(-beta * (e - e.min()))  # shift for numerical stability
@@ -263,12 +268,12 @@ def boltzmann(energies: np.ndarray, beta: float = 1.0) -> tuple[np.ndarray, floa
     return weights / z, z
 
 
-def partition_function(energies: np.ndarray, beta: float = 1.0) -> float:
+def partition_function(energies: npt.NDArray[Any], beta: float = 1.0) -> float:
     """``Z = sum exp(-beta E)`` — the sum over ``2^n`` states that makes sampling hard."""
     return float(np.exp(-beta * np.asarray(energies, dtype=float)).sum())
 
 
-def ising_energy(spins: Sequence[int], fields: np.ndarray, couplings: dict) -> float:
+def ising_energy(spins: Sequence[int], fields: npt.NDArray[Any], couplings: dict) -> float:
     """``-sum b_i s_i - sum w_ij s_i s_j`` for spins in ``{+1, -1}``."""
     s = np.asarray(spins, dtype=float)
     energy = -float(np.dot(np.asarray(fields, dtype=float), s))
@@ -304,16 +309,16 @@ class QuantumBoltzmannMachine:
         self.fields = rng.normal(0, 0.1, self.n_spins)
         self.couplings = {(i, i + 1): float(rng.normal(0, 0.1)) for i in range(self.n_spins - 1)}
 
-    def energies(self) -> np.ndarray:
+    def energies(self) -> npt.NDArray[Any]:
         """Diagonal energy of every spin configuration."""
         configs = list(itertools.product([1, -1], repeat=self.n_spins))
         return np.array([ising_energy(c, self.fields, self.couplings) for c in configs])
 
-    def probabilities(self) -> np.ndarray:
+    def probabilities(self) -> npt.NDArray[Any]:
         """Boltzmann distribution over configurations (diagonal part only)."""
         return boltzmann(self.energies(), self.beta)[0]
 
-    def visible_marginal(self) -> np.ndarray:
+    def visible_marginal(self) -> npt.NDArray[Any]:
         """Marginalise the hidden spins away."""
         p = self.probabilities()
         if self.n_hidden == 0:
@@ -321,7 +326,7 @@ class QuantumBoltzmannMachine:
         return p.reshape(2**self.n_visible, 2**self.n_hidden).sum(axis=1)
 
     @staticmethod
-    def grad(clamped: np.ndarray, model: np.ndarray) -> np.ndarray:
+    def grad(clamped: npt.NDArray[Any], model: npt.NDArray[Any]) -> npt.NDArray[Any]:
         """``data - model`` — the sculptor move behind every Boltzmann update."""
         return np.asarray(clamped, dtype=float) - np.asarray(model, dtype=float)
 
@@ -344,7 +349,7 @@ class QuantumHopfield:
     """
 
     def __init__(self) -> None:
-        self.patterns_: dict[Any, np.ndarray] = {}
+        self.patterns_: dict[Any, npt.NDArray[Any]] = {}
 
     def store(self, patterns: dict[Any, Sequence[float]]) -> QuantumHopfield:
         """Store named patterns, normalised to unit vectors."""

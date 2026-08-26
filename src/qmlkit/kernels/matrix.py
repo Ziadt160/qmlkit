@@ -19,8 +19,10 @@ model that simply does not learn.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 from qmlkit.core.execute import BackendLike
 from qmlkit.encoding.feature_maps import FeatureMap
@@ -53,8 +55,8 @@ KernelFn = Callable[[Sequence[float], Sequence[float]], float]
 # building the matrix
 # --------------------------------------------------------------------------- #
 def square_kernel_matrix(
-    X: np.ndarray, kernel: KernelFn, assume_unit_diagonal: bool = True
-) -> np.ndarray:
+    X: npt.NDArray[Any], kernel: KernelFn, assume_unit_diagonal: bool = True
+) -> npt.NDArray[Any]:
     """Symmetric Gram matrix, evaluating only the upper triangle.
 
     ``m(m-1)/2`` evaluations instead of ``m^2``. ``assume_unit_diagonal`` sets
@@ -74,8 +76,8 @@ def square_kernel_matrix(
 
 
 def kernel_matrix(
-    X: np.ndarray, Y: np.ndarray | None = None, kernel: KernelFn | None = None
-) -> np.ndarray:
+    X: npt.NDArray[Any], Y: npt.NDArray[Any] | None = None, kernel: KernelFn | None = None
+) -> npt.NDArray[Any]:
     """Gram matrix of ``X`` against ``Y`` (or itself, exploiting symmetry)."""
     if kernel is None:
         raise ValueError("kernel_matrix needs a kernel callable")
@@ -115,7 +117,7 @@ class QuantumKernel:
         self._evaluations = 0
 
     # ------------------------------------------------------------------------
-    def _estimate(self, x: np.ndarray, xp: np.ndarray) -> float:
+    def _estimate(self, x: npt.NDArray[Any], xp: npt.NDArray[Any]) -> float:
         from qmlkit.kernels.estimators import hadamard_test, swap_test_kernel
 
         fns = {
@@ -155,7 +157,7 @@ class QuantumKernel:
             self._cache[key] = self._estimate(a, b)
         return self._cache[key]
 
-    def __call__(self, X: np.ndarray, Y: np.ndarray | None = None) -> np.ndarray:
+    def __call__(self, X: npt.NDArray[Any], Y: npt.NDArray[Any] | None = None) -> npt.NDArray[Any]:
         return kernel_matrix(X, Y, self.evaluate)
 
     @property
@@ -177,22 +179,22 @@ class QuantumKernel:
 # --------------------------------------------------------------------------- #
 # PSD repair — shot noise puts a Gram matrix outside the cone
 # --------------------------------------------------------------------------- #
-def min_eigenvalue(K: np.ndarray) -> float:
+def min_eigenvalue(K: npt.NDArray[Any]) -> float:
     return float(np.linalg.eigvalsh(np.asarray(K, dtype=float)).min())
 
 
-def is_psd(K: np.ndarray, tol: float = 1e-9) -> bool:
+def is_psd(K: npt.NDArray[Any], tol: float = 1e-9) -> bool:
     """True if every eigenvalue is non-negative to within ``tol``."""
     return min_eigenvalue(K) >= -abs(tol)
 
 
-def threshold_matrix(K: np.ndarray) -> np.ndarray:
+def threshold_matrix(K: npt.NDArray[Any]) -> npt.NDArray[Any]:
     """Clip negative eigenvalues to zero — the standard projection onto the cone."""
     vals, vecs = np.linalg.eigh(np.asarray(K, dtype=float))
     return (vecs * np.clip(vals, 0.0, None)) @ vecs.T
 
 
-def displace_matrix(K: np.ndarray) -> np.ndarray:
+def displace_matrix(K: npt.NDArray[Any]) -> npt.NDArray[Any]:
     """Shift the whole spectrum up until it is non-negative.
 
     Keeps every eigenvector's relative weight, unlike thresholding, at the cost of
@@ -203,13 +205,13 @@ def displace_matrix(K: np.ndarray) -> np.ndarray:
     return arr if low >= 0 else arr + abs(low) * np.eye(arr.shape[0])
 
 
-def flip_matrix(K: np.ndarray) -> np.ndarray:
+def flip_matrix(K: npt.NDArray[Any]) -> npt.NDArray[Any]:
     """Take the absolute value of each eigenvalue."""
     vals, vecs = np.linalg.eigh(np.asarray(K, dtype=float))
     return (vecs * np.abs(vals)) @ vecs.T
 
 
-def closest_psd_matrix(K: np.ndarray, method: str = "threshold") -> np.ndarray:
+def closest_psd_matrix(K: npt.NDArray[Any], method: str = "threshold") -> npt.NDArray[Any]:
     """Nearest PSD matrix by the named method."""
     fns = {"threshold": threshold_matrix, "displace": displace_matrix, "flip": flip_matrix}
     try:
@@ -220,7 +222,7 @@ def closest_psd_matrix(K: np.ndarray, method: str = "threshold") -> np.ndarray:
         ) from None
 
 
-def center_kernel(K: np.ndarray) -> np.ndarray:
+def center_kernel(K: npt.NDArray[Any]) -> npt.NDArray[Any]:
     """Centre the induced feature space at the origin."""
     arr = np.asarray(K, dtype=float)
     m = arr.shape[0]
@@ -228,7 +230,7 @@ def center_kernel(K: np.ndarray) -> np.ndarray:
     return arr - ones @ arr - arr @ ones + ones @ arr @ ones
 
 
-def normalize_kernel(K: np.ndarray) -> np.ndarray:
+def normalize_kernel(K: npt.NDArray[Any]) -> npt.NDArray[Any]:
     """Rescale to a unit diagonal — the cosine of the feature-space angle."""
     arr = np.asarray(K, dtype=float)
     d = np.sqrt(np.clip(np.diag(arr), 1e-15, None))
@@ -238,7 +240,7 @@ def normalize_kernel(K: np.ndarray) -> np.ndarray:
 # --------------------------------------------------------------------------- #
 # is this kernel any good?
 # --------------------------------------------------------------------------- #
-def target_alignment(K: np.ndarray, y: np.ndarray, rescale: bool = True) -> float:
+def target_alignment(K: npt.NDArray[Any], y: npt.NDArray[Any], rescale: bool = True) -> float:
     """Kernel-target alignment: how much the Gram matrix looks like the labels.
 
     ``<K, yy^T>_F / (||K||_F ||yy^T||_F)`` in ``[-1, 1]``. This is the objective you
@@ -270,7 +272,7 @@ def shots_to_resolve(n_qubits: int) -> int:
     return int(4**n_qubits)
 
 
-def concentration_report(K: np.ndarray, n_qubits: int, shots: int | None = None) -> dict:
+def concentration_report(K: npt.NDArray[Any], n_qubits: int, shots: int | None = None) -> dict:
     """Is this Gram matrix telling you anything, or has it concentrated?
 
     A concentrated kernel has near-identical off-diagonal entries: every pair of
@@ -292,7 +294,7 @@ def concentration_report(K: np.ndarray, n_qubits: int, shots: int | None = None)
     }
 
 
-def geometric_difference(k_quantum: np.ndarray, k_classical: np.ndarray) -> float:
+def geometric_difference(k_quantum: npt.NDArray[Any], k_classical: npt.NDArray[Any]) -> float:
     r"""``g(K_c, K_q)`` — the statistic that says whether quantum *could* help.
 
     Large means the two kernels induce genuinely different geometries, so a
@@ -310,6 +312,6 @@ def geometric_difference(k_quantum: np.ndarray, k_classical: np.ndarray) -> floa
     return float(np.sqrt(np.linalg.norm(m, ord=2) * n))
 
 
-def _sqrtm_psd(a: np.ndarray) -> np.ndarray:
+def _sqrtm_psd(a: npt.NDArray[Any]) -> npt.NDArray[Any]:
     vals, vecs = np.linalg.eigh(a)
     return (vecs * np.sqrt(np.clip(vals, 0.0, None))) @ vecs.T

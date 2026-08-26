@@ -15,14 +15,19 @@ lecture notebooks where ``basis_encode([1, 0, 1])`` yields ``'101'``.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
+import numpy.typing as npt
 
 from qmlkit.core.backends.base import Backend
 from qmlkit.core.gates import gate_matrix
 from qmlkit.core.ir import CircuitSpec, Op, ParamRef
 
 
-def _apply(state: np.ndarray, matrix: np.ndarray, qubits: tuple[int, ...]) -> np.ndarray:
+def _apply(
+    state: npt.NDArray[Any], matrix: npt.NDArray[Any], qubits: tuple[int, ...]
+) -> npt.NDArray[Any]:
     """Apply a k-qubit gate to the tensor-shaped state."""
     k = len(qubits)
     op = matrix.reshape((2,) * (2 * k))
@@ -43,7 +48,7 @@ class NumpyBackend(Backend):
         super().__init__(seed)
         self.max_qubits = max_qubits
 
-    def statevector(self, spec: CircuitSpec) -> np.ndarray:
+    def statevector(self, spec: CircuitSpec) -> npt.NDArray[Any]:
         self._check_bound(spec)
         if spec.n_qubits > self.max_qubits:
             raise ValueError(
@@ -57,7 +62,7 @@ class NumpyBackend(Backend):
         return state.reshape(-1)
 
     @staticmethod
-    def _matrix(op: Op) -> np.ndarray:
+    def _matrix(op: Op) -> npt.NDArray[Any]:
         angles: list[float] = []
         for p in op.params:
             if isinstance(p, ParamRef):  # pragma: no cover - is_bound rules this out

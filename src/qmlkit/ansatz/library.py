@@ -14,8 +14,10 @@ capability it never had to opt into.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 from numpy.typing import ArrayLike
 
 from qmlkit.ansatz.blocks import (
@@ -120,7 +122,7 @@ class Ansatz:
 
     def init(
         self, method: str = "small", seed: int | None = None, scale: float = 0.1
-    ) -> np.ndarray:
+    ) -> npt.NDArray[Any]:
         """Initial parameters.
 
         ``small`` (default) keeps angles near zero, which keeps the circuit near

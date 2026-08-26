@@ -20,8 +20,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from itertools import combinations
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 from qmlkit.core.builder import QCircuit, entangler_pairs
 from qmlkit.core.ir import CircuitSpec, ParamRef
@@ -37,13 +39,13 @@ __all__ = [
     "pauli_terms",
 ]
 
-DataMap = Callable[[np.ndarray, tuple[int, ...]], float]
+DataMap = Callable[[npt.NDArray[Any], tuple[int, ...]], float]
 
 
 # --------------------------------------------------------------------------- #
 # the two helpers Lecture 3 references but never defines
 # --------------------------------------------------------------------------- #
-def default_data_map(x: np.ndarray, indices: tuple[int, ...]) -> float:
+def default_data_map(x: npt.NDArray[Any], indices: tuple[int, ...]) -> float:
     """The standard data map: ``x_i`` for one index, ``prod(pi - x_j)`` for more.
 
     The product form is what makes higher-order terms *nonlinear* in the features —
@@ -119,7 +121,7 @@ class FeatureMap:
         return self._emit(self.angles(x))
 
     # -- the three methods that make df/dx work through a nonlinear map --------
-    def angles(self, x: Sequence[float]) -> np.ndarray:  # pragma: no cover - abstract
+    def angles(self, x: Sequence[float]) -> npt.NDArray[Any]:  # pragma: no cover - abstract
         """The rotation angles this map derives from ``x``."""
         raise NotImplementedError
 
@@ -141,7 +143,7 @@ class FeatureMap:
         """
         return self._emit([ParamRef(offset + i) for i in range(self.n_angles)])
 
-    def angle_jacobian(self, x: Sequence[float], eps: float = 1e-6) -> np.ndarray:
+    def angle_jacobian(self, x: Sequence[float], eps: float = 1e-6) -> npt.NDArray[Any]:
         """``d(angle) / d(feature)``, shape ``(n_angles, n_features)``.
 
         The default differences the *classical* data map — no circuits involved, so
@@ -164,7 +166,7 @@ class FeatureMap:
     def __call__(self, x: Sequence[float]) -> CircuitSpec:
         return self.build(x)
 
-    def _validate(self, x: Sequence[float]) -> np.ndarray:
+    def _validate(self, x: Sequence[float]) -> npt.NDArray[Any]:
         arr = np.atleast_1d(np.asarray(x, dtype=float)).ravel()
         if arr.size != self.n_features:
             raise ValueError(
@@ -227,11 +229,11 @@ class PauliFeatureMap(FeatureMap):
         """One angle per term. Reps reuse the same angles, so they add depth only."""
         return len(self.terms)
 
-    def angles(self, x: Sequence[float]) -> np.ndarray:
+    def angles(self, x: Sequence[float]) -> npt.NDArray[Any]:
         arr = self._validate(x)
         return np.array([2.0 * self.data_map(arr, idx) for idx, _ in self.terms], dtype=float)
 
-    def angle_jacobian(self, x: Sequence[float], eps: float = 1e-6) -> np.ndarray:
+    def angle_jacobian(self, x: Sequence[float], eps: float = 1e-6) -> npt.NDArray[Any]:
         """Closed form for the standard data map; falls back to differencing otherwise."""
         if self.data_map is not default_data_map:
             return super().angle_jacobian(x, eps)
@@ -326,10 +328,10 @@ class AngleFeatureMap(FeatureMap):
     def n_angles(self) -> int:
         return self.n_features
 
-    def angles(self, x: Sequence[float]) -> np.ndarray:
+    def angles(self, x: Sequence[float]) -> npt.NDArray[Any]:
         return self._validate(x)
 
-    def angle_jacobian(self, x: Sequence[float], eps: float = 1e-6) -> np.ndarray:
+    def angle_jacobian(self, x: Sequence[float], eps: float = 1e-6) -> npt.NDArray[Any]:
         """The map is the identity, so the Jacobian is too."""
         self._validate(x)
         return np.eye(self.n_features)

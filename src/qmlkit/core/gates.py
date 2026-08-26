@@ -11,10 +11,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
-Matrix = np.ndarray
+Matrix = npt.NDArray[Any]
 
 
 @dataclass(frozen=True)

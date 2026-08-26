@@ -19,6 +19,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 import torch
 from torch import nn
 
@@ -81,7 +82,7 @@ class HybridModel(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.head(self.quantum(self.pre(x)))
 
-    def _prepare(self, X: np.ndarray, fit_scaler: bool = False) -> torch.Tensor:
+    def _prepare(self, X: npt.NDArray[Any], fit_scaler: bool = False) -> torch.Tensor:
         arr = np.atleast_2d(np.asarray(X, dtype=float))
         if self.scaler is not None and self.pre.__class__ is nn.Identity:
             # only meaningful when features feed rotations directly
@@ -91,13 +92,13 @@ class HybridModel(nn.Module):
     def _loss_fn(self) -> nn.Module:  # pragma: no cover - overridden
         raise NotImplementedError
 
-    def _targets(self, y: np.ndarray) -> torch.Tensor:  # pragma: no cover - overridden
+    def _targets(self, y: npt.NDArray[Any]) -> torch.Tensor:  # pragma: no cover - overridden
         raise NotImplementedError
 
     def fit(
         self,
-        X: np.ndarray,
-        y: np.ndarray,
+        X: npt.NDArray[Any],
+        y: npt.NDArray[Any],
         epochs: int = 30,
         lr: float = 0.05,
         batch_size: int | None = None,
@@ -152,18 +153,18 @@ class VQC(HybridModel):
     def _loss_fn(self) -> nn.Module:
         return nn.CrossEntropyLoss()
 
-    def _targets(self, y: np.ndarray) -> torch.Tensor:
+    def _targets(self, y: npt.NDArray[Any]) -> torch.Tensor:
         return torch.as_tensor(np.asarray(y).ravel(), dtype=torch.long)
 
     @torch.no_grad()
-    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+    def predict_proba(self, X: npt.NDArray[Any]) -> npt.NDArray[Any]:
         return torch.softmax(self(self._prepare(X)), dim=-1).cpu().numpy()
 
     @torch.no_grad()
-    def predict(self, X: np.ndarray) -> np.ndarray:
+    def predict(self, X: npt.NDArray[Any]) -> npt.NDArray[Any]:
         return self(self._prepare(X)).argmax(dim=-1).cpu().numpy()
 
-    def score(self, X: np.ndarray, y: np.ndarray) -> float:
+    def score(self, X: npt.NDArray[Any], y: npt.NDArray[Any]) -> float:
         """Mean accuracy."""
         return float((self.predict(X) == np.asarray(y).ravel()).mean())
 
@@ -181,18 +182,18 @@ class VQRegressor(HybridModel):
     def _loss_fn(self) -> nn.Module:
         return nn.MSELoss()
 
-    def _targets(self, y: np.ndarray) -> torch.Tensor:
+    def _targets(self, y: npt.NDArray[Any]) -> torch.Tensor:
         arr = np.asarray(y, dtype=float)
         if arr.ndim == 1:
             arr = arr[:, None]
         return torch.as_tensor(arr, dtype=torch.get_default_dtype())
 
     @torch.no_grad()
-    def predict(self, X: np.ndarray) -> np.ndarray:
+    def predict(self, X: npt.NDArray[Any]) -> npt.NDArray[Any]:
         out = self(self._prepare(X)).cpu().numpy()
         return out[:, 0] if out.shape[1] == 1 else out
 
-    def score(self, X: np.ndarray, y: np.ndarray) -> float:
+    def score(self, X: npt.NDArray[Any], y: npt.NDArray[Any]) -> float:
         """R² — 1.0 is perfect, 0.0 is no better than predicting the mean."""
         pred = np.asarray(self.predict(X)).ravel()
         truth = np.asarray(y, dtype=float).ravel()

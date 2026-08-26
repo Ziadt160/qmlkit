@@ -16,6 +16,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
 
 from qmlkit.core.backends.base import Backend, BackendNotAvailable
 from qmlkit.core.ir import CircuitSpec, ParamRef
@@ -102,7 +103,7 @@ class CirqBackend(Backend):
         return float(p)
 
     # ----------------------------------------------------------------- run --
-    def statevector(self, spec: CircuitSpec) -> np.ndarray:
+    def statevector(self, spec: CircuitSpec) -> npt.NDArray[Any]:
         circuit = self.to_cirq(spec)
         # the explicit qubit_order is load-bearing: it keeps idle qubits in the register
         result = self._simulator.simulate(circuit, qubit_order=self.qubits(spec.n_qubits))

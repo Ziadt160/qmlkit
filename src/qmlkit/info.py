@@ -8,8 +8,10 @@ they are useful on their own for looking at what a circuit is actually doing.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 from qmlkit.core.execute import BackendLike, statevector
 from qmlkit.core.ir import CircuitSpec
@@ -26,24 +28,28 @@ __all__ = [
 ]
 
 
-def _as_state(state: CircuitSpec | np.ndarray, backend: BackendLike = None) -> np.ndarray:
+def _as_state(
+    state: CircuitSpec | npt.NDArray[Any], backend: BackendLike = None
+) -> npt.NDArray[Any]:
     if isinstance(state, CircuitSpec):
         return statevector(state, backend=backend)
     return np.asarray(state, dtype=complex).ravel()
 
 
-def density_matrix(state: CircuitSpec | np.ndarray, backend: BackendLike = None) -> np.ndarray:
+def density_matrix(
+    state: CircuitSpec | npt.NDArray[Any], backend: BackendLike = None
+) -> npt.NDArray[Any]:
     """``|psi><psi|`` for a pure state."""
     psi = _as_state(state, backend)
     return np.outer(psi, psi.conj())
 
 
 def reduced_dm(
-    state: CircuitSpec | np.ndarray,
+    state: CircuitSpec | npt.NDArray[Any],
     wires: Sequence[int],
     n_qubits: int | None = None,
     backend: BackendLike = None,
-) -> np.ndarray:
+) -> npt.NDArray[Any]:
     """Trace out everything except ``wires``.
 
     Qubit 0 is the most significant bit, matching the rest of the library.
@@ -67,7 +73,7 @@ def reduced_dm(
 
 
 def purity(
-    state: CircuitSpec | np.ndarray,
+    state: CircuitSpec | npt.NDArray[Any],
     wires: Sequence[int] | None = None,
     n_qubits: int | None = None,
     backend: BackendLike = None,
@@ -80,7 +86,7 @@ def purity(
 
 
 def vn_entropy(
-    state: CircuitSpec | np.ndarray,
+    state: CircuitSpec | npt.NDArray[Any],
     wires: Sequence[int],
     n_qubits: int | None = None,
     base: float | None = None,
@@ -95,7 +101,7 @@ def vn_entropy(
 
 
 def mutual_info(
-    state: CircuitSpec | np.ndarray,
+    state: CircuitSpec | npt.NDArray[Any],
     wires_a: Sequence[int],
     wires_b: Sequence[int],
     n_qubits: int | None = None,
@@ -112,8 +118,8 @@ def mutual_info(
 
 
 def state_fidelity(
-    state_a: CircuitSpec | np.ndarray,
-    state_b: CircuitSpec | np.ndarray,
+    state_a: CircuitSpec | npt.NDArray[Any],
+    state_b: CircuitSpec | npt.NDArray[Any],
     backend: BackendLike = None,
 ) -> float:
     """``|<a|b>|^2`` — the quantity a fidelity kernel estimates."""
@@ -124,7 +130,7 @@ def state_fidelity(
     return float(abs(np.vdot(a, b)) ** 2)
 
 
-def concurrence(state: CircuitSpec | np.ndarray, backend: BackendLike = None) -> float:
+def concurrence(state: CircuitSpec | npt.NDArray[Any], backend: BackendLike = None) -> float:
     """Two-qubit concurrence — 0 for a product state, 1 for a Bell state."""
     psi = _as_state(state, backend)
     if psi.size != 4:
@@ -134,11 +140,11 @@ def concurrence(state: CircuitSpec | np.ndarray, backend: BackendLike = None) ->
 
 
 def bloch_vector(
-    state: CircuitSpec | np.ndarray,
+    state: CircuitSpec | npt.NDArray[Any],
     wire: int = 0,
     n_qubits: int | None = None,
     backend: BackendLike = None,
-) -> np.ndarray:
+) -> npt.NDArray[Any]:
     """``(<X>, <Y>, <Z>)`` for one qubit — its point on (or in) the Bloch sphere."""
     rho = reduced_dm(state, [wire], n_qubits, backend)
     x = 2 * np.real(rho[0, 1])

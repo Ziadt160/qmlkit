@@ -19,8 +19,10 @@ everywhere the library takes ``method=``:
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 from numpy.typing import ArrayLike
 
 from qmlkit.core.backends.base import Backend
@@ -36,7 +38,7 @@ __all__ = [
     "gradient_cost",
 ]
 
-GradFn = Callable[..., np.ndarray]
+GradFn = Callable[..., npt.NDArray[Any]]
 _METHODS: dict[str, GradFn] = {}
 
 
@@ -79,7 +81,7 @@ def grad(
     backend: Backend | str | None = None,
     shots: int | None = None,
     **kwargs: object,
-) -> np.ndarray:
+) -> npt.NDArray[Any]:
     """Gradient of ``<obs>`` with respect to ``theta``.
 
     Parameters
@@ -128,7 +130,7 @@ def _finite_diff(spec, theta, obs, *, backend=None, shots=None, eps=1e-6, **kw):
     from qmlkit.core.execute import expval
     from qmlkit.gradients.parameter_shift import finite_diff_grad
 
-    def f(t: np.ndarray) -> float:
+    def f(t: npt.NDArray[Any]) -> float:
         return expval(spec, obs, theta=t, shots=shots, backend=backend)
 
     return finite_diff_grad(f, theta, eps=eps)
@@ -139,7 +141,7 @@ def _spsa(spec, theta, obs, *, backend=None, shots=None, c=0.1, n_avg=1, seed=No
     from qmlkit.core.execute import expval
     from qmlkit.gradients.spsa import spsa_grad
 
-    def f(t: np.ndarray) -> float:
+    def f(t: npt.NDArray[Any]) -> float:
         return expval(spec, obs, theta=t, shots=shots, backend=backend, seed=seed)
 
     return spsa_grad(f, theta, c=c, n_avg=n_avg, seed=seed)
@@ -176,7 +178,7 @@ def hessian(
     obs: Observable | None = None,
     backend: Backend | str | None = None,
     eps: float = 1e-4,
-) -> np.ndarray:
+) -> npt.NDArray[Any]:
     """Second derivatives, by differencing the exact gradient.
 
     The gradient itself is exact (adjoint), so only the outer derivative is
