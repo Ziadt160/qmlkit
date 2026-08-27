@@ -317,20 +317,22 @@ string away would flatter the author.
 | Expectation, 12 qubits | 3.9 ms | 4.6 ms `lightning` | 1.2× | 2.9× |
 | Gradient, 8 qubits, `P=96` | 11.0 ms | 11.3 ms `lightning-adjoint` | 1.02× | 6.1× |
 | Parameter-shift, 6 qubits, `P=72` | 300 ms | 347 ms `lightning` | 1.2× | 3.9× |
-| 20×20 kernel Gram matrix | 32 ms | 210 ms `default` | 6.6× | 6.6× |
+| 20×20 kernel Gram matrix | 3.2 ms | 219 ms `default` | **69×** | 69× |
 | Exact metric tensor, `P=24` | 6.8 ms | 715 ms `adjoint_metric` | **105×** | 276× |
 
-qmlkit is ahead on 14/14, but the honest median is **1.6×**, not the 6.1× an earlier
-version of this file reported against `default.qubit` alone.
+qmlkit is ahead on 13 of 14 cases, and the honest median is **1.7×**, not the 6.1× an
+earlier version of this file reported against `default.qubit` alone. The 8-qubit
+gradient is a tie either way.
 
 **What that means.** The first three rows are dispatch and interpreter overhead rather
 than arithmetic: qmlkit does less per call, so it leads at small register sizes and the
 gap closes as `2ⁿ` starts to dominate — the 8-qubit gradient is a tie. Anyone quoting
 the `default.qubit` column as qmlkit's speed advantage is quoting the wrong number.
 
-Two results are real. The **kernel Gram matrix** stays ~6.6× because the per-pair QNode
-dispatch dominates there — `lightning` is actually *slower* than `default.qubit` on many
-tiny circuits. And the **metric tensor** is different in kind: closed-form
+Two results are real. The **kernel Gram matrix** is ~69×: every entry is the same circuit
+at different angles, so the whole matrix is one batched evaluation, while PennyLane makes
+one QNode call per pair — per-call overhead dominates so completely there that `lightning`
+is actually *slower* than `default.qubit`. And the **metric tensor** is different in kind: closed-form
 differentiation of the state, `P` derivative states from one forward sweep, agreeing with
 PennyLane's own routes to `1.7e-16` and *widening* with parameter count (49× at `P=12`,
 105× at `P=24`) rather than narrowing. That is the one speed claim here worth making.

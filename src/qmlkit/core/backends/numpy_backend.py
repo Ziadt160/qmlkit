@@ -132,6 +132,64 @@ _VECTORISED: dict[str, Callable[[npt.NDArray[Any]], npt.NDArray[Any]]] = {
 }
 
 
+_X2 = np.array([[0, 1], [1, 0]], dtype=complex)
+_Y2 = np.array([[0, -1j], [1j, 0]], dtype=complex)
+_Z2 = np.array([[1, 0], [0, -1]], dtype=complex)
+
+
+def _d_rotation(pauli: npt.NDArray[Any], builder: Any) -> Any:
+    """``dU/dtheta = -i/2 P U`` for a Pauli rotation, for a whole batch at once.
+
+    Derived from the same identity the scalar derivatives use, so it cannot drift
+    from them by construction — and it is asserted equal to ``gate_derivative``
+    anyway, because "cannot drift" has been wrong before.
+    """
+    return lambda a: -0.5j * (pauli @ builder(a))
+
+
+def _d_phase_batch(a: npt.NDArray[Any]) -> npt.NDArray[Any]:
+    m = np.zeros((a.size, 2, 2), dtype=complex)
+    m[:, 1, 1] = 1j * np.exp(1j * a)
+    return m
+
+
+def _d_controlled_batch(sub: npt.NDArray[Any]) -> npt.NDArray[Any]:
+    """Only the control-1 block varies, so the control-0 block differentiates to 0."""
+    m = np.zeros((sub.shape[0], 4, 4), dtype=complex)
+    m[:, 2:, 2:] = sub
+    return m
+
+
+#: Batched gate derivatives, mirroring :data:`_VECTORISED`. Building these one row at
+#: a time cost four times the contraction they feed (profiled on a 4-qubit, 4-layer
+#: ansatz at batch 128), which made it the bottleneck of the batched adjoint.
+_VECTORISED_D: dict[str, Callable[[npt.NDArray[Any]], npt.NDArray[Any]]] = {
+    "rx": _d_rotation(_X2, _rx_batch),
+    "ry": _d_rotation(_Y2, _ry_batch),
+    "rz": _d_rotation(_Z2, _rz_batch),
+    "phase": _d_phase_batch,
+    "crx": lambda a: _d_controlled_batch(_d_rotation(_X2, _rx_batch)(a)),
+    "cry": lambda a: _d_controlled_batch(_d_rotation(_Y2, _ry_batch)(a)),
+    "crz": lambda a: _d_controlled_batch(_d_rotation(_Z2, _rz_batch)(a)),
+}
+
+
+def _batched_matrices(op: Op, columns: npt.NDArray[Any] | None) -> npt.NDArray[Any]:
+    """One matrix for the whole batch, or one per row when this gate is parameterised.
+
+    ``columns`` holds this op's slot angles, ``(batch, n_params_of_gate)``, or is
+    ``None``/empty when the op has no parameterised slot.
+    """
+    if columns is None or columns.shape[1] == 0:
+        literals = tuple(float(p) for p in op.params if not isinstance(p, ParamRef))
+        return gate_matrix(op.gate, literals)
+    builder = _VECTORISED.get(op.gate)
+    if builder is not None and columns.shape[1] == 1:
+        return builder(columns[:, 0])
+    # a registered custom gate: correctness first, one build per row
+    return np.stack([gate_matrix(op.gate, tuple(row)) for row in columns])
+
+
 class NumpyBackend(Backend):
     """Exact statevector simulation in NumPy."""
 
@@ -167,22 +225,21 @@ class NumpyBackend(Backend):
         return state.reshape(-1)
 
 
-    def statevector_batch(
-        self, spec: CircuitSpec, thetas: npt.NDArray[Any]
+    def statevector_batch_slots(
+        self, spec: CircuitSpec, slot_angles: npt.NDArray[Any]
     ) -> npt.NDArray[Any]:
-        """Every sample's state in one pass, batch carried as a leading axis.
+        """Every row's state in one pass, batch carried as a leading axis.
 
-        The loop is over *gates*, not over samples: each gate is applied to the whole
-        stack at once. A gate whose angle is the same for every sample contributes one
-        matrix; one whose angle varies — every encoding gate — contributes a stack of
-        them, built in closed form for the common rotations and by falling back to
-        :func:`~qmlkit.core.gates.gate_matrix` for anything registered later.
+        The loop is over *gates*, not over rows: each gate is applied to the whole
+        stack at once. A gate with literal angles contributes one matrix; a
+        parameterised one contributes a stack of them, read straight off the slot
+        columns and built in closed form for the common rotations.
         """
-        values = np.atleast_2d(np.asarray(thetas, dtype=float))
-        if values.shape[1] != spec.n_params:
+        rows = np.atleast_2d(np.asarray(slot_angles, dtype=float))
+        n_slots = len(spec.slots())
+        if rows.shape[1] != n_slots:
             raise ValueError(
-                f"circuit has {spec.n_params} parameters; got vectors of length "
-                f"{values.shape[1]}"
+                f"circuit has {n_slots} slot(s); got vectors of length {rows.shape[1]}"
             )
         if spec.n_qubits > self.max_qubits:
             raise ValueError(
@@ -191,36 +248,24 @@ class NumpyBackend(Backend):
             )
         if spec.n_qubits > self.batch_max_qubits:
             # wider than the crossover: the one-at-a-time loop is genuinely faster
-            return super().statevector_batch(spec, values)
-        batch = values.shape[0]
+            return super().statevector_batch_slots(spec, rows)
+
+        batch = rows.shape[0]
         state = np.zeros((batch,) + (2,) * spec.n_qubits, dtype=complex)
         state[(slice(None),) + (0,) * spec.n_qubits] = 1.0
 
-        for op in spec.ops:
-            state = _apply_batch(state, self._matrices(op, values), op.qubits)
+        # slots are ordered by (op_index, param_pos), so walking them in step with the
+        # ops keeps the cursor aligned without a lookup per gate
+        slots = spec.slots()
+        cursor = 0
+        for op_index, op in enumerate(spec.ops):
+            n_here = 0
+            while cursor + n_here < len(slots) and slots[cursor + n_here].op_index == op_index:
+                n_here += 1
+            columns = rows[:, cursor : cursor + n_here] if n_here else None
+            cursor += n_here
+            state = _apply_batch(state, _batched_matrices(op, columns), op.qubits)
         return state.reshape(batch, -1)
-
-    @staticmethod
-    def _matrices(op: Op, values: npt.NDArray[Any]) -> npt.NDArray[Any]:
-        """One matrix for the batch, or one per sample when an angle varies."""
-        literals = [p for p in op.params if not isinstance(p, ParamRef)]
-        if len(literals) == len(op.params):
-            return gate_matrix(op.gate, tuple(float(p) for p in literals))
-
-        angles = np.stack(
-            [
-                p.scale * values[:, p.index] + p.offset
-                if isinstance(p, ParamRef)
-                else np.full(values.shape[0], float(p))
-                for p in op.params
-            ],
-            axis=1,
-        )
-        builder = _VECTORISED.get(op.gate)
-        if builder is not None and angles.shape[1] == 1:
-            return builder(angles[:, 0])
-        # a registered custom gate: correctness first, one build per sample
-        return np.stack([gate_matrix(op.gate, tuple(row)) for row in angles])
 
     @staticmethod
     def _matrix(op: Op) -> npt.NDArray[Any]:

@@ -127,5 +127,6 @@ nav:
       - Evaluation: reference/evaluation.md
   - About:
       - Validation: about/validation.md
+      - API stability: about/stability.md
       - Changelog: about/changelog.md
       - Releasing: about/releasing.md

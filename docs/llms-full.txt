@@ -3279,16 +3279,17 @@ not a fair comparison: `pennylane-lightning` is a dependency of PennyLane, so th
 | Expectation, 12 qubits | 3.9 ms | 4.6 ms `lightning` | 1.2× | 2.9× |
 | Gradient, 8 qubits, `P=96` | 11.0 ms | 11.3 ms `lightning-adjoint` | 1.02× | 6.1× |
 | Parameter-shift, 6 qubits, `P=72` | 300 ms | 347 ms `lightning` | 1.2× | 3.9× |
-| 20×20 kernel Gram matrix | 32 ms | 210 ms `default` | 6.6× | 6.6× |
+| 20×20 kernel Gram matrix | 3.2 ms | 219 ms `default` | **69×** | 69× |
 | Exact metric tensor, `P=24` | 6.8 ms | 715 ms `adjoint_metric` | **105×** | 276× |
 
-qmlkit is ahead on 14 of 14 cases, median **1.6×**.
+qmlkit is ahead on 13 of 14 cases, median **1.7×**.
 
 Read that in three parts. The expectation, gradient and parameter-shift rows are
 dispatch and interpreter overhead rather than arithmetic — qmlkit does less per call,
-leads at small registers, and ties by 8 qubits. The kernel Gram matrix stays ~6.6×
-because per-pair QNode dispatch dominates there, and `lightning` is actually slower
-than `default.qubit` across many tiny circuits. The metric tensor is different in kind:
+leads at small registers, and ties by 8 qubits. The kernel Gram matrix is ~69×
+because the whole matrix is one batched evaluation against one QNode call per pair;
+per-call overhead dominates there so completely that `lightning` is actually slower
+than `default.qubit`. The metric tensor is different in kind:
 closed-form differentiation of the state, agreeing with PennyLane's own routes to
 `1.7e-16`, and *widening* with parameter count (49× at `P=12`, 105× at `P=24`) rather
 than narrowing.
@@ -3296,6 +3297,76 @@ than narrowing.
 Single machine, single thread, small registers, exact simulation throughout. JAX is not
 installed on the benchmark machine, so jit-compiled PennyLane is untested and unclaimed.
 Nothing here says anything about running on hardware.
+
+
+==============================================================================
+# About / API stability    (source: docs/about/stability.md)
+==============================================================================
+
+# API stability
+
+Research code outlives the version it was written against. A script from last year
+that no longer runs is not a small inconvenience — it is a result nobody can
+reproduce, and it is the most common complaint about every library in this field.
+
+So this page is a promise, not a description.
+
+## What is promised
+
+Everything exported from the top-level `qmlkit` namespace — `qk.expectation`,
+`qk.grad`, `qk.VQC`, `qk.QuantumKernel`, the registries, and everything else in
+`qmlkit.__all__` — is **public API**. Within a major version:
+
+- A public name will not be **removed** without a deprecation period.
+- A public function will not **change what it returns**, or the meaning of an
+  argument it already accepts.
+- A **default will not change silently.** If a default changes, the old behaviour
+  stays reachable by passing the old value explicitly, and the change is in the
+  changelog under `Changed`.
+- **Numerical conventions are frozen**: qubit 0 stays the most significant bit,
+  angles stay in radians, divergences stay in nats, `shots=None` stays exact.
+
+Names beginning with an underscore, and anything under `qmlkit.core.*` not
+re-exported at the top level, are internal. They may change at any time.
+
+## The deprecation period
+
+A public name that is going away:
+
+1. keeps working, and emits a `DeprecationWarning` naming its replacement;
+2. stays that way for **two minor releases**;
+3. is removed only in the release after that, and only with a changelog entry.
+
+A `DeprecationWarning` from qmlkit always names what to use instead. If one does
+not, that is a bug worth reporting.
+
+## What is explicitly *not* promised
+
+Being honest about the edges is what makes the rest of the promise worth having.
+
+| | |
+|---|---|
+| **The `0.x` line** | Semantic versioning allows breaking changes in `0.x`, and this project uses that latitude — with the deprecation period above applied anyway wherever it is practical. The guarantees tighten at `1.0`. |
+| **Exact floating-point output** | Results are exact to the tolerances the test suite asserts, not bit-for-bit across versions, platforms, or NumPy releases. An optimisation that changes the last two digits is not a breaking change. |
+| **Performance** | Speed may change in either direction. Where a change makes something *slower* for a plausible workload, it is in the changelog. |
+| **Simulator-only scope** | The whole `0.x` line is simulator-only. That is a scope decision, stated in the README, not something to be inferred from what happens to work. |
+| **Third-party conventions** | If Qiskit, Cirq, PennyLane or SpinQit change a convention qmlkit maps onto, the mapping follows theirs. `tests/test_cross_backend.py` and `tests/test_pennylane_parity.py` exist to catch that when it happens. |
+
+## How you can check
+
+The promise is only as good as the evidence for it, so:
+
+- **Executable documentation.** Every Python block on this site runs in CI
+  (`tests/test_docs.py`). An API change that breaks a documented example breaks the
+  build before it reaches you.
+- **Cross-library parity.** 301 cases against PennyLane and every metric against
+  scikit-learn, so a convention cannot drift unnoticed.
+- **[`qk.fingerprint()`](../reference/evaluation.md)** records the versions that
+  produced a number, so a result that stops reproducing can be traced to the layer
+  that moved.
+
+If you find something that broke without a deprecation, that is a bug — please
+[open an issue](https://github.com/Ziadt160/qmlkit/issues).
 
 
 ==============================================================================
@@ -3422,6 +3493,8 @@ __version__
     str(object='') -> str
 def adjoint_grad(spec: 'CircuitSpec', theta: 'npt.NDArray[Any]', obs: 'Observable | None' = None, backend: 'Backend | str | None' = None) -> 'npt.NDArray[Any]'
     Exact gradient of ``<obs>`` with respect to the logical parameter vector.
+def adjoint_grad_batch(spec: 'CircuitSpec', thetas: 'ArrayLike', obs: 'Observable | None' = None, backend: 'Backend | str | None' = None) -> 'npt.NDArray[Any]'
+    Adjoint gradients for a batch in one forward and one backward sweep.
 algorithms
     Algorithms built on the rest of the library.
 def amplitude_encode(vec: 'Sequence[float] | npt.NDArray[Any]', normalize: 'bool' = True, pad: 'bool' = True, check: 'bool' = False) -> 'CircuitSpec'
@@ -3520,6 +3593,8 @@ def get_gate(name: 'str') -> 'GateDef'
 def get_importer(name: 'str') -> 'Callable[..., CircuitSpec]'
 def grad(spec: 'CircuitSpec', theta: 'ArrayLike', obs: 'Observable | None' = None, method: 'str' = 'auto', backend: 'Backend | str | None' = None, shots: 'int | None' = None, **kwargs: 'object') -> 'npt.NDArray[Any]'
     Gradient of ``<obs>`` with respect to ``theta``.
+def grad_batch(spec: 'CircuitSpec', thetas: 'ArrayLike', obs: 'Observable | None' = None, method: 'str' = 'auto', shots: 'int | None' = None, backend: 'Backend | str | None' = None, seed: 'int | None' = None) -> 'npt.NDArray[Any]'
+    ``(batch, n_params)`` gradients, by whichever route fits the backend.
 def grad_circuit_cost(spec: 'CircuitSpec') -> 'int'
     Circuit evaluations for one full parameter-shift gradient.
 def gradient_cost(spec: 'CircuitSpec', method: 'str' = 'parameter-shift') -> 'int | str'
@@ -3582,6 +3657,8 @@ def p0_from_z(z: 'float') -> 'float'
     P(0) from <Z>.
 def param_shift_grad(f_slots: 'SlotFn', spec: 'CircuitSpec', theta: 'Sequence[float]', rules: 'dict[int, ShiftRule] | None' = None, f0: 'float | None' = None) -> 'npt.NDArray[Any]'
     Exact gradient of ``f`` with respect to the logical parameter vector.
+def param_shift_grad_batch(spec: 'CircuitSpec', thetas: 'ArrayLike', obs: 'Observable | None' = None, shots: 'int | None' = None, backend: 'Backend | str | None' = None, seed: 'int | None' = None) -> 'npt.NDArray[Any]'
+    Parameter-shift gradients for a batch, as **one** set of evaluations.
 def param_shift_grad_circuit(spec: 'CircuitSpec', theta: 'Sequence[float]', obs: 'Observable | None' = None, shots: 'int | None' = None, backend: 'BackendLike' = None, seed: 'int | None' = None) -> 'npt.NDArray[Any]'
     Convenience wrapper: parameter-shift gradient of ``<obs>`` for a circuit.
 def plan(model: 'Any', n_samples: 'int' = 1, steps: 'int' = 1, method: 'str' = 'parameter-shift', obs: 'Observable | None' = None, shots: 'int | None' = None) -> 'Plan'

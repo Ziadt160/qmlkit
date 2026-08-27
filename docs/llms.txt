@@ -78,6 +78,7 @@ What is worth knowing before writing any of it:
 ## About
 
 - [Validation](https://ziadt160.github.io/qmlkit/about/validation/): A library's own test suite can only catch the bugs its author thought of.
+- [API stability](https://ziadt160.github.io/qmlkit/about/stability/): Research code outlives the version it was written against. A script from last year that no longer runs is not a small inconvenience — it is a result nobody can reproduce, and it is the most common complaint about every library in this field.
 - [Changelog](https://ziadt160.github.io/qmlkit/about/changelog/)
 - [Releasing](https://ziadt160.github.io/qmlkit/about/releasing/)
 

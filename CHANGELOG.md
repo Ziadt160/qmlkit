@@ -8,6 +8,57 @@ All notable changes to this project are documented here. The format follows
 
 First release.
 
+### Added — batched gradients, and the backward pass that was 99% of training
+
+Batched execution reached the forward pass only. Measured on a 4-qubit `VQC` at
+batch 128, the forward pass was 13 ms of an 1170 ms training step — so the speedup
+had landed on 1% of the work.
+
+- **`qk.grad_batch(spec, thetas, obs)`** — `(batch, n_params)` gradients, dispatching
+  to adjoint on an exact simulator and parameter-shift otherwise.
+- **`qk.param_shift_grad_batch`** is **backend-agnostic by construction.** A shift rule
+  only ever needs the circuit *run* at shifted angles, so a whole batch's gradient is
+  one set of evaluations with no state inspection. It goes through
+  `Backend.expectation_over_slots`, which every backend has — asserted equal across
+  NumPy, Qiskit, Cirq and the torch backend, and shown working on a sampling-only mock
+  device. On hardware this is the batched submission a provider wants: one job rather
+  than `batch × 2P` blocking calls, which was gap #1 in `examples/toward_hardware.py`.
+- **`qk.adjoint_grad_batch`** — the same sweep with the batch as a leading axis.
+- `QuantumLayer` uses them, so training benefits with no API change. A gradient method
+  with no batched form (SPSA, Hadamard-test) falls back to the loop rather than failing.
+
+**Full training step, batch 128:** 19.8× at 4 qubits, 19.5× at 4 qubits × 4 layers,
+8.7× at 6 qubits, 3.3× at 8. Gradients agree with the per-sample path to float32
+round-trip.
+
+Batch primitives moved into **slot** space, because that is what differentiation needs:
+a shift rule moves one *occurrence* of a parameter and a weight-tied parameter has
+several. `CircuitSpec.bind_slots_batch` resolves logical parameters to slot angles for a
+whole batch in three NumPy operations, and `Backend.max_batch_rows` chunks the fan-out —
+the same answer to a simulator's memory limit and a provider's job limit.
+
+### Changed — the kernel Gram matrix is one batched evaluation
+
+Every entry of a compute-uncompute Gram matrix is the *same* circuit structure at
+different angles, and the per-pair loop was throwing that away. `QuantumKernel.__call__`
+now assembles the whole matrix as one batched call, still evaluating only the strict
+upper triangle and still using the cache — batching changed how misses are evaluated,
+not whether hits are reused.
+
+A 20×20 Gram matrix went from 45 ms to 3.2 ms. Against PennyLane that row moved from
+6.6× to **69×**, which is where the honest overall median moved from 1.6× to 1.7×.
+Sampled kernels, the swap-test estimator and backends without a statevector fall back
+to the pair-at-a-time path.
+
+### Added — documentation
+
+- **An API stability policy** (`docs/about/stability.md`) — a written promise about what will not
+  change without a deprecation period, and an honest list of what is *not* promised.
+  Research code outlives the version it was written against.
+- **`examples/accelerate_pennylane.py`** — the three inner loops worth borrowing
+  without migrating anything: kernel Gram 127×, batched gradients 44×, exact metric
+  tensor 53×, each checked against PennyLane's own answer before the timing is quoted.
+
 ### Added — batched execution
 
 `expectation_batch` took a list of circuits and looped. Nothing exploited the fact

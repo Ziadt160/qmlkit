@@ -71,26 +71,74 @@ class Backend:
         return np.abs(self.statevector(spec)) ** 2
 
     # ----------------------------------------------------------------- batch --
-    def statevector_batch(
-        self, spec: CircuitSpec, thetas: npt.NDArray[Any]
+    #: Rows evaluated per chunk. A batched parameter-shift gradient fans out to
+    #: ``batch x 2P`` circuits, which is where an unbounded batch would exhaust memory
+    #: on a simulator and exceed a provider's job limit on a device. Chunking is the
+    #: same answer to both.
+    max_batch_rows: int = 4096
+
+    def statevector_batch_slots(
+        self, spec: CircuitSpec, slot_angles: npt.NDArray[Any]
     ) -> npt.NDArray[Any]:
-        """States for one circuit at many parameter vectors: ``(batch, 2**n)``.
+        """States for one circuit at many **slot-angle** vectors: ``(batch, 2**n)``.
+
+        Slot space rather than logical-parameter space is the primitive because that is
+        what differentiation needs: a shift rule moves one *occurrence* of a parameter,
+        and a weight-tied parameter has several. Anything expressed in logical
+        parameters cannot say that.
 
         The default binds and simulates one row at a time, so every backend has a
         working implementation the moment it can produce a statevector. A backend that
-        can do better overrides this — :class:`~qmlkit.core.backends.numpy_backend.NumpyBackend`
-        carries the batch as a leading axis and applies each gate to the whole stack
-        at once.
-
-        This is also the shape a *device* wants: real providers take a list of circuits
-        and return a job, and one blocking call per circuit against a queue is the
-        difference between a run taking minutes and taking weeks.
+        can do better overrides this one method and everything above it — batched
+        expectations, batched gradients, the torch layer — speeds up with it.
         """
-        values = np.atleast_2d(np.asarray(thetas, dtype=float))
+        rows = np.atleast_2d(np.asarray(slot_angles, dtype=float))
         states: npt.NDArray[Any] = np.stack(
-            [self.statevector(spec.bind(row)) for row in values]
+            [self.statevector(spec.with_slot_angles(row)) for row in rows]
         )
         return states
+
+    def statevector_batch(
+        self, spec: CircuitSpec, thetas: npt.NDArray[Any]
+    ) -> npt.NDArray[Any]:
+        """States for one circuit at many logical parameter vectors."""
+        values = np.atleast_2d(np.asarray(thetas, dtype=float))
+        return self.statevector_batch_slots(spec, spec.bind_slots_batch(values))
+
+    def expectation_over_slots(
+        self,
+        spec: CircuitSpec,
+        slot_angles: npt.NDArray[Any],
+        obs: Observable,
+        shots: int | None = None,
+        seed: int | None = None,
+    ) -> npt.NDArray[Any]:
+        """``<O>`` at many slot-angle vectors, in chunks of :attr:`max_batch_rows`.
+
+        This is the one call a batched gradient makes, and the one a device would turn
+        into a job submission.
+        """
+        rows = np.atleast_2d(np.asarray(slot_angles, dtype=float))
+        if shots is not None:
+            return np.array(
+                [
+                    self.expectation(spec.with_slot_angles(row), obs, shots, seed)
+                    for row in rows
+                ],
+                dtype=float,
+            )
+        if not self.supports_exact:
+            raise ValueError(
+                f"the {self.name!r} backend has no exact mode; pass shots=N to sample"
+            )
+        out = np.empty(rows.shape[0], dtype=float)
+        for start in range(0, rows.shape[0], self.max_batch_rows):
+            block = rows[start : start + self.max_batch_rows]
+            states = self.statevector_batch_slots(spec, block)
+            out[start : start + block.shape[0]] = expectation_from_statevectors(
+                obs, states, spec.n_qubits
+            )
+        return out
 
     def expectation_over(
         self,
@@ -100,23 +148,10 @@ class Backend:
         shots: int | None = None,
         seed: int | None = None,
     ) -> npt.NDArray[Any]:
-        """``<O>`` for one circuit at many parameter vectors.
-
-        Exact evaluation goes through :meth:`statevector_batch`, so a backend that
-        vectorises that gets a vectorised expectation for free. Sampling stays
-        one circuit at a time, because a shot budget is spent per circuit either way.
-        """
+        """``<O>`` for one circuit at many logical parameter vectors."""
         values = np.atleast_2d(np.asarray(thetas, dtype=float))
-        if shots is None:
-            if not self.supports_exact:
-                raise ValueError(
-                    f"the {self.name!r} backend has no exact mode; pass shots=N to sample"
-                )
-            states = self.statevector_batch(spec, values)
-            return expectation_from_statevectors(obs, states, spec.n_qubits)
-        return np.array(
-            [self.expectation(spec.bind(row), obs, shots, seed) for row in values],
-            dtype=float,
+        return self.expectation_over_slots(
+            spec, spec.bind_slots_batch(values), obs, shots, seed
         )
 
     # ------------------------------------------------------------- semantics --

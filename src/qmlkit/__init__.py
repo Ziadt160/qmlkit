@@ -127,6 +127,11 @@ from qmlkit.gradients import (
     spsa_grad,
     supports_adjoint,
 )
+from qmlkit.gradients.batch import (
+    adjoint_grad_batch,
+    grad_batch,
+    param_shift_grad_batch,
+)
 from qmlkit.gradients.parameter_shift import (
     finite_diff_grad,
     grad_circuit_cost,
@@ -276,6 +281,9 @@ __all__ = [
     "param_shift_grad_circuit",
     "grad_circuit_cost",
     "finite_diff_grad",
+    "grad_batch",
+    "adjoint_grad_batch",
+    "param_shift_grad_batch",
     # submodules
     "kernels",
     "metrics",

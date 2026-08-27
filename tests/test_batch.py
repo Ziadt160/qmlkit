@@ -283,3 +283,84 @@ def test_a_single_row_still_returns_a_single_row():
     assert one.shape == (1, 2)
     assert many.shape == (4, 2)
     np.testing.assert_allclose(one.detach().numpy()[0], many[0].detach().numpy(), atol=1e-13)
+
+
+# --------------------------------------------------------------------------- #
+# the kernel Gram matrix
+# --------------------------------------------------------------------------- #
+def _gram_looped(kernel, X, Y=None):
+    """The pair-at-a-time path, which the batched one must reproduce exactly."""
+    return qk.kernel_matrix(X, Y, kernel.evaluate)
+
+
+@pytest.mark.parametrize(
+    "feature_map",
+    [qk.AngleFeatureMap(3), qk.ZFeatureMap(3), qk.ZZFeatureMap(3, reps=2)],
+    ids=["angle", "z", "zz"],
+)
+def test_batched_gram_equals_the_pairwise_path(feature_map):
+    rng = np.random.default_rng(0)
+    X = rng.uniform(0, np.pi, (12, 3))
+    kernel = qk.QuantumKernel(feature_map)
+    looped = _gram_looped(qk.QuantumKernel(feature_map), X)
+    np.testing.assert_allclose(kernel(X), looped, atol=1e-13)
+
+
+def test_batched_rectangular_gram_equals_the_pairwise_path():
+    rng = np.random.default_rng(1)
+    X, Xt = rng.uniform(0, np.pi, (10, 2)), rng.uniform(0, np.pi, (4, 2))
+    fmap = qk.AngleFeatureMap(2)
+    np.testing.assert_allclose(
+        qk.QuantumKernel(fmap)(Xt, X), _gram_looped(qk.QuantumKernel(fmap), Xt, X), atol=1e-13
+    )
+
+
+def test_a_batched_gram_is_symmetric_with_a_unit_diagonal():
+    rng = np.random.default_rng(2)
+    K = qk.QuantumKernel(qk.AngleFeatureMap(2))(rng.uniform(0, np.pi, (9, 2)))
+    np.testing.assert_allclose(np.diag(K), 1.0, atol=1e-13)
+    np.testing.assert_allclose(K, K.T, atol=1e-15)
+
+
+def test_the_batched_path_still_uses_the_cache():
+    """Batching changes how misses are evaluated, not whether hits are reused."""
+    rng = np.random.default_rng(3)
+    X = rng.uniform(0, np.pi, (8, 2))
+    kernel = qk.QuantumKernel(qk.AngleFeatureMap(2))
+    kernel(X)
+    before = kernel.n_evaluations
+    kernel(X, X)  # every off-diagonal pair already seen, in one order or the other
+    # the only new work is the diagonal, which the square path assumes to be 1
+    # rather than measuring it
+    assert kernel.n_evaluations - before == len(X)
+
+
+def test_the_batched_path_evaluates_only_the_upper_triangle():
+    rng = np.random.default_rng(4)
+    m = 7
+    kernel = qk.QuantumKernel(qk.AngleFeatureMap(2))
+    kernel(rng.uniform(0, np.pi, (m, 2)))
+    assert kernel.n_evaluations == m * (m - 1) // 2  # not m**2, and no diagonal
+
+
+@pytest.mark.parametrize(
+    "kwargs", [{"shots": 512}, {"estimator": "swap"}], ids=["sampled", "swap-test"]
+)
+def test_paths_without_a_batched_form_fall_back_and_stay_correct(kwargs):
+    rng = np.random.default_rng(5)
+    X = rng.uniform(0, np.pi, (5, 2))
+    kernel = qk.QuantumKernel(qk.AngleFeatureMap(2), seed=0, **kwargs)
+    K = kernel(X)
+    assert K.shape == (5, 5)
+    np.testing.assert_allclose(np.diag(K), 1.0, atol=1e-12)
+
+
+def test_bandwidth_is_applied_on_the_batched_path_too():
+    rng = np.random.default_rng(6)
+    X = rng.uniform(0, np.pi, (6, 2))
+    fmap = qk.AngleFeatureMap(2)
+    wide = qk.QuantumKernel(fmap, bandwidth=0.3)
+    np.testing.assert_allclose(
+        wide(X), _gram_looped(qk.QuantumKernel(fmap, bandwidth=0.3), X), atol=1e-13
+    )
+    assert not np.allclose(wide(X), qk.QuantumKernel(fmap)(X))

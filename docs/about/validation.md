@@ -121,16 +121,17 @@ not a fair comparison: `pennylane-lightning` is a dependency of PennyLane, so th
 | Expectation, 12 qubits | 3.9 ms | 4.6 ms `lightning` | 1.2× | 2.9× |
 | Gradient, 8 qubits, `P=96` | 11.0 ms | 11.3 ms `lightning-adjoint` | 1.02× | 6.1× |
 | Parameter-shift, 6 qubits, `P=72` | 300 ms | 347 ms `lightning` | 1.2× | 3.9× |
-| 20×20 kernel Gram matrix | 32 ms | 210 ms `default` | 6.6× | 6.6× |
+| 20×20 kernel Gram matrix | 3.2 ms | 219 ms `default` | **69×** | 69× |
 | Exact metric tensor, `P=24` | 6.8 ms | 715 ms `adjoint_metric` | **105×** | 276× |
 
-qmlkit is ahead on 14 of 14 cases, median **1.6×**.
+qmlkit is ahead on 13 of 14 cases, median **1.7×**.
 
 Read that in three parts. The expectation, gradient and parameter-shift rows are
 dispatch and interpreter overhead rather than arithmetic — qmlkit does less per call,
-leads at small registers, and ties by 8 qubits. The kernel Gram matrix stays ~6.6×
-because per-pair QNode dispatch dominates there, and `lightning` is actually slower
-than `default.qubit` across many tiny circuits. The metric tensor is different in kind:
+leads at small registers, and ties by 8 qubits. The kernel Gram matrix is ~69×
+because the whole matrix is one batched evaluation against one QNode call per pair;
+per-call overhead dominates there so completely that `lightning` is actually slower
+than `default.qubit`. The metric tensor is different in kind:
 closed-form differentiation of the state, agreeing with PennyLane's own routes to
 `1.7e-16`, and *widening* with parameter count (49× at `P=12`, 105× at `P=24`) rather
 than narrowing.

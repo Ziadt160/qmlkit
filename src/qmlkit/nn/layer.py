@@ -133,29 +133,74 @@ class _Runner:
             )
         return out if x.ndim == 2 else out[0]
 
+    #: Methods with a batched form. Anything else falls back to the per-sample loop,
+    #: which is correct but is where 99% of a training step used to go.
+    _BATCHABLE = frozenset({"auto", "adjoint", "parameter-shift"})
+
     def backward_batch(
         self, x: npt.NDArray[Any], theta: npt.NDArray[Any], grad_out: npt.NDArray[Any]
     ) -> tuple[npt.NDArray[Any], npt.NDArray[Any]]:
+        """Input and weight gradients for the whole batch.
+
+        The circuit gradients come from one batched call per observable rather than
+        one per sample per observable. The chain rule back through the feature map
+        stays per-sample, because it is classical arithmetic on a small Jacobian and
+        costs nothing next to a circuit.
+        """
         rows = np.atleast_2d(x)
         upstream = np.atleast_2d(grad_out)
         gx = np.zeros_like(rows)
         gtheta = np.zeros_like(theta)
+        params = np.stack([self._full(row, theta) for row in rows])
 
+        if self.grad_method not in self._BATCHABLE:
+            return self._backward_looped(rows, upstream, params, theta, x)
+
+        from qmlkit.gradients.batch import grad_batch
+
+        jacobians = [self.feature_map.angle_jacobian(row) for row in rows]
+        for j, obs in enumerate(self.observables):
+            g = grad_batch(
+                self.spec,
+                params,
+                obs,
+                method=self.grad_method,
+                shots=self.shots,
+                backend=self.backend,
+                seed=self.seed,
+            )
+            weights = upstream[:, j]
+            for b, jac in enumerate(jacobians):
+                # chain rule to the features, so a classical pre-net actually trains
+                gx[b] += weights[b] * (jac.T @ g[b, : self.n_angles])
+            if self.n_weights:
+                gtheta += (weights[:, None] * g[:, self.n_angles :]).sum(axis=0)
+        return (gx if x.ndim == 2 else gx[0]), gtheta
+
+    def _backward_looped(
+        self,
+        rows: npt.NDArray[Any],
+        upstream: npt.NDArray[Any],
+        params: npt.NDArray[Any],
+        theta: npt.NDArray[Any],
+        x: npt.NDArray[Any],
+    ) -> tuple[npt.NDArray[Any], npt.NDArray[Any]]:
+        """One sample at a time — for gradient methods with no batched form."""
+        gx = np.zeros_like(rows)
+        gtheta = np.zeros_like(theta)
         for b, row in enumerate(rows):
-            params = self._full(row, theta)
-            jac = self.feature_map.angle_jacobian(row)  # (n_angles, n_features), classical
+            jac = self.feature_map.angle_jacobian(row)
             for j, obs in enumerate(self.observables):
                 g = grad(
                     self.spec,
-                    params,
+                    params[b],
                     obs,
                     method=self.grad_method,
                     backend=self.backend,
                     shots=self.shots,
                 )
                 w = float(upstream[b, j])
-                # split the circuit gradient into its encoding and weight halves
-                gx[b] += w * (jac.T @ g[: self.n_angles])  # chain rule to the features
+                gx[b] += w * (jac.T @ g[: self.n_angles])
                 if self.n_weights:
                     gtheta += w * g[self.n_angles :]
         return (gx if x.ndim == 2 else gx[0]), gtheta

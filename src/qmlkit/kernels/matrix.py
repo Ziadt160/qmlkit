@@ -114,7 +114,7 @@ class QuantumKernel:
         self.bandwidth = bandwidth
         self.seed = seed
         self.cache = cache
-        self._cache: dict[tuple, float] = {}
+        self._cache: dict[tuple[Any, ...], float] = {}
         self._evaluations = 0
 
     # ------------------------------------------------------------------------
@@ -144,6 +144,16 @@ class QuantumKernel:
             )
         )
 
+    @staticmethod
+    def _cache_key(a: npt.NDArray[Any], b: npt.NDArray[Any]) -> tuple[Any, ...]:
+        """One entry per unordered pair, so k(a, b) and k(b, a) share it.
+
+        Both the pair-at-a-time and the batched path build the key here, so a matrix
+        computed one way is reused by the other.
+        """
+        ka, kb = tuple(np.round(a, 12)), tuple(np.round(b, 12))
+        return (ka, kb) if ka <= kb else (kb, ka)
+
     def evaluate(self, x: Sequence[float], xp: Sequence[float]) -> float:
         """One kernel entry, with the bandwidth rescaling applied."""
         a = self.bandwidth * np.asarray(x, dtype=float)
@@ -152,13 +162,98 @@ class QuantumKernel:
             return self._estimate(a, b)
         # the kernel is symmetric, so k(a, b) and k(b, a) share one cache entry --
         # which halves the evaluations a rectangular test matrix needs
-        ka, kb = tuple(np.round(a, 12)), tuple(np.round(b, 12))
-        key = (ka, kb) if ka <= kb else (kb, ka)
+        key = self._cache_key(a, b)
         if key not in self._cache:
             self._cache[key] = self._estimate(a, b)
         return self._cache[key]
 
+    # ------------------------------------------------------------------------
+    def _batched_gram(
+        self, X: npt.NDArray[Any], Y: npt.NDArray[Any] | None
+    ) -> npt.NDArray[Any] | None:
+        """The whole Gram matrix in one call, or ``None`` if that is not available.
+
+        A compute-uncompute kernel is ``U(x) U(x')†`` — one circuit *structure*, with
+        the two feature vectors' angles as its parameters. Every entry of the Gram
+        matrix is therefore the same circuit at a different parameter vector, which is
+        exactly what a batched backend evaluates in one pass. The per-pair loop was
+        throwing that away.
+
+        Returns ``None`` — so the caller falls back to the pair-at-a-time path —
+        when the kernel is sampled (a shot budget is spent per circuit either way),
+        when the estimator is not the inversion test, or when the backend cannot hand
+        back a state.
+        """
+        from qmlkit.core.backends.registry import get_backend
+
+        if self.estimator != "inversion" or self.shots is not None:
+            return None
+        backend = get_backend(self.backend)
+        if not backend.supports_statevector:
+            return None
+        fmap = self.feature_map
+        if not hasattr(fmap, "build_parametric"):  # pragma: no cover - defensive
+            return None
+
+        n_angles = fmap.n_angles
+        spec = fmap.build_parametric(offset=0).compose(
+            fmap.build_parametric(offset=n_angles).adjoint(), param_offset=0
+        )
+        rows = self.bandwidth * np.atleast_2d(np.asarray(X, dtype=float))
+        columns = rows if Y is None else self.bandwidth * np.atleast_2d(np.asarray(Y, dtype=float))
+        row_angles = np.stack([fmap.angles(r) for r in rows])
+        column_angles = row_angles if Y is None else np.stack([fmap.angles(c) for c in columns])
+
+        # a square matrix is symmetric with a unit diagonal, so only the strict upper
+        # triangle is worth evaluating -- m(m-1)/2 circuits instead of m^2
+        m, k = rows.shape[0], columns.shape[0]
+        if Y is None:
+            pairs = [(i, j) for i in range(m) for j in range(i + 1, m)]
+        else:
+            pairs = [(i, j) for i in range(m) for j in range(k)]
+        if not pairs:
+            return np.eye(m) if Y is None else np.zeros((m, k))
+
+        # the cache still applies: batching is about how the misses are evaluated, not
+        # about re-running work already done. A rectangular test matrix against the
+        # training set is mostly cache hits, and losing them would cost more than
+        # batching gains.
+        keys = [self._cache_key(rows[i], columns[j]) for i, j in pairs] if self.cache else None
+        misses = (
+            [n for n, key in enumerate(keys) if key not in self._cache]
+            if keys is not None
+            else list(range(len(pairs)))
+        )
+
+        if misses:
+            thetas = np.stack(
+                [
+                    np.concatenate([row_angles[pairs[n][0]], column_angles[pairs[n][1]]])
+                    for n in misses
+                ]
+            )
+            states = backend.statevector_batch(spec, thetas)
+            values = np.abs(states[:, 0]) ** 2  # P(all zeros) *is* the kernel
+            self._evaluations += len(misses)
+            if keys is not None:
+                for n, value in zip(misses, values, strict=True):
+                    self._cache[keys[n]] = float(value)
+        else:
+            values = np.empty(0)
+
+        resolved = dict(zip(misses, values.tolist(), strict=True))
+        out = np.eye(m) if Y is None else np.zeros((m, k))
+        for n, (i, j) in enumerate(pairs):
+            value = self._cache[keys[n]] if keys is not None else resolved[n]
+            out[i, j] = float(value)
+            if Y is None:
+                out[j, i] = out[i, j]
+        return out
+
     def __call__(self, X: npt.NDArray[Any], Y: npt.NDArray[Any] | None = None) -> npt.NDArray[Any]:
+        batched = self._batched_gram(X, Y)
+        if batched is not None:
+            return batched
         return kernel_matrix(X, Y, self.evaluate)
 
     @property

@@ -190,6 +190,27 @@ class CircuitSpec:
             raise ValueError(f"expected {self.n_params} parameters, got {arr.size}")
         return np.array([s.ref.resolve(arr) for s in self.slots()], dtype=float)
 
+    def bind_slots_batch(self, thetas: ArrayLike) -> npt.NDArray[Any]:
+        """Resolve many logical parameter vectors into slot angles at once.
+
+        ``(batch, n_params) -> (batch, n_slots)``, with no Python loop over the batch:
+        the slot map is a gather plus an affine transform, so it is three NumPy
+        operations however large the batch is. Doing this row by row would put an
+        ``O(batch x n_slots)`` interpreter loop in front of every batched evaluation
+        and give most of the batching win straight back.
+        """
+        values = np.atleast_2d(np.asarray(thetas, dtype=float))
+        if values.shape[1] != self.n_params:
+            raise ValueError(f"expected {self.n_params} parameters, got {values.shape[1]}")
+        slots = self.slots()
+        if not slots:
+            return np.zeros((values.shape[0], 0), dtype=float)
+        index = np.fromiter((s.ref.index for s in slots), dtype=int, count=len(slots))
+        scale = np.fromiter((s.ref.scale for s in slots), dtype=float, count=len(slots))
+        offset = np.fromiter((s.ref.offset for s in slots), dtype=float, count=len(slots))
+        angles: npt.NDArray[Any] = values[:, index] * scale + offset
+        return angles
+
     def with_slot_angles(self, angles: ArrayLike) -> CircuitSpec:
         """Return a fully-bound copy in which every slot takes a literal angle."""
         arr = np.asarray(angles, dtype=float).ravel()
