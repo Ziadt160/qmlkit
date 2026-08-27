@@ -16,6 +16,8 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
+from qmlkit.utils.errors import unknown
+
 __all__ = ["AngleScaler", "to_angle_range", "reduce_to_qubits", "PCAReducer"]
 
 
@@ -133,5 +135,5 @@ def reduce_to_qubits(
             raise ValueError(f"only {arr.shape[1]} features available, need {n_qubits}")
         reduced = arr[:, :n_qubits]
     else:
-        raise ValueError(f"unknown method {method!r}; expected 'pca' or 'truncate'")
+        raise unknown("method", method, ("pca", "truncate"))
     return to_angle_range(reduced, lo, hi) if to_angles else reduced

@@ -20,6 +20,7 @@ from contextlib import contextmanager
 from qmlkit.core.builder import QCircuit, entangler_pairs
 from qmlkit.core.gates import get_gate
 from qmlkit.core.ir import ParamRef
+from qmlkit.utils.errors import unknown
 
 __all__ = [
     "Block",
@@ -209,9 +210,9 @@ class PoolLayer(Block):
 
     def __init__(self, keep: str = "odd", mode: str = "discard", tied: bool = True):
         if keep not in ("even", "odd"):
-            raise ValueError(f"keep must be 'even' or 'odd', got {keep!r}")
+            raise unknown("keep", keep, ("even", "odd"))
         if mode not in ("discard", "controlled"):
-            raise ValueError(f"mode must be 'discard' or 'controlled', got {mode!r}")
+            raise unknown("mode", mode, ("discard", "controlled"))
         self.keep = keep
         self.mode = mode
         self.tied = tied

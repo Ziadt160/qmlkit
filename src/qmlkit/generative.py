@@ -26,6 +26,7 @@ from qmlkit.ansatz.library import Ansatz, hardware_efficient
 from qmlkit.core.builder import entangler_pairs
 from qmlkit.core.execute import BackendLike, probabilities, run_counts
 from qmlkit.core.ir import CircuitSpec
+from qmlkit.utils.errors import unknown
 
 __all__ = [
     "gaussian_kernel",
@@ -202,7 +203,7 @@ class QCBM:
             return total_variation(model, target)
         if metric == "kl":
             return kl_divergence(target, model)
-        raise ValueError(f"unknown metric {metric!r}; expected 'tv' or 'kl'")
+        raise unknown("metric", metric, ("tv", "kl"))
 
     def __repr__(self) -> str:
         return f"QCBM(n_qubits={self.n_qubits}, n_params={self.ansatz.n_params})"

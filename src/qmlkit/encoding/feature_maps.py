@@ -27,6 +27,7 @@ import numpy.typing as npt
 
 from qmlkit.core.builder import QCircuit, entangler_pairs
 from qmlkit.core.ir import CircuitSpec, ParamRef
+from qmlkit.utils.errors import unknown
 
 __all__ = [
     "FeatureMap",
@@ -74,7 +75,7 @@ def basis_change(pauli: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
         return ("h",), ("h",)
     if p == "Y":
         return ("sdg", "h"), ("h", "s")
-    raise ValueError(f"unknown Pauli {pauli!r}; expected I, X, Y or Z")
+    raise unknown("Pauli", pauli, ("I", "X", "Y", "Z"))
 
 
 def pauli_terms(

@@ -358,21 +358,38 @@ __all__ = [
 ]
 
 
+#: Names served by :mod:`qmlkit.nn`, resolved on demand so that importing qmlkit
+#: never requires torch. Deliberately outside ``__all__``, which keeps
+#: ``from qmlkit import *`` torch-free.
+_TORCH_EXPORTS = (
+    "QuantumLayer",
+    "QuantumFunction",
+    "VQC",
+    "VQRegressor",
+    "HybridModel",
+    "QCNNLayer",
+    "MPSLayer",
+    "QLSTMCell",
+    "QLSTM",
+    "DressedQuantumNet",
+    "nn",
+)
+
+
 def __getattr__(name: str):
-    """Expose the torch bridge lazily, so ``import qmlkit`` never requires torch."""
-    if name in (
-        "QuantumLayer",
-        "QuantumFunction",
-        "VQC",
-        "VQRegressor",
-        "HybridModel",
-        "QCNNLayer",
-        "MPSLayer",
-        "QLSTMCell",
-        "QLSTM",
-        "DressedQuantumNet",
-        "nn",
-    ):
+    """Resolve the torch bridge lazily, and answer a wrong name with the right one.
+
+    A missing attribute is where most first attempts at an unfamiliar library land,
+    so it is worth more than ``has no attribute``. Three things are tried, in order
+    of how much they know: the lazy torch exports; the table of what PennyLane and
+    Qiskit call the same thing (:mod:`qmlkit._aliases`); and failing both, a
+    near-match over everything qmlkit does export.
+
+    ``qk.AngleEmbedding`` reports that PennyLane's name for it is
+    :class:`~qmlkit.encoding.feature_maps.AngleFeatureMap`, rather than only that
+    the attribute is missing.
+    """
+    if name in _TORCH_EXPORTS:
         try:
             import qmlkit.nn as _nn
         except ImportError as exc:  # pragma: no cover - depends on the environment
@@ -381,4 +398,19 @@ def __getattr__(name: str):
                 "    pip install 'qmlkit[torch]'"
             ) from exc
         return _nn if name == "nn" else getattr(_nn, name)
-    raise AttributeError(f"module 'qmlkit' has no attribute {name!r}")
+
+    from qmlkit._aliases import advice
+    from qmlkit.utils.errors import did_you_mean
+
+    hint = advice(name)
+    if hint is None:
+        near = did_you_mean(name, (*__all__, *_TORCH_EXPORTS))
+        if near:
+            hint = "Did you mean " + " or ".join(repr(s) for s in near) + "?"
+    message = f"module 'qmlkit' has no attribute {name!r}."
+    raise AttributeError(f"{message} {hint}" if hint else message)
+
+
+def __dir__() -> list[str]:
+    """List the lazily-served torch exports too, so introspection finds them."""
+    return sorted({*globals(), *__all__, *_TORCH_EXPORTS})

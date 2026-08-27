@@ -95,7 +95,7 @@ def test_hadamard_test_keeps_the_sign_magnitude_estimators_lose():
 
 
 def test_hadamard_test_rejects_a_bad_part():
-    with pytest.raises(ValueError, match="part must be"):
+    with pytest.raises(ValueError, match="unknown part 'sideways'"):
         hadamard_test(qk.AngleFeatureMap(1, entangle=False), [0.1], [0.2], part="sideways")
 
 

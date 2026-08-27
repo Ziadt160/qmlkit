@@ -16,6 +16,8 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
+from qmlkit.utils.errors import unknown
+
 Matrix = npt.NDArray[Any]
 
 
@@ -145,8 +147,12 @@ def get_gate(name: str) -> GateDef:
     try:
         return _REGISTRY[name.lower()]
     except KeyError:
-        raise KeyError(
-            f"unknown gate {name!r}; known gates: {', '.join(sorted(set(_REGISTRY)))}"
+        raise unknown(
+            "gate",
+            name,
+            sorted(_REGISTRY),
+            hint="Add your own with register_gate(GateDef(...)).",
+            error=KeyError,
         ) from None
 
 

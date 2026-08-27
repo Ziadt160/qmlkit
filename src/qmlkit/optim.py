@@ -24,6 +24,7 @@ import numpy.typing as npt
 from qmlkit.core.execute import BackendLike, expval
 from qmlkit.core.ir import CircuitSpec
 from qmlkit.core.observables import Observable, Z
+from qmlkit.utils.errors import unknown
 
 __all__ = [
     "supports_rotosolve",
@@ -234,7 +235,9 @@ def metric_tensor(
         return np.diag(np.diag(g))
     if approx in ("block-diag", None):
         return g
-    raise ValueError(f"unknown approx {approx!r}; expected 'diag', 'block-diag' or None")
+    raise unknown(
+        "approx", approx, ("diag", "block-diag"), hint="Pass None for the full metric tensor."
+    )
 
 
 def quantum_fisher_information(

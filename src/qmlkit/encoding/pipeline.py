@@ -27,6 +27,7 @@ import numpy as np
 import numpy.typing as npt
 
 from qmlkit.encoding.scaling import AngleScaler, PCAReducer
+from qmlkit.utils.errors import unknown
 
 __all__ = ["FeaturePipeline", "SklearnCompatible"]
 
@@ -129,7 +130,7 @@ class FeaturePipeline(SklearnCompatible):
         if n_qubits < 1:
             raise ValueError("n_qubits must be at least 1")
         if method not in ("pca", "truncate"):
-            raise ValueError(f"method must be 'pca' or 'truncate', got {method!r}")
+            raise unknown("method", method, ("pca", "truncate"))
         self.n_qubits = n_qubits
         self.method = method
         self.standardize = standardize

@@ -94,7 +94,7 @@ def test_repeat_and_share_reject_degenerate_counts():
 
 
 def test_pool_layer_validates_its_argument():
-    with pytest.raises(ValueError, match="must be 'even' or 'odd'"):
+    with pytest.raises(ValueError, match="unknown keep 'middle'.*Valid: even, odd"):
         PoolLayer("middle")
 
 

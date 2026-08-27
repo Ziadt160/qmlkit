@@ -28,6 +28,7 @@ from qmlkit.core.builder import QCircuit
 from qmlkit.core.execute import BackendLike, probabilities, run_counts
 from qmlkit.core.ir import CircuitSpec, Op
 from qmlkit.encoding.feature_maps import FeatureMap
+from qmlkit.utils.errors import unknown
 
 __all__ = [
     "fidelity_kernel",
@@ -154,7 +155,7 @@ def hadamard_test(
     which is why it is rarely the right choice on hardware.
     """
     if part not in ("real", "imag"):
-        raise ValueError(f"part must be 'real' or 'imag', got {part!r}")
+        raise unknown("part", part, ("real", "imag"))
     n = fmap.n_qubits
     ancilla = n
 

@@ -27,6 +27,7 @@ from qmlkit.core.execute import BackendLike
 from qmlkit.core.ir import CircuitSpec
 from qmlkit.core.observables import Observable, Z
 from qmlkit.gradients.rules import ShiftRule, rule_for_gate
+from qmlkit.utils.errors import unknown
 
 __all__ = [
     "param_shift_grad",
@@ -137,5 +138,5 @@ def finite_diff_grad(
             assert base is not None
             grad[k] = (f(plus) - base) / eps
         else:
-            raise ValueError(f"unknown mode {mode!r}; expected 'central' or 'forward'")
+            raise unknown("mode", mode, ("central", "forward"))
     return grad

@@ -96,7 +96,7 @@ def test_encoding_layer_needs_reserved_input_slots():
 def test_reupload_validates_arguments():
     with pytest.raises(ValueError, match="n_layers must be at least 1"):
         qk.reupload(qk.AngleFeatureMap(2), n_layers=0)
-    with pytest.raises(ValueError, match="order must be"):
+    with pytest.raises(ValueError, match="unknown order 'sideways'"):
         qk.reupload(qk.AngleFeatureMap(2), order="sideways")
 
 

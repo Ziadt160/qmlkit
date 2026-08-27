@@ -18,6 +18,7 @@ from collections.abc import Callable
 
 from qmlkit.core.backends.base import Backend, BackendNotAvailable
 from qmlkit.core.backends.numpy_backend import NumpyBackend
+from qmlkit.utils.errors import unknown
 
 __all__ = [
     "register_backend",
@@ -115,8 +116,12 @@ def get_backend(backend: str | Backend | None = None, **kwargs: object) -> Backe
     try:
         factory, requires, extra = _REGISTRY[backend]
     except KeyError:
-        raise KeyError(
-            f"unknown backend {backend!r}; registered: {', '.join(list_backends())}"
+        raise unknown(
+            "backend",
+            backend,
+            list_backends(),
+            hint=f"Importable in this interpreter right now: {', '.join(available_backends())}.",
+            error=KeyError,
         ) from None
     if requires is not None and not is_available(backend):
         hint = f"pip install 'qmlkit[{extra}]'" if extra else f"pip install {requires}"

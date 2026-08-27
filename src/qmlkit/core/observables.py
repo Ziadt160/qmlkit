@@ -14,6 +14,8 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
+from qmlkit.utils.errors import unknown
+
 __all__ = ["PauliString", "PauliSum", "I", "X", "Y", "Z", "ZZ", "Observable"]
 
 _PAULIS = ("I", "X", "Y", "Z")
@@ -33,7 +35,7 @@ class PauliString:
         seen = set()
         for q, p in self.paulis:
             if p not in _PAULIS:
-                raise ValueError(f"unknown Pauli {p!r}; expected one of {_PAULIS}")
+                raise unknown("Pauli", p, _PAULIS)
             if q < 0:
                 raise ValueError(f"negative qubit index {q}")
             if q in seen:

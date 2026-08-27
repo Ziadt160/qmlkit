@@ -28,6 +28,7 @@ from numpy.typing import ArrayLike
 from qmlkit.core.backends.base import Backend
 from qmlkit.core.ir import CircuitSpec
 from qmlkit.core.observables import Observable, Z
+from qmlkit.utils.errors import unknown
 
 __all__ = [
     "grad",
@@ -97,8 +98,12 @@ def grad(
     try:
         fn = _METHODS[resolved]
     except KeyError:
-        raise KeyError(
-            f"unknown gradient method {resolved!r}; available: {', '.join(list_gradient_methods())}"
+        raise unknown(
+            "gradient method",
+            resolved,
+            list_gradient_methods(),
+            hint='"auto" chooses for you; add your own with register_gradient(name, fn).',
+            error=KeyError,
         ) from None
     return fn(spec, np.asarray(theta, dtype=float), obs, backend=backend, shots=shots, **kwargs)
 

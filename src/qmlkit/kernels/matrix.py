@@ -27,6 +27,7 @@ import numpy.typing as npt
 from qmlkit.core.execute import BackendLike
 from qmlkit.encoding.feature_maps import FeatureMap
 from qmlkit.kernels.estimators import fidelity_kernel
+from qmlkit.utils.errors import unknown
 
 __all__ = [
     "kernel_matrix",
@@ -128,8 +129,8 @@ class QuantumKernel:
         try:
             fn = fns[self.estimator]
         except KeyError:
-            raise ValueError(
-                f"unknown estimator {self.estimator!r}; expected inversion, swap or hadamard"
+            raise unknown(
+                "estimator", self.estimator, ("inversion", "swap", "hadamard")
             ) from None
         self._evaluations += 1
         return float(
@@ -217,9 +218,7 @@ def closest_psd_matrix(K: npt.NDArray[Any], method: str = "threshold") -> npt.ND
     try:
         return fns[method](K)
     except KeyError:
-        raise ValueError(
-            f"unknown method {method!r}; expected threshold, displace or flip"
-        ) from None
+        raise unknown("method", method, ("threshold", "displace", "flip")) from None
 
 
 def center_kernel(K: npt.NDArray[Any]) -> npt.NDArray[Any]:

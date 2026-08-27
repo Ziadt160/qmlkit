@@ -40,6 +40,7 @@ from qmlkit.ansatz.blocks import (
     share,
 )
 from qmlkit.ansatz.library import Ansatz
+from qmlkit.utils.errors import unknown
 
 __all__ = ["reupload", "ReuploadModel"]
 
@@ -100,7 +101,12 @@ def reupload(
     if n_layers < 1:
         raise ValueError("n_layers must be at least 1")
     if order not in ("SW", "WS"):
-        raise ValueError(f"order must be 'SW' or 'WS', got {order!r}")
+        raise unknown(
+            "order",
+            order,
+            ("SW", "WS"),
+            hint="'SW' encodes then varies; 'WS' varies before the first upload.",
+        )
 
     n_qubits = int(feature_map.n_qubits)  # type: ignore[attr-defined]
     n_inputs = int(feature_map.n_angles)  # type: ignore[attr-defined]

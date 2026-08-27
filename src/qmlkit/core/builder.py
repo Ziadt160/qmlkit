@@ -13,6 +13,7 @@ from collections.abc import Iterable, Sequence
 
 from qmlkit.core.gates import get_gate
 from qmlkit.core.ir import CircuitSpec, Op, ParamLike, ParamRef
+from qmlkit.utils.errors import unknown
 
 __all__ = ["QCircuit", "entangler_pairs"]
 
@@ -40,8 +41,10 @@ def entangler_pairs(n_qubits: int, pattern: str = "chain") -> tuple[tuple[int, i
         even = tuple((i, i + 1) for i in range(0, n_qubits - 1, 2))
         odd = tuple((i, i + 1) for i in range(1, n_qubits - 1, 2))
         return even + odd
-    raise ValueError(
-        f"unknown entanglement pattern {pattern!r}; expected chain, ring, full, or alternating"
+    raise unknown(
+        "entanglement pattern",
+        pattern,
+        ("chain", "linear", "ring", "full", "all", "alternating"),
     )
 
 

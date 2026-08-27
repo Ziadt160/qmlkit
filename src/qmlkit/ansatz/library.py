@@ -33,6 +33,7 @@ from qmlkit.ansatz.blocks import (
 )
 from qmlkit.core.builder import QCircuit, entangler_pairs
 from qmlkit.core.ir import CircuitSpec
+from qmlkit.utils.errors import unknown
 
 __all__ = [
     "Ansatz",
@@ -140,7 +141,7 @@ class Ansatz:
             return rng.uniform(-np.pi, np.pi, n)
         if method == "zeros":
             return np.zeros(n)
-        raise ValueError(f"unknown init method {method!r}; expected small, uniform or zeros")
+        raise unknown("init method", method, ("small", "uniform", "zeros"))
 
     # -------------------------------------------------------------- resources --
     def resources(self) -> dict[str, object]:
@@ -187,8 +188,12 @@ def get_ansatz(name: str, **kwargs: object) -> Ansatz:
     try:
         factory = _REGISTRY[name]
     except KeyError:
-        raise KeyError(
-            f"unknown ansatz {name!r}; registered: {', '.join(list_ansatze())}"
+        raise unknown(
+            "ansatz",
+            name,
+            list_ansatze(),
+            hint="Add your own with register_ansatz(name, factory).",
+            error=KeyError,
         ) from None
     return factory(**kwargs)
 
@@ -381,8 +386,12 @@ def _resolve_filter(spec: str | tuple[ConvFilter, int]) -> tuple[ConvFilter, int
         try:
             return _FILTERS[spec]
         except KeyError:
-            raise KeyError(
-                f"unknown conv filter {spec!r}; available: {', '.join(list_conv_filters())}"
+            raise unknown(
+                "conv filter",
+                spec,
+                list_conv_filters(),
+                hint="Add your own with register_conv_filter(name, factory).",
+                error=KeyError,
             ) from None
     fn, n_params = spec
     return fn, int(n_params)
@@ -463,7 +472,7 @@ def qaoa_ansatz(
     """
     graph = list(edges) if edges is not None else list(entangler_pairs(n_qubits, "chain"))
     if mixer not in ("x", "y", "xy"):
-        raise ValueError(f"mixer must be 'x', 'y' or 'xy', got {mixer!r}")
+        raise unknown("mixer", mixer, ("x", "y", "xy"))
 
     def build(qc: QCircuit, ctx: BuildContext) -> None:
         for q in ctx.active:
