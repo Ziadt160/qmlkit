@@ -2761,27 +2761,15 @@ The circuit IR, gates, observables, execution and backends. Everything else in t
 
 ## `qmlkit.core.ir`
 
-::: qmlkit.core.ir
-
 ## `qmlkit.core.gates`
-
-::: qmlkit.core.gates
 
 ## `qmlkit.core.observables`
 
-::: qmlkit.core.observables
-
 ## `qmlkit.core.builder`
-
-::: qmlkit.core.builder
 
 ## `qmlkit.core.execute`
 
-::: qmlkit.core.execute
-
 ## `qmlkit.core.backends.registry`
-
-::: qmlkit.core.backends.registry
 
 
 ==============================================================================
@@ -2794,27 +2782,15 @@ Six estimators behind one `grad()`, plus the shift-rule machinery they share.
 
 ## `qmlkit.gradients.dispatch`
 
-::: qmlkit.gradients.dispatch
-
 ## `qmlkit.gradients.rules`
-
-::: qmlkit.gradients.rules
 
 ## `qmlkit.gradients.parameter_shift`
 
-::: qmlkit.gradients.parameter_shift
-
 ## `qmlkit.gradients.adjoint`
-
-::: qmlkit.gradients.adjoint
 
 ## `qmlkit.gradients.hadamard`
 
-::: qmlkit.gradients.hadamard
-
 ## `qmlkit.gradients.spsa`
-
-::: qmlkit.gradients.spsa
 
 
 ==============================================================================
@@ -2827,23 +2803,13 @@ Getting classical data into a circuit, and the scaling decisions that come first
 
 ## `qmlkit.encoding.angle`
 
-::: qmlkit.encoding.angle
-
 ## `qmlkit.encoding.amplitude`
-
-::: qmlkit.encoding.amplitude
 
 ## `qmlkit.encoding.feature_maps`
 
-::: qmlkit.encoding.feature_maps
-
 ## `qmlkit.encoding.hamiltonian`
 
-::: qmlkit.encoding.hamiltonian
-
 ## `qmlkit.encoding.scaling`
-
-::: qmlkit.encoding.scaling
 
 
 ==============================================================================
@@ -2856,15 +2822,9 @@ A block vocabulary, the templates written in it, and re-uploading as a compositi
 
 ## `qmlkit.ansatz.blocks`
 
-::: qmlkit.ansatz.blocks
-
 ## `qmlkit.ansatz.library`
 
-::: qmlkit.ansatz.library
-
 ## `qmlkit.ansatz.reupload`
-
-::: qmlkit.ansatz.reupload
 
 
 ==============================================================================
@@ -2877,15 +2837,9 @@ Three overlap estimators, Gram matrices that stay positive semi-definite, and th
 
 ## `qmlkit.kernels.estimators`
 
-::: qmlkit.kernels.estimators
-
 ## `qmlkit.kernels.matrix`
 
-::: qmlkit.kernels.matrix
-
 ## `qmlkit.kernels.models`
-
-::: qmlkit.kernels.models
 
 
 ==============================================================================
@@ -2898,15 +2852,9 @@ Circuits as `nn.Module`s, with gradients flowing to the inputs as well as the we
 
 ## `qmlkit.nn.layer`
 
-::: qmlkit.nn.layer
-
 ## `qmlkit.nn.models`
 
-::: qmlkit.nn.models
-
 ## `qmlkit.nn.advanced`
-
-::: qmlkit.nn.advanced
 
 
 ==============================================================================
@@ -2919,39 +2867,21 @@ Measuring an ansatz rather than asserting things about it: expressibility, entan
 
 ## `qmlkit.diagnostics`
 
-::: qmlkit.diagnostics
-
 ## `qmlkit.metrics`
-
-::: qmlkit.metrics
 
 ## `qmlkit.fourier`
 
-::: qmlkit.fourier
-
 ## `qmlkit.info`
-
-::: qmlkit.info
 
 ## `qmlkit.optim`
 
-::: qmlkit.optim
-
 ## `qmlkit.datasets`
-
-::: qmlkit.datasets
 
 ## `qmlkit.draw`
 
-::: qmlkit.draw
-
 ## `qmlkit.generative`
 
-::: qmlkit.generative
-
 ## `qmlkit.utils.shots`
-
-::: qmlkit.utils.shots
 
 
 ==============================================================================
@@ -3087,22 +3017,6 @@ state in closed form. That gap widens with size rather than narrowing.
 
 Single machine, single thread, small registers, exact simulation throughout. Nothing
 here says anything about running on hardware.
-
-
-==============================================================================
-# About / Changelog    (source: docs/about/changelog.md)
-==============================================================================
-
-# Changelog
-
---8<-- "CHANGELOG.md"
-
-
-==============================================================================
-# About / Releasing    (source: docs/about/releasing.md)
-==============================================================================
-
---8<-- "RELEASING.md"
 
 
 ==============================================================================

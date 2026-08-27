@@ -32,7 +32,7 @@ lecture repo — it maps lectures to library features and belongs with the lectu
 
 ## Status
 
-**864 tests, 0 failures.** ruff + `mypy --strict` clean. **93% coverage**, combined in
+**924 tests, 0 failures.** ruff + `mypy --strict` clean. **93% coverage**, combined in
 CI across every job — the number CI actually computes, not a local estimate. Two of the
 twelve coverage files still fail to map (macOS and Windows record different absolute
 roots), so the figure is carried by the `full` job, which installs every extra and runs

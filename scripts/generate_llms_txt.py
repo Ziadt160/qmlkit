@@ -130,6 +130,36 @@ def _summary(path: str) -> str:
     return ""
 
 
+def _is_directive_stub(body: str) -> bool:
+    """True when a page is nothing but headings and mkdocs directives.
+
+    The reference pages are ``::: qmlkit.metrics`` under a heading, and the changelog
+    and release pages are ``--8<--`` includes. Both are filled in at build time, so
+    the raw markdown carries no prose to copy — and for the reference pages the API
+    index at the end of the file already covers what mkdocstrings would have produced.
+    """
+    content = [
+        line for line in body.splitlines() if line.strip() and not line.lstrip().startswith("#")
+    ]
+    return bool(content) and all(
+        line.lstrip().startswith((":::", "--8<--")) for line in content
+    )
+
+
+def _without_directives(body: str) -> str:
+    """Drop the directive lines, keep everything around them.
+
+    A reference page is a prose intro and a heading per module, with a ``:::`` under
+    each. The directives expand to nothing here, but the headings around them are a
+    map of which module holds what — worth keeping, and the API index below supplies
+    the detail they would have expanded to.
+    """
+    kept = [
+        line for line in body.splitlines() if not line.lstrip().startswith((":::", "--8<--"))
+    ]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
+
+
 def _url(path: str) -> str:
     """Where mkdocs will serve that page, with ``use_directory_urls`` on."""
     stem = path[: -len(".md")]
@@ -196,8 +226,9 @@ def build_full() -> str:
     out = ["# qmlkit", "", PREAMBLE.rstrip(), ""]
     for section, title, path in _nav():
         body = (DOCS / path).read_text(encoding="utf-8").strip()
-        if body.count("\n") < 3 and ":::" in body:
-            continue  # a reference stub: mkdocstrings fills it in, so there is no prose
+        if _is_directive_stub(body):
+            continue
+        body = _without_directives(body)
         label = f"{section} / {title}" if section else title
         out += ["", "=" * 78, f"# {label}    (source: docs/{path})", "=" * 78, "", body, ""]
     out += [
