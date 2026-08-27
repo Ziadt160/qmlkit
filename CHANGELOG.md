@@ -365,3 +365,39 @@ without a `dmatrix`, which is the only case that still consults `eps`.
   run. It now draws from a snapshot taken at import, and a separate test asserts the
   PennyLane mapping covers every built-in gate, so adding a gate cannot silently
   escape this file's coverage.
+
+### Added — generic molecules, feature pipeline, scikit-learn interoperability
+
+- `qmlkit.algorithms.molecule`: `from_integrals()` takes one- and two-electron
+  integrals from anywhere — PySCF, OpenFermion, Psi4 — so *any* molecule becomes a
+  qubit Hamiltonian, with `active_space` to fit it on the register you have.
+  `molecular_hamiltonian(Molecule(...))` computes them here for s-orbital elements
+  with a real restricted Hartree-Fock loop, covering H2, H3+, H4 chains and rings and
+  HeH+ at arbitrary geometry. Validated against the H2-specific builder it
+  generalises: the two agree to 7.4e-09.
+- `FeaturePipeline` — standardise, reduce, scale to angles, fitted once on training
+  data. `PCAReducer` already matched scikit-learn to 1e-16, but `reduce_to_qubits`
+  refits on every call and so could not be applied to a held-out set.
+- `SklearnCompatible` — `get_params`/`set_params` read off the constructor signature,
+  and a lazily imported `__sklearn_tags__`. `QSVC` and `QSVR` now survive `clone`,
+  which is what `Pipeline`, `cross_val_score` and `GridSearchCV` are built on, while
+  scikit-learn stays an optional dependency.
+- `qmlkit.algorithms.chemistry.h2_hamiltonian` and `chemistry_operator_pool`.
+- `HANDOFF.md` — status, the four enforced conventions, known traps, ranked next steps.
+
+### Fixed
+
+- **The core library briefly depended on SciPy.** The Boys function imported
+  `scipy.special.erf`, which is installed locally alongside torch and absent from a
+  bare install, so every `core` CI job failed on a dependency nobody had declared —
+  breaking the README's promise of NumPy and nothing else. `math.erf` has been in the
+  standard library since 3.2 and both call sites were already scalar.
+  `scripts/verify_install.py` now lists SciPy among the modules that must not leak in;
+  it could not have caught this before, because its list was hand-maintained.
+- The Pauli decomposition was `Tr(P @ H)` per term: `4^n` strings each a `2^n x 2^n`
+  matrix product, `O(16^n)` — about a minute for a four-atom molecule. The same
+  coefficients come out of `n` applications of one 4x4 change of basis, `O(n * 4^n)`,
+  so H4 builds in 4.5 seconds instead of minutes.
+- `.ravel()` gets a shape-typed result under newer NumPy stubs, so reassigning a
+  general-shape array to it failed strict type-checking. Only CI's Python 3.10 NumPy
+  tripped on this; two other NumPy generations tested locally did not.

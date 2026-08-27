@@ -16,6 +16,7 @@ circuit runs on SpinQit, Qiskit, Cirq, or the built-in exact NumPy reference.
 Expectations are exact unless you ask for shots.
 
 **[Documentation](https://ziadt160.github.io/qmlkit/)** — tutorials, guides and a generated API reference.
+**[HANDOFF.md](HANDOFF.md)** — status, conventions, known traps, and what to do next, if you are picking this up.
 
 ## Two lines
 

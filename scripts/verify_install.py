@@ -47,7 +47,19 @@ check("version matches the distribution", qk.__version__ == "0.1.0", qk.__versio
 # --------------------------------------------------------------------------- #
 print("\nno optional dependency is secretly required")
 # --------------------------------------------------------------------------- #
-optional = ("torch", "qiskit", "cirq", "spinqit", "sklearn", "matplotlib", "pennylane")
+# scipy is on this list because it once slipped in: the chemistry module imported
+# scipy.special.erf, which is installed alongside torch locally and absent in a bare
+# CI job, so every core job failed on a dependency nobody had declared.
+optional = (
+    "torch",
+    "qiskit",
+    "cirq",
+    "spinqit",
+    "sklearn",
+    "matplotlib",
+    "pennylane",
+    "scipy",
+)
 leaked = [m for m in optional if m in sys.modules]
 check(
     "importing qmlkit pulls in no optional SDK", not leaked, f"leaked: {leaked}" if leaked else ""

@@ -23,6 +23,7 @@ OpenFermion, and the point here is transparency rather than coverage.
 from __future__ import annotations
 
 import itertools
+import math
 from typing import Any
 
 import numpy as np
@@ -59,13 +60,16 @@ _PAULI: dict[str, npt.NDArray[Any]] = {
 }
 
 
-def _boys(t: npt.NDArray[Any] | float) -> npt.NDArray[Any]:
-    """Boys function :math:`F_0`, which is all s-type integrals need."""
-    from scipy.special import erf
+def _boys(t: float) -> float:
+    """Boys function :math:`F_0`, which is all s-type integrals need.
 
-    arr = np.asarray(t, dtype=float)
-    safe = np.maximum(arr, 1e-12)
-    return np.where(arr < 1e-12, 1.0, np.sqrt(np.pi / (4 * safe)) * erf(np.sqrt(safe)))
+    `math.erf` rather than SciPy's: qmlkit depends on NumPy alone, and reaching for
+    SciPy here would have added a runtime dependency for one scalar special function.
+    """
+    value = float(t)
+    if value < 1e-12:
+        return 1.0
+    return float(np.sqrt(np.pi / (4 * value)) * math.erf(np.sqrt(value)))
 
 
 def _kron(*matrices: npt.NDArray[Any]) -> npt.NDArray[Any]:

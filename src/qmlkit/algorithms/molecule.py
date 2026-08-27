@@ -40,6 +40,7 @@ papered over.
 from __future__ import annotations
 
 import itertools
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -150,11 +151,15 @@ def hydrogen_ring(n: int, radius: float = 1.0) -> Molecule:
 # integrals over contracted s-type Gaussians
 # --------------------------------------------------------------------------- #
 def _boys(t: float) -> float:
-    from scipy.special import erf
+    """Boys function F0, from the standard library rather than SciPy.
 
+    `math.erf` has been there since Python 3.2, and using it keeps qmlkit's only
+    runtime dependency NumPy -- which is a promise the README makes and which CI
+    checks by installing nothing else.
+    """
     if t < 1e-12:
         return 1.0
-    return float(np.sqrt(np.pi / (4 * t)) * erf(np.sqrt(t)))
+    return float(np.sqrt(np.pi / (4 * t)) * math.erf(np.sqrt(t)))
 
 
 def _basis(molecule: Molecule) -> list[tuple[npt.NDArray[Any], npt.NDArray[Any], npt.NDArray[Any]]]:
