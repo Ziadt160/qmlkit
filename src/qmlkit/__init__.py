@@ -78,6 +78,7 @@ from qmlkit.core.execute import (
 from qmlkit.core.gates import GateDef, get_gate, list_gates, register_gate
 from qmlkit.core.ir import CircuitSpec, Op, ParamRef, Slot
 from qmlkit.core.observables import ZZ, I, PauliString, PauliSum, X, Y, Z
+from qmlkit.diagnostics import Finding, Report, diagnose
 from qmlkit.draw import draw, specs
 from qmlkit.encoding import (
     AngleFeatureMap,
@@ -305,6 +306,10 @@ __all__ = [
     "state_fidelity",
     "concurrence",
     "bloch_vector",
+    # diagnostics
+    "diagnose",
+    "Finding",
+    "Report",
     # visualisation
     "draw",
     "specs",

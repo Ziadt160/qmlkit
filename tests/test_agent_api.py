@@ -17,10 +17,12 @@ from __future__ import annotations
 import doctest
 import re
 
+import numpy as np
 import pytest
 
 import qmlkit as qk
-from qmlkit import _aliases
+from qmlkit import _aliases, diagnostics
+from qmlkit.ansatz import EncodingLayer, repeat
 from qmlkit.utils import errors
 from qmlkit.utils.errors import did_you_mean, unknown, wrong_size
 
@@ -172,19 +174,19 @@ def test_a_name_from_another_library_is_answered_with_the_qmlkit_one(
 
 def test_the_source_library_is_named_so_the_confusion_is_visible() -> None:
     with pytest.raises(AttributeError, match="PennyLane"):
-        getattr(qk, "AngleEmbedding")
+        _ = qk.AngleEmbedding
     with pytest.raises(AttributeError, match="Qiskit"):
-        getattr(qk, "QuantumCircuit")
+        _ = qk.QuantumCircuit
 
 
 def test_a_plain_typo_falls_back_to_a_near_match() -> None:
     with pytest.raises(AttributeError, match="hardware_efficient"):
-        getattr(qk, "hardware_eficient")
+        _ = qk.hardware_eficient
 
 
 def test_a_name_nobody_could_have_meant_still_raises_plainly() -> None:
     with pytest.raises(AttributeError, match="has no attribute"):
-        getattr(qk, "totally_made_up_xyz")
+        _ = qk.totally_made_up_xyz
 
 
 def test_dir_lists_the_lazily_served_torch_exports() -> None:
@@ -193,3 +195,148 @@ def test_dir_lists_the_lazily_served_torch_exports() -> None:
     assert "VQC" in listed
     assert "QuantumLayer" in listed
     assert "expectation" in listed
+
+
+# --------------------------------------------------------------------------- #
+# diagnose: the failures that return a number instead of raising
+# --------------------------------------------------------------------------- #
+def _hand_composed_reupload(rotation: str, block_gate: str, layers: int = 3) -> qk.Ansatz:
+    """A re-uploading model built out of blocks, which is the case reupload() cannot warn about."""
+    fmap = qk.AngleFeatureMap(1, rotation=rotation)
+    body = repeat(layers, EncodingLayer(fmap) + qk.RotationLayer(block_gate))
+    return qk.Ansatz(1, body, n_inputs=1)
+
+
+def test_the_diagnostics_examples_run() -> None:
+    result = doctest.testmod(diagnostics, verbose=False)
+    assert result.attempted > 0
+    assert result.failed == 0
+
+
+def test_a_healthy_ansatz_reports_nothing() -> None:
+    report = qk.diagnose(qk.hardware_efficient(3, 2))
+    assert not report
+    assert report.codes == ()
+    assert "nothing to report" in str(report)
+
+
+def test_the_commuting_encoding_trap_is_caught_when_composed_by_hand() -> None:
+    """reupload() warns at construction; blocks composed directly do not, and this is why."""
+    report = qk.diagnose(_hand_composed_reupload("ry", "ry"))
+    assert "ENCODING_COMMUTES" in report.codes
+    assert report.errors[0].fix
+
+
+def test_a_non_commuting_block_is_left_alone() -> None:
+    assert "ENCODING_COMMUTES" not in qk.diagnose(_hand_composed_reupload("ry", "rx")).codes
+
+
+def test_uploads_are_counted_through_repeat_not_by_tree_node() -> None:
+    """``repeat(3, ...)`` is one node and three uploads; counting nodes hides the collapse."""
+    report = qk.diagnose(_hand_composed_reupload("ry", "ry", layers=3))
+    finding = next(f for f in report if f.code == "ENCODING_COMMUTES")
+    assert finding.value == 3.0
+    assert "3 uploads" in finding.message
+
+
+def test_a_weight_that_cannot_move_the_state_is_reported() -> None:
+    """Rz on |0> is a global phase, so its angle is optimised over and cannot matter."""
+    report = qk.diagnose(qk.Ansatz(2, qk.RotationLayer("rz")))
+    assert "DEAD_WEIGHTS" in report.codes
+
+
+def test_a_live_weight_is_not_called_dead() -> None:
+    assert "DEAD_WEIGHTS" not in qk.diagnose(qk.hardware_efficient(3, 2)).codes
+
+
+def test_an_input_the_model_cannot_feel_is_an_error() -> None:
+    report = qk.diagnose(_hand_composed_reupload("rz", "rz", layers=1))
+    assert "INPUTS_UNUSED" in report.codes
+    assert report.findings[0].severity == "error"
+
+
+def test_a_circuit_that_only_makes_product_states_is_reported() -> None:
+    report = qk.diagnose(qk.Ansatz(3, qk.RotationLayer("ry")))
+    assert "NO_ENTANGLEMENT" in report.codes
+
+
+def test_findings_come_back_worst_first() -> None:
+    report = qk.diagnose(_hand_composed_reupload("rz", "rz", layers=1))
+    ranks = [{"error": 0, "warning": 1, "info": 2}[f.severity] for f in report]
+    assert ranks == sorted(ranks)
+
+
+def test_a_deep_wide_ansatz_is_priced_in_shots() -> None:
+    """Exact gradients hide what the same model costs on a sampling device."""
+    report = qk.diagnose(qk.hardware_efficient(10, 20), n_samples=40)
+    finding = next(f for f in report if f.code == "FLAT_GRADIENTS")
+    assert "shots" in finding.message
+    assert finding.value is not None and finding.value < 1e-3
+
+
+# --------------------------------------------------------------------------- #
+# diagnose: Gram matrices
+# --------------------------------------------------------------------------- #
+def _rbf_gram(n: int = 10, seed: int = 1) -> np.ndarray:
+    X = np.random.default_rng(seed).normal(size=(n, 2))
+    return np.exp(-((X[:, None, :] - X[None, :, :]) ** 2).sum(-1))
+
+
+def test_a_healthy_gram_matrix_reports_nothing() -> None:
+    assert not qk.diagnose(_rbf_gram())
+
+
+def test_a_concentrated_gram_matrix_is_an_error() -> None:
+    flat = np.full((8, 8), 0.5)
+    np.fill_diagonal(flat, 1.0)
+    report = qk.diagnose(flat)
+    assert "KERNEL_CONCENTRATED" in report.codes
+    assert report.errors
+
+
+def test_a_non_psd_gram_matrix_names_the_repair() -> None:
+    report = qk.diagnose(np.array([[1.0, 0.9, -0.9], [0.9, 1.0, 0.9], [-0.9, 0.9, 1.0]]))
+    finding = next(f for f in report if f.code == "KERNEL_NOT_PSD")
+    assert "closest_psd_matrix" in finding.fix
+
+
+def test_a_signal_under_the_shot_noise_is_reported() -> None:
+    rng = np.random.default_rng(3)
+    gram = np.full((10, 10), 0.5) + rng.normal(0, 0.01, (10, 10))
+    gram = (gram + gram.T) / 2
+    np.fill_diagonal(gram, 1.0)
+    assert "KERNEL_UNRESOLVABLE" in qk.diagnose(gram, shots=100).codes
+    assert "KERNEL_UNRESOLVABLE" not in qk.diagnose(gram, shots=10_000_000).codes
+
+
+def test_a_gram_matrix_has_to_be_square() -> None:
+    with pytest.raises(ValueError, match="must be square"):
+        qk.diagnose(np.zeros((3, 5)))
+
+
+# --------------------------------------------------------------------------- #
+# diagnose: what it accepts
+# --------------------------------------------------------------------------- #
+def test_diagnose_finds_the_ansatz_inside_a_torch_model() -> None:
+    """A model is whatever holds an ansatz, however deeply nested."""
+    torch = pytest.importorskip("torch")
+    layer = qk.QuantumLayer(qk.ZZFeatureMap(4), qk.hardware_efficient(4, 2), [qk.Z(0)])
+    net = torch.nn.Sequential(torch.nn.Linear(8, 4), torch.nn.Tanh(), layer)
+    assert "hardware_efficient" in str(qk.diagnose(net))
+    assert "hardware_efficient" in str(qk.diagnose(qk.VQC(n_features=4, n_classes=2)))
+
+
+def test_diagnose_says_what_it_takes_when_given_something_else() -> None:
+    with pytest.raises(TypeError) as caught:
+        qk.diagnose("an ansatz, surely")
+    text = str(caught.value)
+    assert "cannot inspect a str" in text
+    assert "Ansatz" in text and "Gram matrix" in text
+
+
+def test_a_report_behaves_like_the_sequence_it_is() -> None:
+    report = qk.diagnose(qk.Ansatz(2, qk.RotationLayer("rz")))
+    assert bool(report) is True
+    assert len(report) == len(report.codes) == len(list(report))
+    assert report[0] is report.findings[0]
+    assert set(report.errors) | set(report.warnings) <= set(report.findings)
