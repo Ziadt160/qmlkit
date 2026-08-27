@@ -24,6 +24,10 @@ from qmlkit.generative import (
 )
 
 torch = pytest.importorskip("torch")
+
+# Without this marker the file runs nowhere in CI: the core jobs have no torch and
+# skip it, and the torch job selects by marker and never sees it.
+pytestmark = pytest.mark.torch
 nn = torch.nn
 
 

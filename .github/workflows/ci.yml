@@ -83,6 +83,32 @@ jobs:
           path: .coverage.*
           include-hidden-files: true
 
+  # Everything installed at once, running the whole suite rather than a marker
+  # selection. Two reasons. First, the coverage number: the core jobs have no optional
+  # SDK and the sdk jobs each run one marker, so between them a file can be covered by
+  # nobody -- test_advanced.py ran in *no* CI job for exactly that reason, and
+  # nn/advanced.py sat at 66%. Second, integration: this is the only job where torch,
+  # Qiskit, Cirq and PennyLane are present together, which is how most users install.
+  full:
+    name: All extras · py3.12
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev,torch,qiskit,cirq,sklearn,pennylane,viz]"
+      - name: Confirm every extra actually imported
+        run: python -c "import torch, qiskit, cirq, sklearn, pennylane, matplotlib"
+      - name: Whole suite, no marker filter
+        run: coverage run --parallel-mode --source=qmlkit -m pytest -q
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-full
+          path: .coverage.*
+          include-hidden-files: true
+
   # SpinQit only has wheels for 3.8-3.10 and pins numpy<2, so it gets its own job
   # on 3.10. Allowed to fail without blocking: the NumPy backend is the reference,
   # and a SpinQit packaging problem upstream is not a qmlkit regression.
@@ -112,7 +138,7 @@ jobs:
   # single interpreter can import all four backends.
   coverage:
     name: Combined coverage
-    needs: [core, sdk]
+    needs: [core, sdk, full]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
