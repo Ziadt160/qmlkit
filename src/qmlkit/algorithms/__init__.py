@@ -7,8 +7,20 @@ an argument rather than something baked in.
 
 from __future__ import annotations
 
-from qmlkit.algorithms.adapt import AdaptResult, AdaptVQE, default_operator_pool, pauli_rotation
+from qmlkit.algorithms.adapt import (
+    AdaptResult,
+    AdaptVQE,
+    chemistry_operator_pool,
+    default_operator_pool,
+    pauli_rotation,
+)
 from qmlkit.algorithms.autoencoder import AutoencoderResult, QuantumAutoencoder
+from qmlkit.algorithms.chemistry import (
+    CHEMICAL_ACCURACY,
+    HARTREE_TO_KCAL,
+    h2_curve,
+    h2_hamiltonian,
+)
 from qmlkit.algorithms.clustering import QMeans, QMeansResult
 from qmlkit.algorithms.hamiltonians import (
     exact_ground_energy,
@@ -31,9 +43,14 @@ __all__ = [
     "AdaptResult",
     "pauli_rotation",
     "default_operator_pool",
+    "chemistry_operator_pool",
     "QuantumAutoencoder",
     "AutoencoderResult",
     "QMeans",
+    "h2_hamiltonian",
+    "h2_curve",
+    "CHEMICAL_ACCURACY",
+    "HARTREE_TO_KCAL",
     "QMeansResult",
     "QuantumPolicy",
     "ContextualBandit",

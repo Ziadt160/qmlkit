@@ -19,6 +19,7 @@ mid-optimisation is a list append here, not a rebuild.
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -34,7 +35,13 @@ from qmlkit.core.builder import QCircuit
 from qmlkit.core.execute import BackendLike, expectation
 from qmlkit.core.observables import Observable, PauliString, PauliSum, as_sum
 
-__all__ = ["AdaptVQE", "AdaptResult", "pauli_rotation", "default_operator_pool"]
+__all__ = [
+    "AdaptVQE",
+    "AdaptResult",
+    "pauli_rotation",
+    "default_operator_pool",
+    "chemistry_operator_pool",
+]
 
 
 def pauli_rotation(qc: QCircuit, term: PauliString, angle: Any) -> None:
@@ -73,9 +80,37 @@ def default_operator_pool(n_qubits: int) -> list[PauliString]:
     starting state, which is what a real-amplitude ground state needs. The pool is an
     argument, so a chemistry-flavoured (UCCSD-style) pool drops straight in.
     """
+    # Note these do *not* conserve particle number, so they are useless on a
+    # molecular Hamiltonian -- see chemistry_operator_pool.
     pool = [PauliString(((q, "Y"),), 1.0) for q in range(n_qubits)]
     pool += [PauliString(((q, "Y"), (q + 1, "Z")), 1.0) for q in range(n_qubits - 1)]
     pool += [PauliString(((q, "Y"), (q + 1, "X")), 1.0) for q in range(n_qubits - 1)]
+    return pool
+
+
+def chemistry_operator_pool(n_qubits: int) -> list[PauliString]:
+    r"""A particle-number-conserving pool, for molecular Hamiltonians.
+
+    :func:`default_operator_pool` is generic and *wrong for chemistry*: a molecular
+    Hamiltonian commutes with the number operator, so any generator that changes
+    particle number has exactly zero gradient at the Hartree-Fock state. Measured on
+    H\ :sub:`2`: every operator in the default pool scores ``0.00e+00``, ADAPT
+    correctly concludes nothing helps, and returns an empty circuit.
+
+    This is the qubit-ADAPT pool of Tang et al. (2021) — the individual Pauli strings
+    appearing in single and double excitations, which under Jordan-Wigner carry an
+    **odd number of Y factors**. On H\ :sub:`2` the winning operator is the double
+    excitation ``Y0 X1 X2 X3``, and one parameter is enough to reach the exact ground
+    state.
+    """
+    pool: list[PauliString] = []
+    for p_, q_ in itertools.combinations(range(n_qubits), 2):  # singles
+        pool.append(PauliString(((p_, "Y"), (q_, "X")), 1.0))
+        pool.append(PauliString(((p_, "X"), (q_, "Y")), 1.0))
+    for quad in itertools.combinations(range(n_qubits), 4):  # doubles
+        for y_at in range(4):
+            paulis = tuple((wire, "Y" if index == y_at else "X") for index, wire in enumerate(quad))
+            pool.append(PauliString(paulis, 1.0))
     return pool
 
 

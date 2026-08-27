@@ -370,3 +370,81 @@ def test_adapt_accepts_a_custom_operator_pool():
     result = AdaptVQE(ising_hamiltonian(3), 3, pool=pool).run(max_operators=4, n_steps=60, lr=0.2)
     assert 0 < result.n_operators <= 4
     assert all(op in pool for op in result.operators)
+
+
+# --------------------------------------------------------------------------- #
+# molecular Hamiltonians
+# --------------------------------------------------------------------------- #
+def test_h2_reproduces_the_published_ground_state_energy():
+    """The whole chemistry pipeline is only trustworthy if this number is right.
+
+    -1.1373 Ha at 0.735 A is the standard FCI/STO-3G result, and it is the one
+    external fact this module depends on.
+    """
+    from qmlkit.algorithms import h2_hamiltonian
+
+    hamiltonian, info = h2_hamiltonian(0.735)
+    assert info["n_qubits"] == 4
+    assert exact_ground_energy(hamiltonian, 4) == pytest.approx(-1.1373, abs=1e-4)
+
+
+def test_h2_curve_binds_and_dissociates():
+    """A potential energy curve has to have the right shape, not just one point."""
+    from qmlkit.algorithms import h2_hamiltonian
+
+    energies = {r: exact_ground_energy(h2_hamiltonian(r)[0], 4) for r in (0.4, 0.735, 1.4, 3.0)}
+    assert energies[0.735] == min(energies.values()), "the minimum must be near equilibrium"
+    assert energies[0.4] > energies[0.735], "repulsion must dominate at short range"
+    assert energies[3.0] > energies[1.4], "the curve must flatten as the atoms separate"
+    assert energies[3.0] == pytest.approx(-0.933, abs=0.01)  # two isolated H atoms
+
+
+def test_the_pauli_decomposition_round_trips():
+    """Projecting onto Paulis and rebuilding the matrix must be lossless."""
+    from qmlkit.algorithms.chemistry import _matrix, h2_hamiltonian
+
+    hamiltonian, _ = h2_hamiltonian(0.9)
+    rebuilt = hamiltonian_matrix(hamiltonian, 4)
+    direct, _ = _matrix(0.9)
+    assert rebuilt == pytest.approx(direct, abs=1e-10)
+
+
+def test_the_generic_adapt_pool_is_blind_to_a_molecular_hamiltonian():
+    """Not a bug — physics, and worth pinning so nobody 'fixes' it later.
+
+    A molecular Hamiltonian conserves particle number, so every generator that does
+    not has exactly zero gradient at Hartree-Fock. ADAPT correctly grows nothing.
+    """
+    from qmlkit.algorithms import chemistry_operator_pool, default_operator_pool, h2_hamiltonian
+    from qmlkit.algorithms.adapt import _commutator
+
+    hamiltonian, _ = h2_hamiltonian(0.735)
+    builder = qk.QCircuit(4)
+    builder.x(0).x(1)
+    hartree_fock = builder.to_spec()
+
+    for operator in default_operator_pool(4):
+        commutator = _commutator(hamiltonian, operator)
+        if commutator.terms:
+            assert abs(qk.expval(hartree_fock, commutator)) < 1e-12
+
+    best = max(
+        abs(qk.expval(hartree_fock, _commutator(hamiltonian, op)))
+        for op in chemistry_operator_pool(4)
+    )
+    assert best > 0.1, "a particle-number-conserving pool must find something to do"
+
+
+def test_adapt_solves_h2_exactly_with_one_operator():
+    """The textbook result: a single double excitation is the whole ansatz."""
+    from qmlkit.algorithms import CHEMICAL_ACCURACY, chemistry_operator_pool, h2_hamiltonian
+
+    hamiltonian, _ = h2_hamiltonian(0.735)
+    exact = exact_ground_energy(hamiltonian, 4)
+    result = AdaptVQE(hamiltonian, 4, pool=chemistry_operator_pool(4), reference=[0, 1]).run(
+        max_operators=3, gradient_tol=1e-4, n_steps=250, lr=0.3
+    )
+
+    assert result.n_operators == 1
+    assert abs(result.energy - exact) < CHEMICAL_ACCURACY
+    assert result.energy >= exact - 1e-9

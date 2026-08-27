@@ -118,7 +118,10 @@ def minimize_spsa(
     """
     sched = schedule or SPSASchedule(n_iterations=n_iterations)
     rng = np.random.default_rng(seed)
-    theta = np.asarray(theta0, dtype=float).ravel().copy()
+    # Annotated explicitly: newer NumPy stubs give `.ravel()` a *shape-typed* 1-D
+    # result, and reassigning a general-shape array to it then fails strict type-checking.
+    # Only CI's Python 3.10 NumPy tripped on this; two other NumPy generations did not.
+    theta: npt.NDArray[Any] = np.asarray(theta0, dtype=float).ravel().copy()
     history: list[float] = []
     for k in range(n_iterations):
         value = float(f(theta))
