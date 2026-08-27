@@ -12,7 +12,7 @@ others cannot.
 | **Cross-library parity** | 301 cases against PennyLane, an independently written implementation |
 | **Executable documentation** | Every snippet on this site runs in CI |
 
-Plus the ordinary suite: **730 tests, 95% combined coverage** across two interpreters,
+Plus the ordinary suite: **864 tests, 93% combined coverage** measured in CI,
 `ruff` and `mypy --strict` clean.
 
 ## Parity with PennyLane
