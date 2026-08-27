@@ -72,6 +72,32 @@ markers = [
   "pennylane: cross-validation against PennyLane",
 ]
 
+[tool.coverage.run]
+source = ["qmlkit"]
+parallel = true
+
+# Coverage records absolute paths, and the matrix runs on three operating systems:
+# ubuntu under /home/runner, macOS under /Users/runner, Windows under D:\a.
+# The combining job runs on ubuntu, so without this it cannot match the other two
+# and silently reports "skipped 2" -- the combined number, which is one of the
+# project's headline claims, was then simply not being computed.
+# Single-quoted TOML strings are literal, which is what Windows paths need.
+[tool.coverage.paths]
+source = [
+  "src/qmlkit",
+  "*/src/qmlkit",
+  '*\src\qmlkit',
+  "*/site-packages/qmlkit",
+  '*\site-packages\qmlkit',
+]
+
+[tool.coverage.report]
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+  "@overload",
+]
+
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]
