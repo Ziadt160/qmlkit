@@ -1,0 +1,84 @@
+# qmlkit
+
+> A backend-agnostic quantum machine learning library: reusable feature maps, a
+> composable ansatz vocabulary, quantum kernels, PyTorch layers, and one `grad()`
+> that points at any circuit and observable. The same circuit runs on the built-in
+> NumPy reference, SpinQit, Qiskit or Cirq.
+
+Install with `pip install qmlkit`. The core depends on NumPy and nothing else;
+every SDK is an optional extra (`qmlkit[torch]`, `[qiskit]`, `[cirq]`, `[spinqit]`,
+`[sklearn]`).
+
+What is worth knowing before writing any of it:
+
+- **Simulator-only for the whole 0.x line.** No hardware. Expectations and
+  gradients are exact unless you pass `shots=N`, and `adjoint` is therefore the
+  default gradient method — parameter-shift costs `2P` circuit evaluations for the
+  same answer, so it is the teaching subject and the test-suite reference, not the
+  performance default.
+- **Three layers, and nothing at a higher one hides a lower one.** `VQC(...).fit(X, y)`
+  for a ready-made model; `QuantumLayer(...)` as an `nn.Module` inside any
+  `nn.Sequential`; or circuits and `grad()` directly. Drop a level without giving up
+  what the level above was doing.
+- **Estimators are scikit-learn clonable** and models are `nn.Module`s, so `Pipeline`,
+  `GridSearchCV`, `cross_val_score` and ordinary torch training loops all work.
+- **Run `qk.diagnose(model)` before trusting a result.** In this field a mistake
+  usually returns a plausible number rather than raising: a re-uploading model whose
+  trainable block commutes with its encoding reaches one Fourier frequency instead of
+  the `L` it was designed for, and it trains and converges anyway. `diagnose` returns
+  findings with a code, what was measured, and the edit that fixes it.
+- **The names are qmlkit's, not PennyLane's or Qiskit's**, and a wrong one tells you
+  the right one: `qk.AngleEmbedding` reports that it is `qk.AngleFeatureMap` here.
+  Unknown registry names suggest the nearest valid one, so guessing is cheap.
+- **Every extension point is a registry:** `register_ansatz`, `register_gate`,
+  `register_gradient`, `register_backend`, `register_conv_filter`. Registering makes
+  your thing a first-class citizen everywhere that kind of argument is taken.
+- **Data re-uploading is a pattern, not a class.** It is `EncodingLayer` composed
+  into the block vocabulary, with `reupload()` as a convenience over it.
+
+## Start here
+
+- [Home](https://ziadt160.github.io/qmlkit/): A quantum machine learning library where a circuit is data, not a backend object.
+- [Install](https://ziadt160.github.io/qmlkit/install/): That is the whole install. qmlkit depends on NumPy and nothing else — the NumPy backend is the reference implementation, and every core feature works with no optional package present.
+
+## Tutorials
+
+- [Tutorials](https://ziadt160.github.io/qmlkit/tutorials/): Eight pages, in order. Each one builds on the last, and each is short enough to read in a sitting.
+- [1. Circuits are data](https://ziadt160.github.io/qmlkit/tutorials/01-first-circuit/): Most quantum SDKs give you a circuit object that belongs to a particular simulator.
+- [2. Getting data in](https://ziadt160.github.io/qmlkit/tutorials/02-encoding-data/): A quantum model can only learn functions its encoding can express.
+- [3. Gradients](https://ziadt160.github.io/qmlkit/tutorials/03-gradients/): Six methods, one function. They differ in cost, in whether they are exact, and in whether they could run on real hardware — not in the answer.
+- [4. Designing an ansatz](https://ziadt160.github.io/qmlkit/tutorials/04-ansatz-design/): Most libraries give you a list of templates and a note saying "or write your own", where writing your own means implementing parameter counting, gradients and resource estimation from scratch.
+- [5. Training with PyTorch](https://ziadt160.github.io/qmlkit/tutorials/05-training-torch/): A circuit becomes an nn.Module and everything torch already knows how to do — optimisers, schedulers, batching, autograd — applies unchanged.
+- [6. Quantum kernels](https://ziadt160.github.io/qmlkit/tutorials/06-quantum-kernels/): The other way to use a feature map. No variational parameters, no training loop, no barren plateaus — just an inner product between encoded states, handed to a classical solver that is convex and has a unique optimum.
+- [7. Re-uploading and Fourier](https://ziadt160.github.io/qmlkit/tutorials/07-reuploading/): Encode the data once and a circuit is a fairly limited function of it.
+- [8. Trainability](https://ziadt160.github.io/qmlkit/tutorials/08-trainability/): A correct gradient is not the same as a useful one. Variational circuits have a failure mode where the gradient is exactly right and exponentially small — the barren plateau — and no optimiser recovers from it, because there is nothing to follow.
+
+## Guides
+
+- [Guides](https://ziadt160.github.io/qmlkit/guides/): The tutorials show you how. These explain why, and are meant to be read out of order when a particular question comes up.
+- [The parameter-shift rule](https://ziadt160.github.io/qmlkit/guides/parameter-shift/): It is correct — for a gate whose generator has a single frequency, differentiated one occurrence at a time.
+- [Choosing a gradient method](https://ziadt160.github.io/qmlkit/guides/choosing-a-gradient/): Six methods, and qk.grad(spec, theta, obs) with no method picks a sensible one.
+- [Backends and conventions](https://ziadt160.github.io/qmlkit/guides/backends/): One circuit, five backends, one answer. tests/testcrossbackend.py runs the same circuit zoo through every installed backend and asserts agreement with the NumPy reference on statevectors, probabilities, expectations over X/Y/Z and two-body terms, seeded sampling, and parameter-shift gradients.
+- [Extending qmlkit](https://ziadt160.github.io/qmlkit/guides/extending/): Every extension point is a registry. Register something and it becomes reachable by name everywhere the library takes one — no subclassing, no plugin manifest, no coordination with anything else.
+- [Working with a coding agent](https://ziadt160.github.io/qmlkit/guides/agents/): Most code written against a library now is written by a model, and a model does not read this page before it types.
+
+## Reference
+
+- [Reference](https://ziadt160.github.io/qmlkit/reference/): Generated from the docstrings in the source, so it cannot drift from the code.
+- [Core](https://ziadt160.github.io/qmlkit/reference/core/): The circuit IR, gates, observables, execution and backends. Everything else in the library reads or writes these types.
+- [Gradients](https://ziadt160.github.io/qmlkit/reference/gradients/): Six estimators behind one grad(), plus the shift-rule machinery they share.
+- [Encoding](https://ziadt160.github.io/qmlkit/reference/encoding/): Getting classical data into a circuit, and the scaling decisions that come first.
+- [Ansatz](https://ziadt160.github.io/qmlkit/reference/ansatz/): A block vocabulary, the templates written in it, and re-uploading as a composition.
+- [Kernels](https://ziadt160.github.io/qmlkit/reference/kernels/): Three overlap estimators, Gram matrices that stay positive semi-definite, and the models on top.
+- [PyTorch](https://ziadt160.github.io/qmlkit/reference/nn/): Circuits as nn.Modules, with gradients flowing to the inputs as well as the weights.
+- [Analysis](https://ziadt160.github.io/qmlkit/reference/analysis/): Measuring an ansatz rather than asserting things about it: expressibility, entanglement, spectra, geometry.
+
+## About
+
+- [Validation](https://ziadt160.github.io/qmlkit/about/validation/): A library's own test suite can only catch the bugs its author thought of.
+- [Changelog](https://ziadt160.github.io/qmlkit/about/changelog/)
+- [Releasing](https://ziadt160.github.io/qmlkit/about/releasing/)
+
+## Full text
+
+- [Everything above as one file](https://ziadt160.github.io/qmlkit/llms-full.txt): every tutorial and guide in full, then the whole public API with signatures.

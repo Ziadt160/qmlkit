@@ -1,0 +1,3439 @@
+# qmlkit
+
+> A backend-agnostic quantum machine learning library: reusable feature maps, a
+> composable ansatz vocabulary, quantum kernels, PyTorch layers, and one `grad()`
+> that points at any circuit and observable. The same circuit runs on the built-in
+> NumPy reference, SpinQit, Qiskit or Cirq.
+
+Install with `pip install qmlkit`. The core depends on NumPy and nothing else;
+every SDK is an optional extra (`qmlkit[torch]`, `[qiskit]`, `[cirq]`, `[spinqit]`,
+`[sklearn]`).
+
+What is worth knowing before writing any of it:
+
+- **Simulator-only for the whole 0.x line.** No hardware. Expectations and
+  gradients are exact unless you pass `shots=N`, and `adjoint` is therefore the
+  default gradient method — parameter-shift costs `2P` circuit evaluations for the
+  same answer, so it is the teaching subject and the test-suite reference, not the
+  performance default.
+- **Three layers, and nothing at a higher one hides a lower one.** `VQC(...).fit(X, y)`
+  for a ready-made model; `QuantumLayer(...)` as an `nn.Module` inside any
+  `nn.Sequential`; or circuits and `grad()` directly. Drop a level without giving up
+  what the level above was doing.
+- **Estimators are scikit-learn clonable** and models are `nn.Module`s, so `Pipeline`,
+  `GridSearchCV`, `cross_val_score` and ordinary torch training loops all work.
+- **Run `qk.diagnose(model)` before trusting a result.** In this field a mistake
+  usually returns a plausible number rather than raising: a re-uploading model whose
+  trainable block commutes with its encoding reaches one Fourier frequency instead of
+  the `L` it was designed for, and it trains and converges anyway. `diagnose` returns
+  findings with a code, what was measured, and the edit that fixes it.
+- **The names are qmlkit's, not PennyLane's or Qiskit's**, and a wrong one tells you
+  the right one: `qk.AngleEmbedding` reports that it is `qk.AngleFeatureMap` here.
+  Unknown registry names suggest the nearest valid one, so guessing is cheap.
+- **Every extension point is a registry:** `register_ansatz`, `register_gate`,
+  `register_gradient`, `register_backend`, `register_conv_filter`. Registering makes
+  your thing a first-class citizen everywhere that kind of argument is taken.
+- **Data re-uploading is a pattern, not a class.** It is `EncodingLayer` composed
+  into the block vocabulary, with `reupload()` as a convenience over it.
+
+
+==============================================================================
+# Home    (source: docs/index.md)
+==============================================================================
+
+# qmlkit
+
+A quantum machine learning library where **a circuit is data, not a backend object**.
+
+That one decision is why a single gradient implementation serves five backends, why
+inventing an ansatz takes one line and inherits correct gradients for free, and why
+weight tying is expressible at all. Everything downstream — differentiation, resource
+counting, drawing, translation to SpinQit or Qiskit or Cirq — reads the same structure.
+
+```python
+import numpy as np
+import qmlkit as qk
+
+ansatz = qk.hardware_efficient(3, n_layers=2)
+theta = ansatz.init(seed=0)
+spec = ansatz.build()
+observable = qk.Z(0) + 0.5 * qk.ZZ(0, 2)
+
+print(f"<O>       = {qk.expval(spec, observable, theta=theta):+.6f}")
+print(f"gradient  = {np.round(qk.grad(spec, theta, observable)[:4], 4)} ...")
+print(f"cost      = 1 pass (adjoint) vs {qk.gradient_cost(spec, 'parameter-shift')} circuits (parameter-shift)")
+```
+
+## Where to start
+
+<div class="grid cards" markdown>
+
+- :material-play: **[Tutorials](tutorials/index.md)**
+
+    Eight pages, start to finish. Every snippet is executed by the test suite, so
+    none of them can quietly stop working.
+
+- :material-book-open-variant: **[Guides](guides/index.md)**
+
+    Why parameter-shift is subtler than it looks, which gradient to reach for, and
+    how to add your own gate, ansatz, backend or estimator.
+
+- :material-api: **[Reference](reference/index.md)**
+
+    Generated from the docstrings, so it cannot drift from the code.
+
+- :material-check-decagram: **[Validation](about/validation.md)**
+
+    301 cross-validation cases against PennyLane, and the four genuine convention
+    differences that surfaced.
+
+</div>
+
+## What is actually here
+
+| | |
+|---|---|
+| **Backends** | NumPy (reference), SpinQit, Qiskit, Cirq, Torch — one circuit, one answer, checked against each other |
+| **Gradients** | adjoint, backprop, Hadamard-test, parameter-shift, SPSA, finite differences, behind one `grad()` |
+| **Encoding** | angle, amplitude, basis, Hamiltonian, and Pauli feature maps, with input gradients |
+| **Ansätze** | a composable block vocabulary plus ten templates written in it |
+| **Kernels** | three overlap estimators, PSD repair, `QSVC`/`QSVR`, trainable and projected kernels |
+| **PyTorch** | `QuantumLayer`, `VQC`, `VQRegressor`, QCNN/QLSTM/MPS, dressed networks |
+| **Analysis** | expressibility, Meyer–Wallach entanglement, barren-plateau scans, Fourier spectra, Fubini–Study geometry |
+
+## Three layers, and you pick where to stand
+
+Nothing at a higher layer hides a lower one.
+
+```python
+# docs: requires torch
+import numpy as np
+import qmlkit as qk
+
+rng = np.random.default_rng(0)
+X = rng.normal(size=(40, 4))
+y = (X[:, 0] * X[:, 1] > 0).astype(int)
+
+# 1. a ready-made model
+model = qk.VQC(n_features=4, n_classes=2, seed=0).fit(X, y, epochs=5)
+
+# 2. a torch layer, in any nn.Module you like
+layer = qk.QuantumLayer(qk.ZZFeatureMap(3), qk.hardware_efficient(3, 2), [qk.Z(0)])
+
+# 3. circuits and gradients directly
+g = qk.grad(qk.hardware_efficient(3, 2).build(), qk.hardware_efficient(3, 2).init(seed=0))
+```
+
+## Scope
+
+**Simulator-only for the whole 0.x line.** That is a design constraint, not a
+missing feature: it makes `adjoint` the right default gradient, makes shot noise
+opt-in rather than unavoidable, and keeps the focus on properties of the *model* —
+trainability, expressibility, concentration — rather than properties of a device.
+Parameter-shift is still first-class, because it is the rule that stays valid when
+you do move to hardware.
+
+Apache-2.0. [Source on GitHub](https://github.com/Ziadt160/qmlkit).
+
+
+==============================================================================
+# Install    (source: docs/install.md)
+==============================================================================
+
+# Install
+
+```bash
+pip install qmlkit
+```
+
+That is the whole install. qmlkit depends on **NumPy and nothing else** — the NumPy
+backend is the reference implementation, and every core feature works with no
+optional package present.
+
+Python 3.10 or newer. 3.9 reached end of life in October 2025, and 3.10 is also the
+highest version SpinQit supports, so it is the overlap that matters.
+
+## Extras
+
+Each extra adds one capability. None of them is required, and `import qmlkit` never
+imports any of them — a missing SDK produces an install command, not a traceback.
+
+=== "PyTorch"
+
+    ```bash
+    pip install "qmlkit[torch]"
+    ```
+
+    Unlocks `QuantumLayer`, `VQC`, `VQRegressor`, the structured architectures, and
+    `method="backprop"`.
+
+=== "Qiskit"
+
+    ```bash
+    pip install "qmlkit[qiskit]"
+    ```
+
+    Adds the Qiskit backend and `to_qiskit()`, so a circuit can be handed to Qiskit's
+    own transpiler and visualisation.
+
+=== "Cirq"
+
+    ```bash
+    pip install "qmlkit[cirq]"
+    ```
+
+=== "SpinQit"
+
+    ```bash
+    pip install "qmlkit[spinqit]"
+    ```
+
+    SpinQit ships wheels for Python 3.8–3.10 only and pins `numpy<2`, so the extra is
+    gated behind an environment marker: on 3.11+ it resolves cleanly to nothing rather
+    than failing. Use a dedicated 3.10 environment for it.
+
+=== "Everything"
+
+    ```bash
+    pip install "qmlkit[torch,qiskit,cirq,sklearn,viz]"
+    ```
+
+`sklearn` enables `QSVC`/`QSVR` (which wrap scikit-learn's precomputed-kernel solver)
+and `viz` enables matplotlib plotting helpers.
+
+## Check what you have
+
+```python
+import qmlkit as qk
+
+print(qk.__version__)
+print(qk.available_backends())
+print(qk.backend_report())
+```
+
+`backend_report()` prints one line per backend with an install command for the ones
+you are missing:
+
+```text
+qmlkit backends:
+  [ok]      numpy
+  [ok]      torch
+  [missing] cirq     -> pip install 'qmlkit[cirq]'
+  [missing] qiskit   -> pip install 'qmlkit[qiskit]'
+  [missing] spinqit  -> pip install 'qmlkit[spinqit]'
+```
+
+Set the default with the `QMLKIT_BACKEND` environment variable, or in code:
+
+```python
+import qmlkit as qk
+
+qk.set_default_backend("numpy")
+print(qk.default_backend().name)
+```
+
+## From source
+
+```bash
+git clone https://github.com/Ziadt160/qmlkit
+cd qmlkit
+pip install -e ".[dev]"
+pytest
+```
+
+## Verifying an install you did not build
+
+If you want to confirm a release is intact — that nothing is missing from the wheel
+and no optional dependency is secretly required — the repository ships the check it
+runs in CI:
+
+```bash
+python -m venv /tmp/clean && /tmp/clean/bin/pip install qmlkit && /tmp/clean/bin/python scripts/verify_install.py
+```
+
+
+==============================================================================
+# Tutorials / Tutorials    (source: docs/tutorials/index.md)
+==============================================================================
+
+# Tutorials
+
+Eight pages, in order. Each one builds on the last, and each is short enough to read
+in a sitting.
+
+**Every Python snippet on these pages is executed by the test suite.** They are not
+illustrations of the API — they are tests of it, so a rename that breaks a tutorial
+breaks the build. The outputs shown were produced by running the code, not written by
+hand.
+
+<div class="grid cards" markdown>
+
+- **[1. Circuits are data](01-first-circuit.md)**
+
+    Build, draw, run, measure. The `CircuitSpec`/slot idea that everything else
+    depends on, and why shots come with an error bar.
+
+- **[2. Getting data in](02-encoding-data.md)**
+
+    Angle, basis, amplitude and Pauli feature maps — the choice that fixes what your
+    model can represent, before training starts.
+
+- **[3. Gradients](03-gradients.md)**
+
+    Six methods, one function. Plus the two ways a hand-rolled parameter-shift
+    returns a smooth, plausible, wrong answer.
+
+- **[4. Designing an ansatz](04-ansatz-design.md)**
+
+    A block vocabulary where a new ansatz is one line and inherits gradients,
+    resource counting and a torch layer for free.
+
+- **[5. Training with PyTorch](05-training-torch.md)**
+
+    `VQC` in two lines, `QuantumLayer` in any `nn.Module`, and the input gradient
+    that decides whether your classical pre-net trains at all.
+
+- **[6. Quantum kernels](06-quantum-kernels.md)**
+
+    No variational training, a convex solver — and a quadratic circuit cost plus
+    exponential concentration waiting for you.
+
+- **[7. Re-uploading and Fourier](07-reuploading.md)**
+
+    Why depth buys frequencies, measured rather than asserted, and the commuting
+    block that silently collapses the whole model.
+
+- **[8. Trainability](08-trainability.md)**
+
+    Barren plateaus, cost locality, and three optimisers that exploit structure a
+    general-purpose one cannot see.
+
+</div>
+
+## Running them yourself
+
+Everything except tutorials 5 and 6 needs only a bare install:
+
+```bash
+pip install qmlkit
+```
+
+Tutorial 5 needs `qmlkit[torch]`, and the classification section of tutorial 6 needs
+`qmlkit[sklearn]`. Both pages say so where it matters.
+
+If you would rather have one script than eight pages, the repository ships
+`examples/quickstart.py`, which walks the same ground end to end.
+
+
+==============================================================================
+# Tutorials / 1. Circuits are data    (source: docs/tutorials/01-first-circuit.md)
+==============================================================================
+
+# 1. Circuits are data
+
+Most quantum SDKs give you a circuit *object* that belongs to a particular simulator.
+qmlkit gives you a `CircuitSpec`: an immutable description of operations and parameter
+slots that belongs to nobody. Backends compile it; gradients, resource counting and
+drawing all read it.
+
+That is not a stylistic preference. It is the reason one gradient implementation
+serves five backends, and the reason the later tutorials work at all.
+
+## Build one
+
+```python
+import qmlkit as qk
+
+qc = qk.QCircuit(2)
+qc.h(0).cx(0, 1)
+bell = qc.to_spec()
+
+print(qk.draw(bell))
+```
+
+```text
+q0: ─H──@──
+q1: ────X──
+```
+
+`QCircuit` is a builder — mutable, chainable, convenient. `to_spec()` freezes it into
+the immutable thing everything else consumes.
+
+## Run it three ways
+
+Exactly, as a statevector:
+
+```python
+import qmlkit as qk
+
+qc = qk.QCircuit(2)
+qc.h(0).cx(0, 1)
+bell = qc.to_spec()
+
+print(qk.statevector(bell))
+print(qk.probabilities(bell))
+```
+
+```text
+[0.70710678+0.j 0.        +0.j 0.        +0.j 0.70710678+0.j]
+[0.5 0.  0.  0.5]
+```
+
+Or by sampling, which is opt-in:
+
+```python
+import qmlkit as qk
+
+qc = qk.QCircuit(2)
+qc.h(0).cx(0, 1)
+bell = qc.to_spec()
+
+print(qk.run_counts(bell, shots=1000, seed=0))
+```
+
+```text
+{'00': 521, '11': 479}
+```
+
+!!! note "Qubit 0 is the most significant bit"
+    `'01'` means qubit 0 is `|0⟩` and qubit 1 is `|1⟩`. This is big-endian, matching
+    SpinQit and PennyLane. Qiskit is little-endian, and the Qiskit backend handles the
+    reversal at build time so indices mean the same thing everywhere — see
+    [Backends and conventions](../guides/backends.md).
+
+## Inspect it
+
+A spec knows its own cost, because it is just data:
+
+```python
+import qmlkit as qk
+
+qc = qk.QCircuit(2)
+qc.h(0).cx(0, 1)
+bell = qc.to_spec()
+
+print(bell)
+print(f"qubits {bell.n_qubits} · depth {bell.depth()} · gates {bell.gate_counts()}")
+```
+
+```text
+CircuitSpec(n_qubits=2, n_ops=2, n_params=0, depth=2)
+qubits 2 · depth 2 · gates {'cx': 1, 'h': 1}
+```
+
+## Parameters, and the slot idea
+
+A parameter is a *reference*, not a number. `ParamRef(0)` means "whatever ends up at
+index 0 of the parameter vector".
+
+```python
+import numpy as np
+import qmlkit as qk
+
+qc = qk.QCircuit(1)
+qc.ry(0, qk.ParamRef(0))
+spec = qc.to_spec()
+
+print(f"parameters: {spec.n_params}")
+print(f"<Z> at θ=0.7: {qk.expval(spec, qk.Z(0), theta=[0.7]):.15f}")
+print(f"cos(0.7):     {np.cos(0.7):.15f}")
+```
+
+```text
+parameters: 1
+<Z> at θ=0.7: 0.764842187284488
+cos(0.7):     0.764842187284489
+```
+
+The piece that matters later is the **slot**. A slot is one angle site — one
+(operation, parameter position) pair. Several slots may point at the *same* logical
+parameter, which is how weight tying is expressed:
+
+```python
+import qmlkit as qk
+
+a = qk.Ansatz(1, qk.share(3, qk.RotationLayer("ry")))
+spec = a.build()
+
+print(f"logical parameters: {spec.n_params}")
+print(f"slots:              {len(spec.slots())}")
+print(f"occurrences of θ0:  {len(spec.occurrences_of(0))}")
+```
+
+```text
+logical parameters: 1
+slots:              3
+occurrences of θ0:  3
+```
+
+Three `Ry(θ₀)` on one qubit is `Ry(3θ₀)`, so the derivative is three times what a
+single rotation would give. Keeping slots and parameters distinct is what lets the
+gradient code get that right — [tutorial 3](03-gradients.md) shows what happens when a
+library conflates them.
+
+## Observables
+
+Observables are Pauli sums, built with `+` and `*`:
+
+```python
+import qmlkit as qk
+
+qc = qk.QCircuit(2)
+qc.h(0).cx(0, 1)
+bell = qc.to_spec()
+
+observable = qk.Z(0) + 0.5 * qk.ZZ(0, 1) + 0.3 * qk.X(1)
+print(observable)
+print(f"<Z0>    = {qk.expval(bell, qk.Z(0)):.6f}")
+print(f"<Z0 Z1> = {qk.expval(bell, qk.ZZ(0, 1)):.6f}")
+print(f"<O>     = {qk.expval(bell, observable):.6f}")
+```
+
+```text
+Z0 + 0.5*Z0 Z1 + 0.3*X1
+<Z0>    = 0.000000
+<Z0 Z1> = 1.000000
+<O>     = 0.500000
+```
+
+`<Z0 Z1> = 1` for a Bell state — the qubits always agree — while `<Z0> = 0`, because
+each on its own is a fair coin. That is entanglement in two numbers.
+
+## Shots are opt-in, and come with an error bar
+
+`shots=None` is the default and returns the exact value. When you do sample, ask for
+the standard error too — a sampled number without one is not a measurement, it is a
+guess:
+
+```python
+import qmlkit as qk
+
+qc = qk.QCircuit(2)
+qc.h(0).cx(0, 1)
+bell = qc.to_spec()
+
+for shots in (100, 10_000, 1_000_000):
+    value, err = qk.expectation(bell, qk.Z(0), shots=shots, seed=0, return_std=True)
+    print(f"{shots:>9,} shots: {value:+.5f} ± {err:.5f}")
+
+print(f"exact:            {qk.expval(bell, qk.Z(0)):+.5f}")
+print(f"shots for ±0.01:  {qk.shots_for_precision(0.01):,}")
+```
+
+```text
+      100 shots: +0.02000 ± 0.09998
+   10,000 shots: +0.01240 ± 0.01000
+1,000,000 shots: +0.00126 ± 0.00100
+exact:            +0.00000
+shots for ±0.01:  10,000
+```
+
+The error falls as `1/√N`: a hundred times more shots buys ten times the precision.
+That is the whole economics of measurement, and it is why the [gradient
+tutorial](03-gradients.md) cares so much about how many circuits a method needs.
+
+## Composing
+
+Specs compose and invert, which is all a fidelity kernel really needs:
+
+```python
+import qmlkit as qk
+
+first = qk.QCircuit(1)
+first.ry(0, 0.4)
+second = qk.QCircuit(1)
+second.rz(0, 1.1)
+
+both = first.to_spec().compose(second.to_spec())
+identity = both.compose(both.adjoint())
+
+print(qk.draw(both))
+print(f"U U† is the identity: {qk.expval(identity, qk.Z(0)):.12f}")
+```
+
+```text
+q0: ─RY(0.40)──RZ(1.10)──
+U U† is the identity: 1.000000000000
+```
+
+---
+
+**Next:** [Getting data in](02-encoding-data.md) — the choice that decides what your
+model can represent, before any training happens.
+
+
+==============================================================================
+# Tutorials / 2. Getting data in    (source: docs/tutorials/02-encoding-data.md)
+==============================================================================
+
+# 2. Getting data in
+
+A quantum model can only learn functions its encoding can express. That makes this the
+most consequential choice in the pipeline, and the one most often made by accident —
+before any training happens, the encoding has already fixed the hypothesis class.
+
+## Angle encoding: one number per qubit
+
+The default, and usually the right first move.
+
+```python
+import qmlkit as qk
+
+spec = qk.angle_encode([0.5, 1.2, 2.0])
+print(qk.draw(spec))
+```
+
+```text
+q0: ─RY(0.50)──
+q1: ─RY(1.20)──
+q2: ─RY(2.00)──
+```
+
+`n` features cost `n` qubits and depth 1. Cheap, shallow, and the amplitudes are
+smooth in the data — which is what makes gradients well behaved.
+
+## Basis encoding: bits to qubits
+
+```python
+import qmlkit as qk
+
+print(qk.run_counts(qk.basis_encode([1, 0, 1]), 256, seed=0))
+```
+
+```text
+{'101': 256}
+```
+
+Exact, trivial, and no superposition — a single computational basis state. Useful for
+combinatorial problems, useless as a feature map for continuous data.
+
+## Amplitude encoding: `2ⁿ` numbers in `n` qubits
+
+Exponentially compact in qubits, and you pay for it in gates.
+
+```python
+import numpy as np
+import qmlkit as qk
+
+vector = [1, 2, 3, 4]
+spec = qk.amplitude_encode(vector)
+
+print(qk.draw(spec))
+print("prepared:", np.round(np.abs(qk.statevector(spec)), 4))
+print("target:  ", np.round(np.abs(np.array(vector) / np.linalg.norm(vector)), 4))
+```
+
+```text
+q0: ─RY(2.30)──@────────────@──
+q1: ─RY(2.03)──X──RY(0.18)──X──
+prepared: [0.1826 0.3651 0.5477 0.7303]
+target:   [0.1826 0.3651 0.5477 0.7303]
+```
+
+qmlkit builds this from **uniformly-controlled rotations**, not a backend
+state-preparation primitive. The circuit is made of ordinary registered gates, so it
+runs identically on every backend, can be drawn and transpiled — and its cost is
+visible rather than hidden inside an SDK call:
+
+```python
+import numpy as np
+import qmlkit as qk
+
+for n_qubits in (2, 4, 8):
+    spec = qk.amplitude_encode(np.arange(1, 2 ** n_qubits + 1))
+    gates = sum(spec.gate_counts().values())
+    print(f"{2 ** n_qubits:>4} numbers -> {n_qubits} qubits, {gates:>4} gates, depth {spec.depth()}")
+```
+
+```text
+   4 numbers -> 2 qubits,    5 gates, depth 4
+  16 numbers -> 4 qubits,   37 gates, depth 34
+ 256 numbers -> 8 qubits,  749 gates, depth 742
+```
+
+The qubit count grows logarithmically and the gate count grows linearly in the data
+size. "Exponentially compact" is true and, on its own, misleading.
+
+!!! warning "One global phase is dropped"
+    The phase cascade reproduces every *relative* phase exactly and drops one overall
+    factor, which is unobservable — until you put the block inside a larger
+    **controlled** circuit, where it stops being global. Pass `check=True` to
+    re-simulate and assert the prepared state is right.
+
+## Pauli feature maps: the ones designed to be hard to simulate
+
+`ZFeatureMap` is a product of single-qubit rotations, so it factorises and a classical
+kernel can reproduce it. `ZZFeatureMap` adds entangling terms, and that is the point.
+
+```python
+import qmlkit as qk
+
+print(qk.draw(qk.ZZFeatureMap(2, reps=1).build([0.4, 1.3])))
+```
+
+```text
+q0: ─H──RZ(0.80)──@─────────────@──
+q1: ─H──RZ(2.60)──X──RZ(10.10)──X──
+```
+
+The `Rz(10.10)` is the two-body term: the default data map sends a pair `(x₀, x₁)` to
+`(π − x₀)(π − x₁)`, and the emitted angle is twice that. That factor of two is a
+convention — PennyLane's `IQPEmbedding` uses the other one, which is documented in
+[Validation](../about/validation.md).
+
+```python
+import qmlkit as qk
+
+for name, fmap in [
+    ("ZFeatureMap(3)", qk.ZFeatureMap(3)),
+    ("ZZFeatureMap(3, reps=2)", qk.ZZFeatureMap(3, reps=2)),
+    ("AngleFeatureMap(3)", qk.AngleFeatureMap(3)),
+]:
+    r = fmap.resources()
+    print(f"{name:<26} depth {r['depth']:>3}  1q {r['n_1q']:>3}  2q {r['n_2q']:>3}")
+```
+
+```text
+ZFeatureMap(3)             depth   4  1q  12  2q   0
+ZZFeatureMap(3, reps=2)    depth  16  1q  16  2q   8
+AngleFeatureMap(3)         depth   3  1q   3  2q   2
+```
+
+## Scale before you encode
+
+An angle is periodic. Feed it raw features spanning `[0, 300]` and distinct inputs
+collapse onto the same rotation — the model cannot tell them apart, and no amount of
+training fixes it.
+
+```python
+import numpy as np
+import qmlkit as qk
+
+X = np.array([[0.0, 100.0], [50.0, 200.0], [100.0, 300.0]])
+scaler = qk.AngleScaler().fit(X)
+
+print(np.round(scaler.transform(X), 4))
+```
+
+```text
+[[0.     0.    ]
+ [3.1416 3.1416]
+ [6.2832 6.2832]]
+```
+
+When you have more features than qubits, reduce first — `PCAReducer` is a plain SVD
+with no scikit-learn dependency, and `reduce_to_qubits` wires the two together.
+
+## Gradients flow through the encoding too
+
+This is what makes a classical layer placed *before* the circuit trainable. Ask for it
+with `trainable=True`:
+
+```python
+import numpy as np
+import qmlkit as qk
+
+x = np.array([0.3, 0.9])
+spec = qk.angle_encode(x, trainable=True)
+
+print("df/dx    =", np.round(qk.grad(spec, x, qk.Z(0) + qk.Z(1)), 6))
+print("analytic =", np.round([-np.sin(0.3), -np.sin(0.9)], 6))
+```
+
+```text
+df/dx    = [-0.29552  -0.783327]
+analytic = [-0.29552  -0.783327]
+```
+
+Without this, a hybrid network silently freezes everything upstream of the circuit:
+the loss still falls, because the quantum weights still train, so the bug looks like
+slow convergence rather than a broken model. [Tutorial 5](05-training-torch.md)
+returns to this.
+
+## Choosing
+
+| | Qubits | Depth | Use when |
+|---|---|---|---|
+| **Basis** | `n` bits | 1 | data is already binary |
+| **Angle** | `n` features | 1 | the default — cheap, smooth, well-conditioned |
+| **Amplitude** | `log₂ n` | `O(n)` | qubits are scarce and depth is not |
+| **ZZ / Pauli** | `n` features | `O(reps·n)` | you want a kernel that is hard to reproduce classically |
+
+---
+
+**Next:** [Gradients](03-gradients.md) — six ways to get the same number, and two ways
+to get a plausible wrong one.
+
+
+==============================================================================
+# Tutorials / 3. Gradients    (source: docs/tutorials/03-gradients.md)
+==============================================================================
+
+# 3. Gradients
+
+Six methods, one function. They differ in cost, in whether they are exact, and in
+whether they could run on real hardware — not in the answer.
+
+```python
+import numpy as np
+import qmlkit as qk
+
+ansatz = qk.hardware_efficient(3, n_layers=2)
+spec, theta = ansatz.build(), ansatz.init(seed=0)
+obs = qk.Z(0) + 0.5 * qk.ZZ(0, 2)
+reference = qk.grad(spec, theta, obs, method="adjoint")
+
+for method in qk.list_gradient_methods():
+    kwargs = {"seed": 0, "n_avg": 50} if method == "spsa" else {}
+    try:
+        g = qk.grad(spec, theta, obs, method=method, **kwargs)
+    except qk.BackendNotAvailable as exc:
+        # every method is registered, but backprop needs the torch extra
+        print(f"{method:<17}{'-':>4}            {exc.args[0].splitlines()[0]}")
+        continue
+    cost = qk.gradient_cost(spec, method)
+    print(f"{method:<17}{str(cost):>4} circuits   max error {np.abs(g - reference).max():.2e}")
+```
+
+```text
+adjoint             1 circuits   max error 0.00e+00
+backprop            1 circuits   max error 6.94e-17
+finite-diff        24 circuits   max error 5.14e-10
+hadamard           12 circuits   max error 1.11e-16
+parameter-shift    24 circuits   max error 7.67e-16
+spsa                2 circuits   max error 4.29e-02
+```
+
+Every method is registered whether or not its extra is installed, so
+`list_gradient_methods()` always lists all six and `backprop` explains itself if
+PyTorch is missing rather than raising `ModuleNotFoundError`.
+
+`qk.grad(spec, theta, obs)` with no `method` picks for you: adjoint when every gate
+has a closed-form derivative and the backend can produce a statevector,
+parameter-shift otherwise. Asking for `shots` forces parameter-shift, because
+sampling rules out reading the statevector by definition.
+
+Which to reach for is its own page: [Choosing a gradient
+method](../guides/choosing-a-gradient.md).
+
+## Two ways to get a plausible wrong number
+
+Parameter-shift is the method everyone implements themselves, and there are two
+places where a natural implementation returns a smooth, believable, wrong answer.
+Neither raises. Both are why this library derives shift rules instead of
+transcribing one.
+
+### The rule is per gate, not per library
+
+The famous two-term rule `[E(θ+π/2) − E(θ−π/2)] / 2` is correct for a gate whose
+generator has a single frequency. It is *not* correct for a controlled rotation.
+
+```python
+import qmlkit as qk
+
+for gate in ("ry", "rz", "crz", "phase"):
+    rule = qk.rule_for_gate(gate)
+    print(f"{gate:<7} frequencies {qk.get_gate(gate).frequencies}  ->  {len(rule.shifts)}-term rule")
+```
+
+```text
+ry      frequencies (1.0,)  ->  2-term rule
+rz      frequencies (1.0,)  ->  2-term rule
+crz     frequencies (0.5, 1.0)  ->  4-term rule
+phase   frequencies (1.0,)  ->  2-term rule
+```
+
+Here is a circuit where it bites. `H⊗H` then `CRZ(θ)`, measuring `X₀X₁`, gives
+exactly `cos(θ/2)` — pure frequency ½:
+
+```python
+import numpy as np
+import qmlkit as qk
+
+qc = qk.QCircuit(2)
+qc.h(0).h(1).crz(0, 1, qk.ParamRef(0))
+spec = qc.to_spec()
+XX = qk.PauliString(((0, "X"), (1, "X")), 1.0)
+
+theta = 1.1
+correct = qk.grad(spec, np.array([theta]), XX, method="parameter-shift")[0]
+naive = (
+    qk.expval(spec, XX, theta=[theta + np.pi / 2])
+    - qk.expval(spec, XX, theta=[theta - np.pi / 2])
+) / 2
+
+print(f"E(θ)            = cos(θ/2), checked: {qk.expval(spec, XX, theta=[theta]):.10f} vs {np.cos(theta / 2):.10f}")
+print(f"correct  (4-term) {correct:+.10f}   = -sin(θ/2)/2")
+print(f"naive    (2-term) {naive:+.10f}   = -sin(θ/2)/√2")
+print(f"ratio             {naive / correct:.10f}   (that is √2)")
+```
+
+```text
+E(θ)            = cos(θ/2), checked: 0.8525245221 vs 0.8525245221
+correct  (4-term) -0.2613436145   = -sin(θ/2)/2
+naive    (2-term) -0.3695956840   = -sin(θ/2)/√2
+ratio             1.4142135624   (that is √2)
+```
+
+The naive answer is exactly **√2 times** the right one. Same sign, same shape, so
+training still descends — with a step size that is silently wrong by 41%. Nothing
+about the loss curve would tell you.
+
+!!! note "Why measuring the target qubit hides it"
+    Swap `X₀X₁` for `Z₁` and both rules agree perfectly, because `Z` commutes with
+    `CRZ` and the expectation does not depend on `θ` at all. A test built on that
+    circuit passes against a broken implementation. This is not hypothetical — an
+    early version of this library's own test suite made exactly that mistake.
+
+### Tied parameters shift one at a time
+
+When one logical parameter fills several slots, its derivative is the **sum** over
+occurrences. Shifting them all together computes something else entirely:
+
+```python
+import numpy as np
+import qmlkit as qk
+
+ansatz = qk.Ansatz(1, qk.share(3, qk.RotationLayer("ry")))
+spec, theta = ansatz.build(), np.array([0.4])
+
+correct = qk.grad(spec, theta, qk.Z(0), method="parameter-shift")[0]
+naive = (
+    qk.expval(spec, qk.Z(0), theta=theta + np.pi / 2)
+    - qk.expval(spec, qk.Z(0), theta=theta - np.pi / 2)
+) / 2
+
+print(f"three tied Ry(θ) on one qubit is Ry(3θ), so E(θ) = cos(3θ)")
+print(f"analytic  -3·sin(1.2) = {-3 * np.sin(1.2):+.10f}")
+print(f"correct               = {correct:+.10f}")
+print(f"naive (shifted as one)= {naive:+.10f}")
+```
+
+```text
+three tied Ry(θ) on one qubit is Ry(3θ), so E(θ) = cos(3θ)
+analytic  -3·sin(1.2) = -2.7961172579
+correct               = -2.7961172579
+naive (shifted as one)= +0.9320390860
+```
+
+Wrong by a factor of −3 here, and it is the case that matters for QCNNs and any
+convolutional ansatz, where weight tying is the whole point.
+
+## Cost, and why adjoint is the default
+
+Parameter-shift costs `2P` circuits — more when a gate needs a four-term rule.
+Adjoint costs one pass regardless of `P`:
+
+```python
+import qmlkit as qk
+
+for n_layers in (2, 6, 12):
+    a = qk.hardware_efficient(5, n_layers)
+    spec = a.build()
+    print(
+        f"P={a.n_params:>3}   adjoint 1 pass   "
+        f"hadamard {qk.gradient_cost(spec, 'hadamard'):>4}   "
+        f"parameter-shift {qk.gradient_cost(spec, 'parameter-shift'):>4}"
+    )
+```
+
+```text
+P= 20   adjoint 1 pass   hadamard   20   parameter-shift   40
+P= 60   adjoint 1 pass   hadamard   60   parameter-shift  120
+P=120   adjoint 1 pass   hadamard  120   parameter-shift  240
+```
+
+Measured on a 5-qubit ansatz with a two-term observable, that is **12.6 ms for
+adjoint against 823 ms for parameter-shift** at `P=120`. Adjoint is not more accurate
+— both are exact — it is just cheaper on a simulator, where reading the statevector
+is allowed.
+
+`hadamard` sits between them: one circuit per parameter instead of two, using an
+ancilla and controlled generators, and unlike adjoint it is a real measurement, so it
+stays valid on hardware.
+
+## Sampling
+
+Ask for `shots` and you get parameter-shift with shot noise, which is what a device
+would give you:
+
+```python
+import numpy as np
+import qmlkit as qk
+
+ansatz = qk.hardware_efficient(3, n_layers=2)
+spec, theta = ansatz.build(), ansatz.init(seed=0)
+obs = qk.Z(0) + 0.5 * qk.ZZ(0, 2)
+
+exact = qk.grad(spec, theta, obs, method="parameter-shift")
+sampled = qk.grad(spec, theta, obs, method="parameter-shift", shots=4096, seed=0)
+print(f"4096 shots per circuit: max deviation {np.abs(sampled - exact).max():.4f}")
+```
+
+```text
+4096 shots per circuit: max deviation 0.0211
+```
+
+## Second derivatives
+
+`hessian` differences the *exact* gradient, so only the outer derivative is
+approximate:
+
+```python
+import numpy as np
+import qmlkit as qk
+
+qc = qk.QCircuit(1)
+qc.ry(0, qk.ParamRef(0))
+
+h = qk.hessian(qc.to_spec(), np.array([0.8]), qk.Z(0))
+print(f"hessian    {h[0, 0]:+.8f}")
+print(f"-cos(0.8)  {-np.cos(0.8):+.8f}")
+```
+
+```text
+hessian    -0.69670671
+-cos(0.8)  -0.69670671
+```
+
+## Bringing your own
+
+The gradient dispatcher is a registry, so a new estimator becomes a keyword
+everywhere the library takes `method=`:
+
+```python
+import numpy as np
+import qmlkit as qk
+
+@qk.register_gradient("central_diff_demo")
+def central_diff(spec, theta, obs, *, backend=None, shots=None, eps=1e-5, **kw):
+    out = np.zeros(spec.n_params)
+    for k in range(spec.n_params):
+        step = np.zeros_like(theta)
+        step[k] = eps
+        plus = qk.expval(spec, obs, theta=theta + step, backend=backend, shots=shots)
+        minus = qk.expval(spec, obs, theta=theta - step, backend=backend, shots=shots)
+        out[k] = (plus - minus) / (2 * eps)
+    return out
+
+ansatz = qk.hardware_efficient(2, n_layers=1)
+spec, theta = ansatz.build(), ansatz.init(seed=0)
+mine = qk.grad(spec, theta, qk.Z(0), method="central_diff_demo")
+exact = qk.grad(spec, theta, qk.Z(0), method="adjoint")
+print(f"agrees with adjoint to {np.abs(mine - exact).max():.2e}")
+```
+
+---
+
+**Next:** [Designing an ansatz](04-ansatz-design.md) — one line, and it inherits all
+of the above for free.
+
+
+==============================================================================
+# Tutorials / 4. Designing an ansatz    (source: docs/tutorials/04-ansatz-design.md)
+==============================================================================
+
+# 4. Designing an ansatz
+
+Most libraries give you a list of templates and a note saying "or write your own",
+where writing your own means implementing parameter counting, gradients and resource
+estimation from scratch. Here an ansatz is an expression in a small vocabulary, and
+anything you build in it inherits correct gradients, resource counting and a PyTorch
+layer without opting into any of them.
+
+## The vocabulary
+
+Four block types, composed with `+`, `repeat` and `share`.
+
+| | |
+|---|---|
+| `RotationLayer("ry", "rz")` | one rotation per qubit, per named axis |
+| `EntanglerLayer("cz", "ring")` | a fixed two-qubit gate over a named pattern |
+| `ParametricEntangler("crz", "chain")` | the same, but the entangler carries an angle |
+| `PoolLayer(...)` | measure-and-discard, for QCNN-shaped circuits |
+
+Patterns are `chain`, `ring`, `full`, `alternating`.
+
+## One line
+
+```python
+import qmlkit as qk
+
+brick = qk.Ansatz(
+    4,
+    qk.repeat(2, qk.RotationLayer("ry") + qk.EntanglerLayer("cz", "alternating")),
+    "brick_wall",
+)
+print(qk.draw(brick.build()))
+print(brick)
+```
+
+```text
+q0: ─RY(θ0)──@──RY(θ4)──────────@─────
+q1: ─RY(θ1)──Z────@─────RY(θ5)──Z──@──
+q2: ─RY(θ2)──@────Z─────RY(θ6)──@──Z──
+q3: ─RY(θ3)──Z──RY(θ7)──────────Z─────
+Ansatz('brick_wall', n_qubits=4, n_params=8)
+```
+
+Nothing declared the parameter count. It is **inferred** from a dry build, so
+miscounting is not a failure mode — a whole category of bug that simply cannot occur.
+
+## It is already a first-class citizen
+
+```python
+import numpy as np
+import qmlkit as qk
+
+brick = qk.Ansatz(
+    4,
+    qk.repeat(2, qk.RotationLayer("ry") + qk.EntanglerLayer("cz", "alternating")),
+    "brick_wall",
+)
+spec, theta = brick.build(), brick.init(seed=0)
+
+print("gradient:", np.round(qk.grad(spec, theta, qk.Z(0)), 5))
+print("resources:", brick.resources()["depth"], "depth,", brick.resources()["n_2q"], "two-qubit gates")
+```
+
+## Measure it, do not assert about it
+
+`AnsatzReport` runs the diagnostics that actually distinguish ansätze:
+
+```python
+import qmlkit as qk
+
+print(qk.metrics.AnsatzReport(qk.hardware_efficient(4, 2), n_samples=300))
+```
+
+```text
+hardware_efficient on 4 qubits
+  parameters            16
+  depth                 9
+  two-qubit gates       6
+  gradient circuits     32
+  expressibility        0.0736   (KL from Haar,
+                                 lower is more expressive)
+  entangling capability 0.7254   (Meyer-Wallach Q)
+  gradient variance     3.096e-01   (higher = more trainable)
+```
+
+**Expressibility** is the KL divergence between the distribution of fidelities the
+ansatz produces and the Haar distribution — lower means closer to covering the space
+uniformly. **Entangling capability** is the mean Meyer–Wallach measure. Neither is
+"good" on its own; they trade against each other and against trainability.
+
+## Comparing candidates
+
+```python
+import qmlkit as qk
+
+brick = qk.Ansatz(
+    4,
+    qk.repeat(2, qk.RotationLayer("ry") + qk.EntanglerLayer("cz", "alternating")),
+    "brick_wall",
+)
+
+print(f"{'ansatz':<24}{'params':>7}{'depth':>7}{'2q':>5}{'expr':>10}{'entang':>9}")
+candidates = ["hardware_efficient", "strongly_entangling", "tree_tensor_network", "mps", "qcnn"]
+for name in candidates:
+    r = qk.metrics.AnsatzReport(qk.get_ansatz(name, n_qubits=4), n_samples=300).results
+    print(f"{name:<24}{r['n_params']:>7}{r['depth']:>7}{r['n_2q']:>5}"
+          f"{r['expressibility']:>10.4f}{r['entangling_capability']:>9.4f}")
+r = qk.metrics.AnsatzReport(brick, n_samples=300).results
+print(f"{'brick_wall (ours)':<24}{r['n_params']:>7}{r['depth']:>7}{r['n_2q']:>5}"
+      f"{r['expressibility']:>10.4f}{r['entangling_capability']:>9.4f}")
+```
+
+```text
+ansatz                   params  depth   2q      expr   entang
+hardware_efficient           16      9    6    0.0736   0.7254
+strongly_entangling          24     14    8    0.0602   0.8495
+tree_tensor_network           6      4    3    0.7550   0.3581
+mps                           6      6    3    0.4550   0.4029
+qcnn                          4      8    4    0.6075   0.4259
+brick_wall (ours)             8      6    6    0.4165   0.4504
+```
+
+Read the trade honestly: `strongly_entangling` is the most expressive and the most
+entangling, and it costs 24 parameters and depth 14. `tree_tensor_network` is the
+least expressive by a wide margin and costs 6 parameters at depth 4. Expressibility
+is not free, and — as [tutorial 8](08-trainability.md) shows — it is not always what
+you want.
+
+## Weight tying, and why it is a first-class idea
+
+`share` makes several applications of a block use the **same** parameters. That is
+what makes a QCNN convolutional rather than merely deep:
+
+```python
+import qmlkit as qk
+
+qcnn = qk.get_ansatz("qcnn", n_qubits=8)
+spec = qcnn.build()
+
+print(f"logical parameters: {spec.n_params}")
+print(f"angle slots:        {len(spec.slots())}")
+print(f"gradient circuits:  {qk.gradient_cost(spec, 'parameter-shift')}")
+```
+
+```text
+logical parameters: 6
+angle slots:        22
+gradient circuits:  44
+```
+
+Six free parameters filling twenty-two slots. The gradient cost scales with the
+*logical* parameter count, not the slot count — which is the real advantage of a
+convolutional ansatz, and the reason [tutorial 3](03-gradients.md) made such a fuss
+about summing over occurrences.
+
+## Initialisation matters more than it looks
+
+```python
+import qmlkit as qk
+
+ansatz = qk.hardware_efficient(3, 2)
+for strategy in ("small", "uniform", "zeros"):
+    theta = ansatz.init(strategy, seed=0)
+    print(f"{strategy:<9} mean {theta.mean():+.4f}  std {theta.std():.4f}")
+```
+
+```text
+small     mean +0.0022  std 0.0704
+uniform   mean +0.1695  std 2.1294
+zeros     mean +0.0000  std 0.0000
+```
+
+`small` is the default and it is not arbitrary: near-identity initialisation keeps
+the circuit shallow in effect at the start, which is one of the few reliable defences
+against barren plateaus. `zeros` is worse than it looks — a symmetric starting point
+can leave whole parameter groups with identical gradients forever.
+
+## Registering it
+
+```python
+import qmlkit as qk
+
+@qk.register_ansatz("brick_wall_demo")
+def brick_wall(n_qubits, n_layers=2):
+    return qk.Ansatz(
+        n_qubits,
+        qk.repeat(n_layers, qk.RotationLayer("ry") + qk.EntanglerLayer("cz", "alternating")),
+        "brick_wall_demo",
+    )
+
+print(qk.get_ansatz("brick_wall_demo", n_qubits=3, n_layers=1))
+```
+
+```text
+Ansatz('brick_wall_demo', n_qubits=3, n_params=3)
+```
+
+It is now reachable by name anywhere the library takes one, including
+`AnsatzReport`, `QuantumLayer` and `compare_ansatze`.
+
+---
+
+**Next:** [Training with PyTorch](05-training-torch.md) — putting the ansatz in a
+network that actually learns.
+
+
+==============================================================================
+# Tutorials / 5. Training with PyTorch    (source: docs/tutorials/05-training-torch.md)
+==============================================================================
+
+# 5. Training with PyTorch
+
+Needs the extra:
+
+```bash
+pip install "qmlkit[torch]"
+```
+
+A circuit becomes an `nn.Module` and everything torch already knows how to do —
+optimisers, schedulers, batching, autograd — applies unchanged.
+
+## The two-line path
+
+```python
+# docs: requires torch
+import numpy as np
+import qmlkit as qk
+
+rng = np.random.default_rng(0)
+X = rng.normal(size=(120, 4))
+y = (X[:, 0] * X[:, 1] > 0).astype(int)  # XOR-like: not linearly separable
+
+model = qk.VQC(n_features=4, n_classes=2, seed=0).fit(X, y, epochs=30)
+print(f"accuracy {model.score(X, y):.1%}")
+print(f"loss {model.history_[0]:.4f} -> {model.history_[-1]:.4f}")
+```
+
+```text
+accuracy 78.3%
+loss 0.7836 -> 0.4640
+```
+
+`VQC` is a convenience, not a wall — every default is one keyword away from being
+something else, and the feature map, ansatz, observables and optimiser are all
+arguments.
+
+## The layer underneath
+
+```python
+# docs: requires torch
+import torch
+from torch import nn
+
+import qmlkit as qk
+
+torch.manual_seed(0)
+
+layer = qk.QuantumLayer(
+    qk.ZZFeatureMap(3, reps=1),
+    qk.hardware_efficient(3, 2),
+    [qk.Z(0), qk.Z(1)],
+    init_seed=0,
+).double()
+
+net = nn.Sequential(nn.Linear(6, 3), nn.Tanh(), layer, nn.Linear(2, 2)).double()
+
+xb = torch.randn(8, 6, dtype=torch.float64)
+loss = nn.CrossEntropyLoss()(net(xb), torch.randint(0, 2, (8,)))
+loss.backward()
+
+print(f"output shape       {tuple(net(xb).shape)}")
+print(f"pre-net grad norm  {float(net[0].weight.grad.norm()):.6f}")
+print(f"quantum grad norm  {float(layer.theta.grad.norm()):.6f}")
+print(f"post-net grad norm {float(net[3].weight.grad.norm()):.6f}")
+```
+
+```text
+output shape       (8, 2)
+pre-net grad norm  0.330885
+quantum grad norm  0.114621
+post-net grad norm 0.012605
+```
+
+## The line that matters
+
+**`pre-net grad norm 0.330885`.** The `nn.Linear(6, 3)` sitting *before* the quantum
+layer receives a real gradient, so it trains.
+
+This is not automatic. It requires `∂f/∂x` — the derivative of the circuit with
+respect to its *encoding angles*, not just its weights — and many hand-rolled
+implementations return `None` there. When they do, everything upstream of the circuit
+silently freezes. The loss still falls, because the quantum weights still train, so
+the failure presents as slow convergence rather than as a bug. A dressed network
+whose classical pre-net never moves is doing far less than it appears to.
+
+qmlkit computes it by differentiating the circuit with respect to its encoding angles
+and finishing the chain rule classically, so a *nonlinear* feature map costs no extra
+circuits.
+
+```python
+# docs: requires torch
+import torch
+from torch.autograd import gradcheck
+
+import qmlkit as qk
+
+layer = qk.QuantumLayer(
+    qk.AngleFeatureMap(2, entangle=False),
+    qk.hardware_efficient(2, 1),
+    [qk.Z(0)],
+    init_seed=0,
+).double()
+
+x = torch.randn(1, 2, dtype=torch.float64, requires_grad=True)
+print("gradcheck on the inputs:", gradcheck(lambda v: layer(v), (x,), eps=1e-6, atol=1e-6))
+```
+
+```text
+gradcheck on the inputs: True
+```
+
+`torch.autograd.gradcheck` compares the analytic backward pass against numerical
+differentiation of the forward pass. Passing it for the *inputs* is the assertion
+that the pre-net gradient is real rather than merely non-`None`.
+
+## Regression
+
+```python
+# docs: requires torch
+import numpy as np
+import qmlkit as qk
+
+xs = np.linspace(-1, 1, 60).reshape(-1, 1)
+ys = np.sin(3 * xs).ravel()
+
+model = qk.VQRegressor(n_features=1, seed=0).fit(xs, ys, epochs=60)
+print(f"R² {model.score(xs, ys):.4f}")
+print(f"loss {model.history_[0]:.4f} -> {model.history_[-1]:.4f}")
+```
+
+```text
+R² 0.9917
+loss 0.6780 -> 0.0042
+```
+
+A one-qubit re-uploading model fits `sin(3x)` because three uploads reach frequency 3
+— which is exactly the claim [tutorial 7](07-reuploading.md) turns into a measurement
+rather than an assertion.
+
+## Choosing the gradient method
+
+`QuantumLayer` takes `grad_method`. On a simulator, leave it alone: the default
+resolves to adjoint, which costs one pass regardless of the parameter count. Set it
+to `"parameter-shift"` when you want to see what the model would do on hardware,
+optionally with `shots`.
+
+```python
+# docs: requires torch
+import qmlkit as qk
+
+hardware_like = qk.QuantumLayer(
+    qk.AngleFeatureMap(2, entangle=False),
+    qk.hardware_efficient(2, 1),
+    [qk.Z(0)],
+    grad_method="parameter-shift",
+    shots=2048,
+    init_seed=0,
+)
+print(hardware_like)
+```
+
+## Structured architectures
+
+The same layer machinery, arranged into the shapes the literature names:
+
+| | |
+|---|---|
+| `QCNNLayer` | convolution and pooling with tied weights |
+| `MPSLayer` | matrix-product-state contraction order |
+| `QLSTM` | a recurrent cell with quantum gates |
+| `DressedQuantumNet` | classical → quantum → classical, the transfer-learning shape |
+
+---
+
+**Next:** [Quantum kernels](06-quantum-kernels.md) — the other way to use a feature
+map, with no variational training at all.
+
+
+==============================================================================
+# Tutorials / 6. Quantum kernels    (source: docs/tutorials/06-quantum-kernels.md)
+==============================================================================
+
+# 6. Quantum kernels
+
+The other way to use a feature map. No variational parameters, no training loop, no
+barren plateaus — just an inner product between encoded states, handed to a classical
+solver that is convex and has a unique optimum.
+
+The price is that you pay it in circuits: `m(m−1)/2` of them for an `m`-sample
+training set, and that quadratic is what limits the approach long before qubit counts
+do.
+
+## The kernel is an overlap
+
+```python
+import numpy as np
+import qmlkit as qk
+
+fmap = qk.ZZFeatureMap(2, reps=2)
+x1, x2 = np.array([0.4, 1.3]), np.array([1.9, 0.6])
+
+print(f"k(x, x)  = {qk.fidelity_kernel(fmap, x1, x1):.10f}")
+print(f"k(x, x') = {qk.fidelity_kernel(fmap, x1, x2):.10f}")
+```
+
+```text
+k(x, x)  = 1.0000000000
+k(x, x') = 0.7055431570
+```
+
+`fidelity_kernel` is compute-uncompute: run `U(x)`, then `U(x')†`, and read the
+probability of measuring all zeros. That probability *is* `|⟨φ(x')|φ(x)⟩|²`. It falls
+straight out of `spec.adjoint()` and needs no ancilla.
+
+Three estimators, same quantity:
+
+```python
+import numpy as np
+import qmlkit as qk
+
+fmap = qk.ZZFeatureMap(2, reps=2)
+x1, x2 = np.array([0.4, 1.3]), np.array([1.9, 0.6])
+
+print(f"fidelity (compute-uncompute) {qk.fidelity_kernel(fmap, x1, x2):+.10f}")
+print(f"swap test                    {qk.swap_test_kernel(fmap, x1, x2):+.10f}")
+print(f"hadamard test (signed)       {qk.hadamard_test(fmap, x1, x2):+.10f}")
+```
+
+```text
+fidelity (compute-uncompute) +0.7055431570
+swap test                    +0.7055431570
+hadamard test (signed)       -0.2029143060
+```
+
+The Hadamard test is the odd one out on purpose: it estimates the **signed** inner
+product `Re⟨φ(x')|φ(x)⟩`, not its square. Use it when the sign carries information;
+use `fidelity_kernel` otherwise, since it needs the fewest qubits and no ancilla.
+
+## A Gram matrix
+
+```python
+import numpy as np
+import qmlkit as qk
+
+X, y = qk.datasets.ad_hoc_data(n_samples=40, n_features=2, gap=0.4, seed=0)
+X_train, X_test, y_train, y_test = qk.datasets.train_test_split(X, y, 0.3, seed=0)
+
+kernel = qk.QuantumKernel(qk.ZZFeatureMap(2, reps=2))
+K = kernel(X_train)
+
+print(f"shape {K.shape}  symmetric {np.allclose(K, K.T)}  unit diagonal {np.allclose(np.diag(K), 1)}")
+print(f"positive semi-definite: {qk.is_psd(K)}")
+print(f"circuits run: {kernel.n_evaluations}  (m(m-1)/2 = {len(X_train) * (len(X_train) - 1) // 2})")
+print(f"target alignment: {qk.target_alignment(K, y_train):+.4f}")
+```
+
+```text
+shape (28, 28)  symmetric True  unit diagonal True
+positive semi-definite: True
+circuits run: 378  (m(m-1)/2 = 378)
+target alignment: +0.3360
+```
+
+`QuantumKernel` caches symmetrically, so `k(a,b)` and `k(b,a)` share one entry and a
+training Gram matrix costs exactly `m(m−1)/2` circuits — not `m²`.
+
+**Target alignment** measures how well the kernel's geometry matches the labels,
+before fitting anything. It is the cheapest signal you have about whether a feature
+map suits a dataset.
+
+## Classification
+
+```python
+# docs: requires sklearn
+import qmlkit as qk
+from sklearn.svm import SVC
+
+X, y = qk.datasets.ad_hoc_data(n_samples=40, n_features=2, gap=0.4, seed=0)
+X_train, X_test, y_train, y_test = qk.datasets.train_test_split(X, y, 0.3, seed=0)
+
+clf = qk.QSVC(qk.ZZFeatureMap(2, reps=2)).fit(X_train, y_train)
+print(f"QSVC        train {clf.score(X_train, y_train):.0%}  test {clf.score(X_test, y_test):.0%}")
+for kind in ("rbf", "linear"):
+    s = SVC(kernel=kind).fit(X_train, y_train)
+    print(f"SVC {kind:<7} train {s.score(X_train, y_train):.0%}  test {s.score(X_test, y_test):.0%}")
+```
+
+```text
+QSVC        train 100%  test 100%
+SVC rbf     train 68%  test 67%
+SVC linear  train 57%  test 67%
+```
+
+!!! warning "Read that honestly"
+    `ad_hoc_data` is **constructed** to be separable by a ZZ kernel and not by a
+    classical one. It demonstrates that the machinery works; it is not evidence of
+    quantum advantage on real data. A dataset built to favour your method is a
+    sanity check, not a result.
+
+## Shot noise breaks positive semi-definiteness
+
+A Gram matrix estimated from finite samples can leave the PSD cone, and an SVM solver
+handed a non-PSD kernel does not necessarily fail loudly — it can just return
+something wrong.
+
+```python
+import numpy as np
+import qmlkit as qk
+
+X, y = qk.datasets.ad_hoc_data(n_samples=40, n_features=2, gap=0.4, seed=0)
+X_train, *_ = qk.datasets.train_test_split(X, y, 0.3, seed=0)
+
+K = qk.QuantumKernel(qk.ZZFeatureMap(2, reps=2), shots=512, seed=0)(X_train[:10])
+print(f"sampled Gram is PSD: {qk.is_psd(K)}   min eigenvalue {qk.min_eigenvalue(K):+.5f}")
+
+for name, repair in (
+    ("threshold", qk.threshold_matrix),
+    ("displace", qk.displace_matrix),
+    ("flip", qk.flip_matrix),
+):
+    R = repair(K)
+    print(f"  {name:<10} PSD {qk.is_psd(R)}   min eig {qk.min_eigenvalue(R):+.5f}"
+          f"   ‖K−R‖_F {np.linalg.norm(K - R):.5f}")
+```
+
+```text
+sampled Gram is PSD: False   min eigenvalue -0.06497
+  threshold  PSD True   min eig +0.00000   ‖K−R‖_F 0.06497
+  displace   PSD True   min eig +0.00000   ‖K−R‖_F 0.20546
+  flip       PSD True   min eig +0.06497   ‖K−R‖_F 0.12994
+```
+
+`threshold` clips negative eigenvalues to zero and is the closest PSD matrix in
+Frobenius norm — usually the right default. `displace` shifts the whole spectrum,
+which preserves eigenvectors but distorts more. `flip` takes absolute values, keeping
+the spectral magnitude at the cost of moving further.
+
+## Concentration is the real limit
+
+As the register widens, fidelities between distinct points all collapse toward the
+same tiny number. The kernel stops distinguishing anything, and no amount of shots
+recovers it — the signal is gone, not merely noisy.
+
+```python
+import numpy as np
+import qmlkit as qk
+
+rng = np.random.default_rng(0)
+
+def spread(M):
+    return float(M[~np.eye(len(M), dtype=bool)].std())
+
+for n in (2, 4, 6, 8):
+    Xn = rng.uniform(0, np.pi, (8, n))
+    fmap = qk.ZZFeatureMap(n, reps=2)
+    print(f"n={n}: fidelity spread {spread(qk.QuantumKernel(fmap)(Xn)):.5f}"
+          f"   projected {spread(qk.projected_kernel_matrix(fmap, Xn)):.5f}")
+```
+
+```text
+n=2: fidelity spread 0.17154   projected 0.14718
+n=4: fidelity spread 0.07615   projected 0.10260
+n=6: fidelity spread 0.02117   projected 0.06558
+n=8: fidelity spread 0.01654   projected 0.06393
+```
+
+The fidelity kernel's off-diagonal spread falls by a factor of ten from 2 to 8
+qubits. The **projected** kernel — which compares one-qubit reduced density matrices
+instead of the global overlap — falls by only about half, and by 6 qubits it carries
+three times more signal than the fidelity kernel does. It is not immune to
+concentration; it just degrades far more slowly. `concentration_report` measures this
+for your own feature map.
+
+## Training the embedding
+
+You can optimise the *feature map* before fitting any classifier, by maximising
+target alignment:
+
+```python
+import numpy as np
+import qmlkit as qk
+
+X, y = qk.datasets.ad_hoc_data(n_samples=24, n_features=2, gap=0.4, seed=0)
+
+def factory(w):
+    """A ZZ map whose data scaling is the thing being learned."""
+    return qk.PauliFeatureMap(
+        2, paulis=("Z", "ZZ"), reps=2,
+        data_map=lambda x, idx: float(np.prod([x[i] for i in idx])) * float(w[0]),
+    )
+
+trainable = qk.TrainableKernel(factory, n_params=1)
+trainable.fit(X, y, n_iterations=60, theta0=np.array([0.4]), seed=0)
+print(f"alignment {trainable.history_[0]:+.4f} -> {trainable.history_[-1]:+.4f}")
+print(f"scale     0.4 -> {trainable.params_[0]:.3f}")
+```
+
+```text
+alignment +0.0460 -> +0.1406
+scale     0.4 -> 0.549
+```
+
+Three times the alignment, before any classifier is fitted. Two honest caveats: the
+landscape is bumpy — a scale of 1.0 scores 0.3664 on this data, so SPSA has found a
+local optimum, not the best one — and `fit` returns the **final** iterate rather than
+the best seen, so a short run can end below where it started. `history_` is the full
+alignment trajectory, and its last entry always corresponds to `params_`.
+
+---
+
+**Next:** [Re-uploading and Fourier](07-reuploading.md) — why depth buys you
+frequencies, measured rather than asserted.
+
+
+==============================================================================
+# Tutorials / 7. Re-uploading and Fourier    (source: docs/tutorials/07-reuploading.md)
+==============================================================================
+
+# 7. Re-uploading and the Fourier picture
+
+Encode the data once and a circuit is a fairly limited function of it. Encode it
+again between trainable blocks and the model becomes a **truncated Fourier series**,
+where each upload buys one more frequency. That is the single clearest theoretical
+statement in variational QML, and it is directly measurable.
+
+## Re-uploading is a pattern, not a structure
+
+There is no single "the re-uploading ansatz". It is *any* interleaving of *any*
+encoding with *any* trainable block, so qmlkit treats it as a composition rather than
+a class:
+
+```python
+import qmlkit as qk
+
+variants = [
+    ("default (S then W)", qk.reupload(qk.AngleFeatureMap(2), n_layers=3)),
+    ("order='WS'", qk.reupload(qk.AngleFeatureMap(2), n_layers=3, order="WS")),
+    ("shared weights", qk.reupload(qk.AngleFeatureMap(2), n_layers=3, share_weights=True)),
+    ("ZZ feature map", qk.reupload(qk.ZZFeatureMap(2, reps=1), n_layers=2)),
+]
+for label, model in variants:
+    r = model.resources()
+    print(f"{label:<20} inputs {model.n_inputs}  weights {model.n_weights:>3}  depth {r['depth']:>3}")
+```
+
+```text
+default (S then W)   inputs 2  weights  18  depth  18
+order='WS'           inputs 2  weights  18  depth  18
+shared weights       inputs 2  weights   6  depth  18
+ZZ feature map       inputs 3  weights  12  depth  18
+```
+
+`reupload()` covers the common shapes. Anything else composes directly from the block
+vocabulary — including **two different feature maps in one model**, which a fixed
+class cannot express at all.
+
+Notice `share_weights=True` gives 6 weights instead of 18, at identical depth: the
+same trainable block reused at every upload.
+
+## The circuit
+
+```python
+import qmlkit as qk
+
+model = qk.reupload(
+    qk.AngleFeatureMap(1, entangle=False),
+    n_layers=2,
+    rotations=("rz", "ry", "rz"),
+    entangler=None,
+)
+print(qk.draw(model.build()))
+```
+
+```text
+q0: ─RY(θ0)──RZ(θ1)──RY(θ2)──RZ(θ3)──RY(θ0)──RZ(θ4)──RY(θ5)──RZ(θ6)──
+```
+
+`θ0` appears twice — that is the data, uploaded twice. The rest are weights. Data and
+weights occupy separate ranges of one flat vector, which is what keeps `∂f/∂x` and
+`∂f/∂θ` separable while the model still drops straight into a `QuantumLayer`.
+
+## Measuring the claim
+
+`L` uploads should reach frequencies `0…L`. Do not take that on faith — extract the
+spectrum:
+
+```python
+import numpy as np
+import qmlkit as qk
+
+for n_layers in (1, 2, 3, 4):
+    model = qk.reupload(
+        qk.AngleFeatureMap(1, entangle=False),
+        n_layers=n_layers,
+        rotations=("rz", "ry", "rz"),
+        entangler=None,
+    )
+    weights = model.init("uniform", seed=1)
+    bound = model.build()
+
+    def f(x, bound=bound, model=model, weights=weights):
+        return qk.expval(bound, qk.Z(0), theta=np.concatenate([model.angles([x]), weights]))
+
+    spectrum = qk.fourier.spectrum(f, n_layers + 3)
+    print(f"L={n_layers}: frequencies {sorted(spectrum)}"
+          f"  amplitudes {[round(spectrum[k], 4) for k in sorted(spectrum)]}")
+```
+
+```text
+L=1: frequencies [1]  amplitudes [0.9997]
+L=2: frequencies [0, 1, 2]  amplitudes [0.0853, 0.2176, 0.1573]
+L=3: frequencies [0, 1, 2, 3]  amplitudes [0.4162, 0.5004, 0.1654, 0.0156]
+L=4: frequencies [0, 1, 2, 3, 4]  amplitudes [0.4088, 0.5291, 0.2017, 0.0506, 0.0028]
+```
+
+Exactly `0…L`, and nothing above it. Frequencies the architecture cannot reach are
+not "hard to learn" — they are unreachable, and no training run will find them. That
+makes this a design question, decided before the first gradient step.
+
+Note the amplitudes fall off sharply at the top end. Reaching a frequency is not the
+same as having much of it: `L=4` reaches frequency 4 with amplitude 0.0028. Depth
+buys bandwidth, not power.
+
+## The trap: a trainable block that commutes
+
+If the trainable block commutes with the encoding, the uploads collapse.
+`Ry(x)Ry(θ₁)Ry(x)Ry(θ₂)` is just `Ry(2x + θ₁ + θ₂)` — one frequency, and the weights
+do nothing but shift a phase.
+
+```python
+import numpy as np
+import qmlkit as qk
+
+for label, rotations in (("Ry only (commutes)", ("ry",)), ("Rz Ry Rz (does not)", ("rz", "ry", "rz"))):
+    model = qk.reupload(
+        qk.AngleFeatureMap(1, entangle=False), n_layers=3, rotations=rotations, entangler=None
+    )
+    weights = model.init("uniform", seed=1)
+    bound = model.build()
+
+    def f(x, bound=bound, model=model, weights=weights):
+        return qk.expval(bound, qk.Z(0), theta=np.concatenate([model.angles([x]), weights]))
+
+    spectrum = qk.fourier.spectrum(f, 6)
+    print(f"{label:<22} frequencies {sorted(spectrum)}"
+          f"  amplitudes {[round(spectrum[k], 4) for k in sorted(spectrum)]}")
+```
+
+```text
+Ry only (commutes)     frequencies [3]  amplitudes [1.0]
+Rz Ry Rz (does not)    frequencies [0, 1, 2, 3]  amplitudes [0.4162, 0.5004, 0.1654, 0.0156]
+```
+
+A three-upload model that reaches **one** frequency, with weights that cannot change
+the function's shape. It trains, it produces a loss curve, and it is architecturally
+incapable of the thing it was built for.
+
+!!! warning "The library warns about this one"
+    `DataReuploadEncoder` raises a `UserWarning` when the trainable block commutes
+    with the encoding rotation, because the failure is otherwise invisible — the
+    model looks fine and simply cannot represent anything.
+
+## Using it
+
+A re-uploading model is an `Ansatz`, so it drops into everything else. Bind data and
+weights separately:
+
+```python
+import numpy as np
+import qmlkit as qk
+
+model = qk.reupload(qk.AngleFeatureMap(2), n_layers=2)
+weights = model.init(seed=0)
+x = np.array([0.3, 0.8])
+
+spec = model.bind(x, weights)
+print(f"<Z0> = {qk.expval(spec, qk.Z(0)):+.6f}")
+print(f"inputs {model.n_inputs}, weights {model.n_weights}")
+```
+
+`build(theta)` still takes the full concatenated vector, and says so clearly when the
+sizes disagree — the two calling conventions were a real source of confusion, so the
+error message names both sizes.
+
+---
+
+**Next:** [Trainability](08-trainability.md) — what happens when the gradient is
+there but vanishingly small.
+
+
+==============================================================================
+# Tutorials / 8. Trainability    (source: docs/tutorials/08-trainability.md)
+==============================================================================
+
+# 8. Trainability
+
+A correct gradient is not the same as a useful one. Variational circuits have a
+failure mode where the gradient is exactly right and exponentially small — the
+**barren plateau** — and no optimiser recovers from it, because there is nothing to
+follow.
+
+The good news is that it is measurable before you spend a training run finding out.
+
+## Cost locality is the lever you actually control
+
+At fixed shallow depth, *what you measure* matters more than how wide the register
+is:
+
+```python
+import qmlkit as qk
+
+local = qk.barren_plateau_scan(
+    lambda n: qk.hardware_efficient(n, 2), [2, 4, 6, 8],
+    lambda n: qk.Z(0), n_samples=200, seed=0,
+)
+global_ = qk.barren_plateau_scan(
+    lambda n: qk.hardware_efficient(n, 2), [2, 4, 6, 8],
+    lambda n: qk.PauliString(tuple((q, "Z") for q in range(n)), 1.0), n_samples=200, seed=0,
+)
+
+print(f"{'n':>3}{'local Z0':>14}{'global Z^n':>14}")
+for i, n in enumerate(local["n_qubits"]):
+    print(f"{n:>3}{local['variance'][i]:>14.3e}{global_['variance'][i]:>14.3e}")
+print(f"\ndecay per qubit:  local {local['decay_per_qubit']:.4f}   global {global_['decay_per_qubit']:.4f}")
+print(f"looks exponential: local {local['looks_exponential']}   global {global_['looks_exponential']}")
+```
+
+```text
+  n      local Z0    global Z^n
+  2     3.381e-01     1.250e-01
+  4     2.684e-01     1.847e-02
+  6     2.793e-01     8.684e-03
+  8     2.740e-01     1.437e-03
+
+decay per qubit:  local 0.9322   global 0.2257
+looks exponential: local False   global True
+```
+
+A local `Z(0)` holds its gradient variance essentially flat from 2 to 8 qubits. A
+global `Z^⊗n` on the *same circuits* collapses by a factor of 87 — decaying to 22% of
+its value per added qubit. Same ansatz, same depth, same initialisation. The only
+difference is the observable.
+
+## Depth eventually wins anyway
+
+Cost locality is not a cure, and claiming otherwise would be the comfortable
+mistake. Let the depth grow with the width and the local cost collapses too:
+
+```python
+import qmlkit as qk
+
+deep = qk.barren_plateau_scan(
+    lambda n: qk.hardware_efficient(n, 2 * n), [2, 4, 6],
+    lambda n: qk.Z(0), n_samples=200, seed=0,
+)
+for i, n in enumerate(deep["n_qubits"]):
+    print(f"n={n}, L=2n: variance {deep['variance'][i]:.3e}")
+print(f"decay per qubit {deep['decay_per_qubit']:.4f}, looks exponential {deep['looks_exponential']}")
+```
+
+```text
+n=2, L=2n: variance 1.496e-01
+n=4, L=2n: variance 3.540e-02
+n=6, L=2n: variance 6.744e-03
+decay per qubit 0.2123, looks exponential True
+```
+
+A **local** cost at depth `2n` decays at 0.2123 per qubit — indistinguishable from
+the global cost's 0.2257 at shallow depth. So the honest statement is: a local cost
+buys you room at shallow depth, and depth takes it back.
+
+The practical defences are the unglamorous ones — shallow circuits, local costs,
+small (near-identity) initialisation, and structured ansätze like QCNN or MPS whose
+tied weights keep the effective parameter count low.
+
+## Optimisers built for circuits
+
+Adam and SGD come from torch. These three exploit structure a general optimiser
+cannot see.
+
+```python
+import numpy as np
+import qmlkit as qk
+
+ansatz = qk.hardware_efficient(3, 2)
+spec, start = ansatz.build(), ansatz.init("uniform", seed=1)
+cost = qk.Z(0) + qk.Z(1) + qk.Z(2)  # minimum is -3
+
+def loss(theta):
+    return qk.expval(spec, cost, theta=theta)
+
+_, roto = qk.minimize_rotosolve(loss, start, n_sweeps=12)
+_, qng = qk.minimize_qng(spec, start, cost, n_steps=25, lr=0.15)
+_, spsa = qk.minimize_spsa(loss, start, n_iterations=200, seed=0)
+
+plain = start.copy()
+for _ in range(25):
+    plain = plain - 0.15 * qk.grad(spec, plain, cost)
+
+print(f"start                  {roto[0]:+.6f}")
+print(f"plain GD   (25 steps)  {loss(plain):+.6f}")
+print(f"QNG        (25 steps)  {qng[-1]:+.6f}")
+print(f"Rotosolve  (12 sweeps) {roto[-1]:+.6f}")
+print(f"SPSA       (200 iters) {spsa[-1]:+.6f}")
+print(f"minimum                -3.000000")
+```
+
+```text
+start                  -0.085469
+plain GD   (25 steps)  -2.995834
+QNG        (25 steps)  -3.000000
+Rotosolve  (12 sweeps) -2.997598
+SPSA       (200 iters) -2.998708
+minimum                -3.000000
+```
+
+**Rotosolve** exploits the fact that a circuit expectation is a *sinusoid* in any
+single Pauli-rotation angle. Three evaluations pin that sinusoid down exactly, so you
+jump to its minimum instead of stepping toward it — no learning rate at all. It is
+coordinate descent, so it converges slowly near the optimum on correlated parameters.
+
+**Quantum natural gradient** follows the Fubini–Study geometry rather than the
+Euclidean one. Same 25 steps and same step size as plain gradient descent, and it
+reaches the minimum where plain GD does not.
+
+**SPSA** uses two circuit evaluations per step regardless of the parameter count.
+Worth it when `P` is large or the evaluations are noisy.
+
+## The geometry underneath
+
+```python
+import numpy as np
+import qmlkit as qk
+
+ansatz = qk.hardware_efficient(3, 1, rotations=("ry",), pattern="chain")
+spec, theta = ansatz.build(), ansatz.init(seed=0)
+
+g = qk.metric_tensor(spec, theta, approx=None)
+print(f"metric shape {g.shape}, symmetric {np.allclose(g, g.T)}")
+print(f"QFIM = 4·g: {np.allclose(qk.quantum_fisher_information(spec, theta), 4 * g)}")
+```
+
+The metric is computed by differentiating the state in closed form — exact, and with
+no ancilla. That matters because QNG is only as good as the metric it follows.
+
+!!! note "`approx=\"block-diag\"` means something different in PennyLane"
+    PennyLane blocks the metric by circuit *layer* and zeroes cross-layer entries.
+    qmlkit computes the exact metric, which costs no more on a simulator. The
+    consequence is measurable, and it is in [Validation](../about/validation.md).
+
+## What to check before a long run
+
+```python
+import qmlkit as qk
+
+report = qk.metrics.AnsatzReport(qk.hardware_efficient(4, 2), n_samples=300)
+print(report)
+```
+
+Look at **gradient variance** first. If it is already at `1e-4` on four qubits,
+widening the register will not help and the architecture needs changing, not more
+epochs.
+
+---
+
+That is the tour. From here: the [guides](../guides/index.md) go deeper on the
+parameter-shift rule and on extending the library, and
+[Validation](../about/validation.md) covers how any of this is known to be correct.
+
+
+==============================================================================
+# Guides / Guides    (source: docs/guides/index.md)
+==============================================================================
+
+# Guides
+
+The tutorials show you how. These explain why, and are meant to be read out of order
+when a particular question comes up.
+
+| | |
+|---|---|
+| **[The parameter-shift rule](parameter-shift.md)** | Why the famous two-term formula is not the whole story, and how qmlkit derives a rule per gate instead of transcribing one |
+| **[Choosing a gradient method](choosing-a-gradient.md)** | Six options, a decision table, and measured costs |
+| **[Backends and conventions](backends.md)** | Endianness, controlled-gate ordering, precision floors, and three upstream discrepancies worth knowing about |
+| **[Extending qmlkit](extending.md)** | Adding a gate, an ansatz, a gradient estimator or a backend — every extension point is a registry |
+| **[Working with a coding agent](agents.md)** | Why a wrong name answers with the right one, and what `diagnose()` catches that nothing raises for |
+
+For how any of this is known to be correct, see [Validation](../about/validation.md).
+
+
+==============================================================================
+# Guides / The parameter-shift rule    (source: docs/guides/parameter-shift.md)
+==============================================================================
+
+# The parameter-shift rule
+
+Every QML course teaches this formula:
+
+$$\frac{\partial E}{\partial \theta} = \frac{E(\theta + \pi/2) - E(\theta - \pi/2)}{2}$$
+
+It is correct — for a gate whose generator has a single frequency, differentiated one
+occurrence at a time. Both of those conditions are easy to violate without noticing,
+and violating either returns a smooth, finite, believable number rather than an
+error.
+
+qmlkit therefore **derives** each rule from the gate's declared generator
+frequencies. Nothing is transcribed.
+
+## Where the rule comes from
+
+For a gate $U(\theta) = e^{-i\theta G/2}$, the expectation $E(\theta)$ is a
+trigonometric polynomial whose frequencies are the gaps between eigenvalues of $G$.
+A gate that declares frequencies $\{\Omega_1, \dots, \Omega_k\}$ has
+
+$$E(\theta) = a_0 + \sum_{j=1}^{k} \left[ a_j \cos(\Omega_j \theta) + b_j \sin(\Omega_j \theta) \right]$$
+
+Reconstructing $E'(\theta)$ exactly from finitely many evaluations of $E$ is then a
+linear algebra problem: choose $2k$ shifts, write down what each evaluation
+contributes, and solve for the coefficients. `general_shift_rule` does exactly that.
+
+```python
+import qmlkit as qk
+
+rule = qk.general_shift_rule((0.5, 1.0))
+for shift, coeff in zip(rule.shifts, rule.coeffs):
+    print(f"shift {shift:+.6f}   coefficient {coeff:+.6f}")
+```
+
+```text
+shift +1.570796   coefficient +0.426777
+shift -1.570796   coefficient -0.426777
+shift +4.712389   coefficient -0.073223
+shift -4.712389   coefficient +0.073223
+```
+
+Solving a linear system rather than looking up a formula means a gate you register
+yourself gets a correct rule automatically, as long as you declare its frequencies.
+
+## Rules are per gate
+
+```python
+import qmlkit as qk
+
+for gate in ("rx", "ry", "rz", "phase", "crx", "cry", "crz"):
+    rule = qk.rule_for_gate(gate)
+    print(f"{gate:<7} frequencies {str(qk.get_gate(gate).frequencies):<14} {len(rule.shifts)}-term rule")
+```
+
+```text
+rx      frequencies (1.0,)        2-term rule
+ry      frequencies (1.0,)        2-term rule
+rz      frequencies (1.0,)        2-term rule
+phase   frequencies (1.0,)        2-term rule
+crx     frequencies (0.5, 1.0)    4-term rule
+cry     frequencies (0.5, 1.0)    4-term rule
+crz     frequencies (0.5, 1.0)    4-term rule
+```
+
+A controlled rotation's generator is a projector times a Pauli. Its eigenvalue gaps
+include both ½ and 1, so a two-term rule cannot reconstruct the derivative.
+[Tutorial 3](../tutorials/03-gradients.md) has a worked case where the naive rule
+returns exactly √2 times the right answer — same sign, same shape, wrong magnitude.
+
+## Occurrences are shifted one at a time
+
+When one logical parameter fills several slots, the chain rule gives a **sum** over
+occurrences:
+
+$$\frac{\partial E}{\partial \theta_k} = \sum_{\text{slots } s \text{ using } \theta_k} \frac{\partial E}{\partial \phi_s}$$
+
+Shifting every occurrence simultaneously computes a directional derivative along a
+different direction entirely. For three tied `Ry(θ)` on one qubit — which is
+`Ry(3θ)` — it is wrong by a factor of −3.
+
+This is not an exotic case. It is exactly what a QCNN does, and weight tying is the
+entire point of a convolutional ansatz.
+
+## Cost is not `2P`
+
+Because rules differ per gate, the real cost is a sum over slots, not a multiple of
+the parameter count:
+
+```python
+import qmlkit as qk
+
+qc = qk.QCircuit(2)
+qc.ry(0, qk.ParamRef(0)).crz(0, 1, qk.ParamRef(1))
+spec = qc.to_spec()
+
+print(f"P = {spec.n_params}")
+print(f"naive 2P      = {2 * spec.n_params}")
+print(f"actual cost   = {qk.grad_circuit_cost(spec)}   (2 for the ry, 4 for the crz)")
+```
+
+```text
+P = 2
+naive 2P      = 4
+actual cost   = 6   (2 for the ry, 4 for the crz)
+```
+
+`grad_circuit_cost` sums the real per-slot rule cost. On hardware, where each circuit
+carries fixed latency, that difference is the difference between a job that fits in
+your queue allocation and one that does not.
+
+## Scaling and offsets
+
+A `ParamRef` may carry a scale and an offset — `φ = scale·θ + offset`. The chain rule
+then multiplies the slot's contribution by `scale`:
+
+```python
+import numpy as np
+import qmlkit as qk
+
+qc = qk.QCircuit(1)
+qc.ry(0, qk.ParamRef(0, scale=2.0))
+spec = qc.to_spec()
+
+g = qk.grad(spec, np.array([0.3]), qk.Z(0), method="parameter-shift")
+print(f"gradient           {g[0]:+.10f}")
+print(f"2 · -sin(2·0.3)    {-2 * np.sin(0.6):+.10f}")
+print(f"without the scale  {-np.sin(0.6):+.10f}")
+```
+
+```text
+gradient           -1.1292849468
+2 · -sin(2·0.3)    -1.1292849468
+without the scale  -0.5646424734
+```
+
+Dropping the `scale` factor halves the gradient here. Like the other two failure
+modes on this page, the result stays smooth and finite — training still descends,
+just at the wrong rate.
+
+## When it still does not apply
+
+A generator with a continuum of frequencies — a general time-evolution operator, say
+— has no finite shift rule. The literature's answer is the **stochastic**
+parameter-shift rule (Banchi & Crooks 2020), which samples an integral instead. It is
+not implemented here; `method="adjoint"` covers those cases on a simulator, and
+`register_gradient` is the hook if you need the hardware-valid version.
+
+
+==============================================================================
+# Guides / Choosing a gradient method    (source: docs/guides/choosing-a-gradient.md)
+==============================================================================
+
+# Choosing a gradient method
+
+Six methods, and `qk.grad(spec, theta, obs)` with no `method` picks a sensible one.
+This page is for when you want to override it.
+
+## The short answer
+
+| Situation | Use |
+|---|---|
+| Simulating, and you just want the gradient | **`adjoint`** (the default) |
+| The circuit lives inside a torch autograd graph | **`backprop`** |
+| You are modelling what hardware would do | **`parameter-shift`**, with `shots` |
+| Hardware, and circuit count is the binding constraint | **`hadamard`**, if the ancilla can reach every wire |
+| Very many parameters, or very noisy evaluations | **`spsa`** |
+| Checking another method | **`finite-diff`** |
+
+## The full picture
+
+| Method | Cost | Exact | Runs on hardware |
+|---|---|---|---|
+| `adjoint` | one backward pass | yes | no — needs the statevector |
+| `backprop` | one autograd pass | yes | no — needs the statevector |
+| `hadamard` | `P` circuits + one ancilla | yes | yes, given the connectivity |
+| `parameter-shift` | `2P` circuits, more for four-term gates | yes | yes |
+| `spsa` | 2 evaluations, any `P` | no — unbiased estimate | yes |
+| `finite-diff` | `2P` | no — `O(h²)` bias | technically, but don't |
+
+Measured on a 5-qubit hardware-efficient ansatz with a two-term observable:
+
+| `P` | `adjoint` | `backprop` | `hadamard` | `parameter-shift` | `finite-diff` |
+|---|---|---|---|---|---|
+| 20 | **2.2 ms** | 8.5 ms | 15 ms | 28 ms | 29 ms |
+| 60 | **6.2 ms** | 24 ms | 109 ms | 213 ms | 226 ms |
+| 120 | **12.6 ms** | 50 ms | 404 ms | 823 ms | 870 ms |
+
+## What `method="auto"` decides
+
+```python
+import qmlkit as qk
+
+ansatz = qk.hardware_efficient(3, 2)
+spec = ansatz.build()
+
+print("no shots:  ", qk.choose_method(spec))
+print("with shots:", qk.choose_method(spec, shots=1000))
+```
+
+```text
+no shots:   adjoint
+with shots: parameter-shift
+```
+
+Adjoint when every gate has a closed-form derivative and the backend can produce a
+statevector; parameter-shift otherwise. Asking for `shots` rules out adjoint by
+definition — you cannot sample a statevector you are not allowed to read.
+
+Methods that need the statevector **refuse** a shot budget rather than silently
+ignoring it:
+
+```python
+import qmlkit as qk
+
+ansatz = qk.hardware_efficient(2, 1)
+spec, theta = ansatz.build(), ansatz.init(seed=0)
+try:
+    qk.grad(spec, theta, qk.Z(0), method="adjoint", shots=1000)
+except ValueError as exc:
+    print(exc)
+```
+
+## Notes on each
+
+**`adjoint`** — one forward pass and one backward pass, whatever `P` is. Exact. The
+right default on a simulator, and the reason this library exists in a simulator-only
+0.x: it makes the cost of a gradient independent of the parameter count.
+
+**`backprop`** — differentiates a torch statevector simulator directly. Exact, and
+slower than adjoint for a standalone gradient because of per-gate tensor overhead.
+Its reason to exist is that the circuit sits *inside* an autograd graph, which is
+what `QuantumLayer` needs. It is also the least physical method here: it reads
+intermediate states no device will expose, and its memory grows with depth.
+
+**`hadamard`** — one circuit per parameter instead of two, using an ancilla in `|+⟩`
+and a controlled generator. Unlike adjoint it is a real measurement, so it stays
+valid on hardware. The trade is an ancilla that must couple to every wire the
+generator touches; on real devices that routing cost usually eats the saving, which
+is why parameter-shift stays the hardware default. It refuses controlled rotations
+rather than guessing, because their generators are not Paulis.
+
+**`parameter-shift`** — exact, hardware-valid, and the one worth understanding in
+detail: see [The parameter-shift rule](parameter-shift.md).
+
+**`spsa`** — two evaluations per gradient regardless of `P`. Stochastic but unbiased,
+so averaging converges on the true gradient. Use `n_avg` to trade evaluations for
+variance.
+
+**`finite-diff`** — biased by construction at `O(h²)`, and noisy at `O(1/h)` when
+sampling. It exists to check other methods. It should never be the method you train
+with, and the fact that it sometimes lands within `1e-9` is luck, not accuracy.
+
+## Bringing your own
+
+```python
+import numpy as np
+import qmlkit as qk
+
+@qk.register_gradient("my_estimator")
+def my_estimator(spec, theta, obs, *, backend=None, shots=None, **kwargs):
+    return np.zeros(spec.n_params)
+
+print("my_estimator" in qk.list_gradient_methods())
+```
+
+Once registered it is a keyword everywhere the library takes `method=`, including
+`QuantumLayer`. See [Extending qmlkit](extending.md).
+
+
+==============================================================================
+# Guides / Backends and conventions    (source: docs/guides/backends.md)
+==============================================================================
+
+# Backends and conventions
+
+One circuit, five backends, one answer. `tests/test_cross_backend.py` runs the same
+circuit zoo through every installed backend and asserts agreement with the NumPy
+reference on statevectors, probabilities, expectations over X/Y/Z and two-body terms,
+seeded sampling, and parameter-shift gradients.
+
+```python
+import qmlkit as qk
+
+print(qk.available_backends())
+print(qk.backend_report())
+```
+
+Every SDK import is lazy, so `import qmlkit` requires none of them and a missing one
+produces an install command rather than an `ImportError`. Set the default with
+`QMLKIT_BACKEND` or `qk.set_default_backend(...)`, or pass `backend=` per call.
+
+## Qubit ordering
+
+**qmlkit is big-endian: qubit 0 is the most significant bit.** A count key `'011'`
+means qubit 0 measured `|0⟩`, qubit 1 `|1⟩`, qubit 2 `|1⟩`. This matches SpinQit and
+PennyLane.
+
+Qiskit is little-endian. Rather than reversing statevectors after the fact, the
+Qiskit backend maps qmlkit qubit `i` to Qiskit qubit `n−1−i` **at build time**, so
+the index conventions coincide and no reversal is needed anywhere downstream.
+
+## Three upstream discrepancies
+
+Building the cross-backend suite turned up three real differences. All are handled;
+all are worth knowing about if you go looking at the native circuits.
+
+| Finding | Handling |
+|---|---|
+| **SpinQit's `CY` applies `−iY`**, not `Y`, to the control-1 subspace | Emitted as `Sd·CX·S` instead. This is a *relative* phase between control branches, so it is physically observable — a control qubit in superposition gives different measurement statistics. SpinQit's single-qubit `Y` is correct; only the controlled form is affected |
+| **Cirq silently drops qubits a circuit never touches** | An explicit `qubit_order` is always passed, so an idle qubit still occupies its place in the statevector |
+| **Qiskit is little-endian** | Index remapping at build time, as above |
+
+`verify_conventions()` re-checks bit order and gate definitions against a live
+install in one call — worth running after an SDK upgrade.
+
+## Precision
+
+SpinQit's simulator carries a floor near `1e-10` rather than machine precision: a
+single-qubit `Ry(0.7)` expectation lands about `5.6e-11` from the analytic `cos(0.7)`.
+Cross-backend comparisons use a per-backend tolerance so this is not mistaken for a
+translation error, and it is worth knowing before anyone reports a "gradient
+mismatch" that is really accumulated simulator noise.
+
+```text
+TOLERANCE = {"spinqit": 1e-7, "qiskit": 1e-9, "cirq": 1e-9}
+```
+
+## Native circuits
+
+Each backend exposes its own object, so you can hand a circuit to that SDK's
+transpiler or drawing tools:
+
+```python
+# docs: requires qiskit
+import qmlkit as qk
+
+qc = qk.QCircuit(2)
+qc.h(0).cx(0, 1)
+print(type(qk.get_backend("qiskit").to_qiskit(qc.to_spec())).__name__)
+```
+
+`to_qiskit`, `to_cirq` and `to_spinqit` are the three.
+
+## SpinQit needs its own environment
+
+SpinQit ships wheels for Python 3.8–3.10 only and pins `numpy<2`, so the extra is
+gated behind an environment marker and resolves to nothing on 3.11+. Use a dedicated
+3.10 environment:
+
+```bash
+conda create -n spinq python=3.10 && conda activate spinq && pip install "qmlkit[spinqit]"
+```
+
+A practical consequence: **nothing in the library may use a NumPy-2-only API**
+(`np.trapezoid`, `np.in1d`, …), because the test suite has to pass under `numpy<2`
+as well. CI runs both.
+
+## The torch backend
+
+`TorchBackend` is a differentiable statevector simulator, and it is what makes
+`method="backprop"` possible. It is the least physical backend here — deliberately —
+and exists because a circuit inside an autograd graph is genuinely useful, not
+because it could ever run anywhere but a simulator.
+
+
+==============================================================================
+# Guides / Extending qmlkit    (source: docs/guides/extending.md)
+==============================================================================
+
+# Extending qmlkit
+
+Every extension point is a registry. Register something and it becomes reachable by
+name everywhere the library takes one — no subclassing, no plugin manifest, no
+coordination with anything else.
+
+| I want to change | Use |
+|---|---|
+| The circuit shape | `register_ansatz` — or just build an `Ansatz` inline |
+| A gate the library lacks | `register_gate` |
+| How gradients are estimated | `register_gradient` |
+| Where circuits run | `register_backend` |
+
+## A new ansatz
+
+```python
+import qmlkit as qk
+
+@qk.register_ansatz("my_ladder")
+def my_ladder(n_qubits, n_layers=2):
+    block = qk.RotationLayer(("ry", "rz")) + qk.EntanglerLayer("cx", "chain")
+    return qk.Ansatz(n_qubits, qk.repeat(n_layers, block), "my_ladder")
+
+ansatz = qk.get_ansatz("my_ladder", n_qubits=3, n_layers=2)
+print(ansatz)
+print(qk.draw(ansatz.build()))
+```
+
+It now has correct gradients, resource counting, drawing, an `AnsatzReport`, and a
+`QuantumLayer` — none of which you wrote. The parameter count is inferred from a dry
+build, so there is nothing to miscount.
+
+## A new gate
+
+A gate needs a matrix. Declare its **generator frequencies** and parameter-shift
+works on it; add a **derivative matrix** and adjoint differentiation works too.
+
+```python
+import numpy as np
+import qmlkit as qk
+
+def _sqrt_x(_=None):
+    return 0.5 * np.array([[1 + 1j, 1 - 1j], [1 - 1j, 1 + 1j]], dtype=complex)
+
+qk.register_gate(qk.GateDef("sx", n_qubits=1, n_params=0, matrix=_sqrt_x))
+
+qc = qk.QCircuit(1)
+qc.apply("sx", 0)
+print(np.round(qk.statevector(qc.to_spec()), 4))
+```
+
+For a *parameterised* gate, the two optional fields are what unlock differentiation:
+
+```python
+import numpy as np
+import qmlkit as qk
+
+def _rzz(theta):
+    return np.diag([np.exp(-0.5j * theta), np.exp(0.5j * theta),
+                    np.exp(0.5j * theta), np.exp(-0.5j * theta)])
+
+def _d_rzz(theta):
+    return np.diag([-0.5j * np.exp(-0.5j * theta), 0.5j * np.exp(0.5j * theta),
+                    0.5j * np.exp(0.5j * theta), -0.5j * np.exp(-0.5j * theta)])
+
+qk.register_gate(qk.GateDef(
+    "rzz", n_qubits=2, n_params=1,
+    matrix=_rzz,
+    frequencies=(1.0,),   # -> a correct 2-term shift rule, derived not transcribed
+    dmatrix=_d_rzz,       # -> adjoint differentiation
+))
+
+qc = qk.QCircuit(2)
+qc.h(0).apply("rzz", (0, 1), qk.ParamRef(0))
+spec, theta = qc.to_spec(), np.array([0.7])
+
+shift = qk.grad(spec, theta, qk.X(0), method="parameter-shift")
+adj = qk.grad(spec, theta, qk.X(0), method="adjoint")
+print(f"parameter-shift {shift[0]:+.10f}")
+print(f"adjoint         {adj[0]:+.10f}")
+print(f"agree to        {abs(shift[0] - adj[0]):.2e}")
+```
+
+Getting the same number from two independent routes is the check worth making on any
+gate you add — see [The parameter-shift rule](parameter-shift.md) for why the
+frequencies matter.
+
+!!! warning "Gate registration is global"
+    The registry is process-wide, so a gate registered in a test is visible to every
+    later test. If you register throwaway gates, snapshot the registry rather than
+    reading it live — the parity suite learned this the hard way.
+
+## A new gradient estimator
+
+```python
+import numpy as np
+import qmlkit as qk
+
+@qk.register_gradient("forward_diff")
+def forward_diff(spec, theta, obs, *, backend=None, shots=None, eps=1e-6, **kwargs):
+    base = qk.expval(spec, obs, theta=theta, backend=backend, shots=shots)
+    out = np.zeros(spec.n_params)
+    for k in range(spec.n_params):
+        step = np.zeros_like(theta)
+        step[k] = eps
+        out[k] = (qk.expval(spec, obs, theta=theta + step, backend=backend, shots=shots) - base) / eps
+    return out
+
+ansatz = qk.hardware_efficient(2, 1)
+spec, theta = ansatz.build(), ansatz.init(seed=0)
+mine = qk.grad(spec, theta, qk.Z(0), method="forward_diff")
+exact = qk.grad(spec, theta, qk.Z(0), method="adjoint")
+print(f"max deviation from adjoint: {np.abs(mine - exact).max():.2e}")
+```
+
+The signature is fixed: `(spec, theta, obs, *, backend, shots, **kwargs)`, returning
+an array of length `spec.n_params`. Anything else you need arrives through `kwargs`,
+and callers pass it straight through `qk.grad(..., your_kwarg=...)`.
+
+## A new backend
+
+Subclass `Backend` and implement **one** method — `statevector`. The base class
+supplies the measurement *semantics*: sampling, basis rotation, expectation values,
+seeded counts. That is deliberate: if every backend re-implemented those, agreement
+between them would be a coincidence rather than a property.
+
+```python
+import numpy as np
+import qmlkit as qk
+from qmlkit.core.backends.base import Backend
+
+class MirrorBackend(Backend):
+    """The NumPy reference, but proving the extension point works."""
+
+    name = "mirror"
+    supports_statevector = True
+    supports_exact = True
+
+    def statevector(self, spec):
+        self._check_bound(spec)
+        return qk.get_backend("numpy").statevector(spec)
+
+qk.register_backend("mirror", MirrorBackend)
+
+qc = qk.QCircuit(2)
+qc.h(0).cx(0, 1)
+spec = qc.to_spec()
+print(np.round(qk.statevector(spec, backend="mirror"), 4))
+print("agrees with numpy:", np.allclose(
+    qk.statevector(spec, backend="mirror"), qk.statevector(spec, backend="numpy")))
+```
+
+If you add a real backend, the thing to run is `tests/test_cross_backend.py` — it
+parametrises over every installed backend automatically, so yours is covered the
+moment it is registered.
+
+
+==============================================================================
+# Guides / Working with a coding agent    (source: docs/guides/agents.md)
+==============================================================================
+
+# Working with a coding agent
+
+Most code written against a library now is written by a model, and a model does not
+read this page before it types. It guesses a name from what it has read elsewhere,
+runs it, reads the traceback, and tries again.
+
+That loop is the real interface. Three things follow from taking it seriously, and
+all three help a human equally — none of this is a special mode.
+
+## A wrong name answers with the right one
+
+The training data for any model contains far more PennyLane and Qiskit than qmlkit,
+so the first guess at a name is usually theirs. That guess now costs one line
+instead of a search:
+
+```python
+import qmlkit as qk
+
+try:
+    qk.AngleEmbedding
+except AttributeError as exc:
+    print(exc)
+```
+
+```
+module 'qmlkit' has no attribute 'AngleEmbedding'. 'AngleEmbedding' is PennyLane's
+name for qmlkit.AngleFeatureMap (or angle_encode(x) for a one-shot circuit).
+```
+
+It is a **translation, not an alias** — the foreign name still raises. Two reasons.
+Anything importable is something somebody will depend on, and a shadow vocabulary of
+thirty PennyLane spellings is a second public surface to keep working forever. More
+importantly, an alias would hide semantic drift: `qml.expval` takes a QNode where
+`qk.expectation` takes a circuit and an observable, so a name that silently resolved
+would fail later and further from its cause.
+
+Names that are merely misspelled get the same treatment from every registry, and
+case or separator drift resolves to a single certain suggestion rather than a fuzzy
+one — `parameter_shift` for `parameter-shift` is what half-remembering another
+library looks like, not a typo:
+
+```python
+try:
+    qk.get_ansatz("hardware-efficient")
+except KeyError as exc:
+    print(exc)
+```
+
+```
+unknown ansatz 'hardware-efficient'. Did you mean 'hardware_efficient'? Valid:
+basic_entangler, hardware_efficient, mps, qaoa, qcnn, random_layers,
+simplified_two_design, strongly_entangling, tree_tensor_network, two_local. Add
+your own with register_ansatz(name, factory).
+```
+
+Every gate, backend, gradient method, ansatz and conv filter behaves this way. So
+does asking for a backend you have not installed — but that is a *different* answer,
+because the name was right and the environment was wrong, and it names the install
+command instead.
+
+## `diagnose()` catches what does not raise
+
+This is the part that has nothing to do with names, and it is the one that matters
+most. In this field a mistake usually returns a number of the right shape and the
+right range, and the model trains, converges and reports an accuracy.
+
+Here is a re-uploading model composed by hand out of blocks. It has three uploads,
+six weights, and one frequency:
+
+```python
+from qmlkit.ansatz import Ansatz, EncodingLayer, RotationLayer, repeat
+
+fmap = qk.AngleFeatureMap(2, rotation="ry")
+model = Ansatz(2, repeat(3, EncodingLayer(fmap) + RotationLayer("ry")), n_inputs=2)
+
+print(qk.diagnose(model))
+```
+
+```
+ansatz on 2 qubits: 1 finding(s)
+  [error] ENCODING_COMMUTES: 3 uploads, but every trainable rotation is 'ry', the
+  same generator the encoding uses. RY(x) RY(t) composes into one rotation, so the
+  model reaches 1 frequency rather than 0..3, and its weights do nothing beyond a
+  phase.  Fix: Use a non-commuting block, e.g. RotationLayer(('rz', 'ry', 'rz')).
+```
+
+Nothing about that model raises. It builds, binds, differentiates and trains; it is
+simply not the model that was intended. `reupload()` warns about this case at
+construction, but a model composed directly out of blocks has no constructor to warn
+from — and composing directly is the whole point of the block vocabulary.
+
+Take the fix and the report goes quiet:
+
+```python
+fixed = Ansatz(2, repeat(3, EncodingLayer(fmap) + RotationLayer(("rz", "ry", "rz"))), n_inputs=2)
+report = qk.diagnose(fixed)
+print(bool(report), report.codes)
+```
+
+```
+False ()
+```
+
+A report is falsy when it found nothing, so `if qk.diagnose(model): ...` reads the
+way it should. Each finding carries a stable `code` to branch on, the number that
+was measured, and the edit that resolves it:
+
+```python
+finding = qk.diagnose(model)[0]
+print(finding.code, finding.severity, finding.value)
+```
+
+```
+ENCODING_COMMUTES error 3.0
+```
+
+It takes an `Ansatz`, anything holding one — a `QuantumLayer`, a `VQC`, an
+`nn.Sequential` with a quantum layer somewhere inside it — or a Gram matrix, where
+it checks for concentration, for a signal below the shot noise, and for a matrix
+that has stopped being positive semi-definite:
+
+```python
+import numpy as np
+
+flat = np.full((8, 8), 0.5)
+np.fill_diagonal(flat, 1.0)
+print(qk.diagnose(flat).codes)
+```
+
+```
+('KERNEL_CONCENTRATED',)
+```
+
+What it checks, and on what evidence, is in
+[the API reference](../reference/analysis.md#qmlkit.diagnostics.diagnose). Checks
+that can be exact are exact: a parameter is dead if shifting it cannot change the
+state at all. Checks that are statistical report the number they measured, so the
+threshold can be argued with rather than trusted.
+
+## The whole library in one fetch
+
+A model that has to click through a documentation site mostly does not. Two files
+are generated from these pages and from the package itself, and served at the root
+of the site:
+
+- **[`/llms.txt`](https://ziadt160.github.io/qmlkit/llms.txt)** — what is here, where
+  it is, and the handful of constraints that are not inferable from the API.
+- **[`/llms-full.txt`](https://ziadt160.github.io/qmlkit/llms-full.txt)** — every
+  tutorial and guide in full, then the entire public API with signatures and summary
+  lines. One fetch, no navigation.
+
+Both are generated by `scripts/generate_llms_txt.py`, committed, and checked in CI,
+for the same reason `tests/test_docs.py` executes every snippet on every page: a
+summary of an API written by hand is a second copy of the truth, and second copies
+rot silently. Change a page or a public signature without regenerating and the build
+goes red.
+
+For working *on* qmlkit rather than with it, [`AGENTS.md`](https://github.com/Ziadt160/qmlkit/blob/main/AGENTS.md)
+carries the commands, the conventions the tests enforce, and the traps that have
+already cost time.
+
+
+==============================================================================
+# Reference / Reference    (source: docs/reference/index.md)
+==============================================================================
+
+# Reference
+
+Generated from the docstrings in the source, so it cannot drift from the code.
+
+| Section | What lives there |
+|---|---|
+| [Core](core.md) | The circuit IR, gates, observables, execution, backends |
+| [Gradients](gradients.md) | Six estimators behind one `grad()` |
+| [Encoding](encoding.md) | Angle, amplitude, basis and Pauli feature maps |
+| [Ansatz](ansatz.md) | The block vocabulary, the template zoo, re-uploading |
+| [Kernels](kernels.md) | Overlap estimators, Gram matrices, `QSVC`/`QSVR` |
+| [PyTorch](nn.md) | `QuantumLayer`, `VQC`, structured architectures |
+| [Analysis](analysis.md) | Metrics, Fourier spectra, quantum information, optimisers |
+
+If you are looking for the shape of the library rather than a particular function,
+the [tutorials](../tutorials/index.md) are the faster route.
+
+
+==============================================================================
+# Reference / Core    (source: docs/reference/core.md)
+==============================================================================
+
+# Core
+
+The circuit IR, gates, observables, execution and backends. Everything else in the library reads or writes these types.
+
+## `qmlkit.core.ir`
+
+::: qmlkit.core.ir
+
+## `qmlkit.core.gates`
+
+::: qmlkit.core.gates
+
+## `qmlkit.core.observables`
+
+::: qmlkit.core.observables
+
+## `qmlkit.core.builder`
+
+::: qmlkit.core.builder
+
+## `qmlkit.core.execute`
+
+::: qmlkit.core.execute
+
+## `qmlkit.core.backends.registry`
+
+::: qmlkit.core.backends.registry
+
+
+==============================================================================
+# Reference / Gradients    (source: docs/reference/gradients.md)
+==============================================================================
+
+# Gradients
+
+Six estimators behind one `grad()`, plus the shift-rule machinery they share.
+
+## `qmlkit.gradients.dispatch`
+
+::: qmlkit.gradients.dispatch
+
+## `qmlkit.gradients.rules`
+
+::: qmlkit.gradients.rules
+
+## `qmlkit.gradients.parameter_shift`
+
+::: qmlkit.gradients.parameter_shift
+
+## `qmlkit.gradients.adjoint`
+
+::: qmlkit.gradients.adjoint
+
+## `qmlkit.gradients.hadamard`
+
+::: qmlkit.gradients.hadamard
+
+## `qmlkit.gradients.spsa`
+
+::: qmlkit.gradients.spsa
+
+
+==============================================================================
+# Reference / Encoding    (source: docs/reference/encoding.md)
+==============================================================================
+
+# Encoding
+
+Getting classical data into a circuit, and the scaling decisions that come first.
+
+## `qmlkit.encoding.angle`
+
+::: qmlkit.encoding.angle
+
+## `qmlkit.encoding.amplitude`
+
+::: qmlkit.encoding.amplitude
+
+## `qmlkit.encoding.feature_maps`
+
+::: qmlkit.encoding.feature_maps
+
+## `qmlkit.encoding.hamiltonian`
+
+::: qmlkit.encoding.hamiltonian
+
+## `qmlkit.encoding.scaling`
+
+::: qmlkit.encoding.scaling
+
+
+==============================================================================
+# Reference / Ansatz    (source: docs/reference/ansatz.md)
+==============================================================================
+
+# Ansatz
+
+A block vocabulary, the templates written in it, and re-uploading as a composition.
+
+## `qmlkit.ansatz.blocks`
+
+::: qmlkit.ansatz.blocks
+
+## `qmlkit.ansatz.library`
+
+::: qmlkit.ansatz.library
+
+## `qmlkit.ansatz.reupload`
+
+::: qmlkit.ansatz.reupload
+
+
+==============================================================================
+# Reference / Kernels    (source: docs/reference/kernels.md)
+==============================================================================
+
+# Kernels
+
+Three overlap estimators, Gram matrices that stay positive semi-definite, and the models on top.
+
+## `qmlkit.kernels.estimators`
+
+::: qmlkit.kernels.estimators
+
+## `qmlkit.kernels.matrix`
+
+::: qmlkit.kernels.matrix
+
+## `qmlkit.kernels.models`
+
+::: qmlkit.kernels.models
+
+
+==============================================================================
+# Reference / PyTorch    (source: docs/reference/nn.md)
+==============================================================================
+
+# PyTorch
+
+Circuits as `nn.Module`s, with gradients flowing to the inputs as well as the weights.
+
+## `qmlkit.nn.layer`
+
+::: qmlkit.nn.layer
+
+## `qmlkit.nn.models`
+
+::: qmlkit.nn.models
+
+## `qmlkit.nn.advanced`
+
+::: qmlkit.nn.advanced
+
+
+==============================================================================
+# Reference / Analysis    (source: docs/reference/analysis.md)
+==============================================================================
+
+# Analysis
+
+Measuring an ansatz rather than asserting things about it: expressibility, entanglement, spectra, geometry.
+
+## `qmlkit.diagnostics`
+
+::: qmlkit.diagnostics
+
+## `qmlkit.metrics`
+
+::: qmlkit.metrics
+
+## `qmlkit.fourier`
+
+::: qmlkit.fourier
+
+## `qmlkit.info`
+
+::: qmlkit.info
+
+## `qmlkit.optim`
+
+::: qmlkit.optim
+
+## `qmlkit.datasets`
+
+::: qmlkit.datasets
+
+## `qmlkit.draw`
+
+::: qmlkit.draw
+
+## `qmlkit.generative`
+
+::: qmlkit.generative
+
+## `qmlkit.utils.shots`
+
+::: qmlkit.utils.shots
+
+
+==============================================================================
+# About / Validation    (source: docs/about/validation.md)
+==============================================================================
+
+# Validation
+
+How any of this is known to be correct.
+
+A library's own test suite can only catch the bugs its author thought of. qmlkit
+therefore leans on three independent checks, each of which can fail for reasons the
+others cannot.
+
+| | |
+|---|---|
+| **Cross-backend equivalence** | The same circuit through five backends, compared to the NumPy reference |
+| **Cross-library parity** | 301 cases against PennyLane, an independently written implementation |
+| **Executable documentation** | Every snippet on this site runs in CI |
+
+Plus the ordinary suite: **864 tests, 93% combined coverage** measured in CI,
+`ruff` and `mypy --strict` clean.
+
+## Parity with PennyLane
+
+```bash
+pip install pennylane
+pytest tests/test_pennylane_parity.py
+```
+
+| Layer | Compared | Agreement |
+|---|---|---|
+| Gates | all 20 gate matrices at 6 angles, and every closed-form `dU/dθ` against a differenced PennyLane matrix | `1e-12` |
+| Circuits | 40 **randomly generated** circuits over the full gate set, 1–5 qubits — statevectors, probabilities, random multi-term observables | `1e-12` |
+| Gradients | 5 ansätze × 4 observables; all four exact methods; PennyLane's own four back against ours; fuzzed circuits | `1e-10` |
+| Encodings | angle (X/Y/Z), amplitude, basis, IQP | `1e-12` |
+| Templates | `BasicEntanglerLayers`, `StronglyEntanglingLayers` | `1e-12` |
+| Kernels | full Gram matrices, fidelity and swap-test estimators | `1e-10` |
+| Quantum info | reduced density matrices, von Neumann entropy, purity, mutual information, fidelity, over random states | `1e-10` |
+| Fourier | re-uploading spectra at depths 1–4 | `1e-10` |
+| Geometry | Fubini–Study metric (full and diagonal), QFIM | `1e-12` |
+| Optimisers | Rotosolve and QNG trajectories, step by step | `1e-10` |
+
+The **randomised** tests are the ones that matter. Hand-picked cases confirm what the
+author already believed; a fuzzer explores the space. Every bug found in this project
+so far has been of the plausible-wrong-number kind that only a second opinion catches
+— including two in this library's own parameter-shift implementation, and two in its
+own tests.
+
+## Four convention differences
+
+None is a bug in either library. Each is pinned by its own test so it stays
+deliberate rather than drifting.
+
+**IQP angle convention.** PennyLane's `IQPEmbedding` emits `RZ(xᵢ)` and
+`MultiRZ(xᵢxⱼ)`; qmlkit's `PauliFeatureMap` follows the Qiskit convention and emits
+`Rz(2φ)`. Halving the data map lines them up exactly. A kernel differing by precisely
+this factor would be very hard to spot.
+
+**Amplitude encoding phase.** qmlkit builds amplitude encoding from uniformly
+controlled rotations rather than a state-preparation primitive, and the phase cascade
+drops one overall factor. Unobservable in isolation — every probability and
+expectation is identical — but it stops being global inside a *controlled* block. The
+docstring warns about it, and `check=True` re-simulates and asserts.
+
+**Two-qubit "ring".** A ring on two qubits would revisit the same pair, so
+`entangler_pairs` collapses it to a single `CX`. PennyLane's templates run their loop
+uniformly and emit both `CNOT(0,1)` and `CNOT(1,0)`. A two-qubit strongly-entangling
+layer is genuinely a different circuit in the two libraries; adding the second `CNOT`
+by hand reconciles them exactly, which is what the test asserts.
+
+**`approx="block-diag"`.** PennyLane blocks the metric tensor by circuit *layer* and
+zeroes every cross-layer entry. qmlkit computes the exact metric, which costs no more
+on a simulator. The same keyword does not port between the two libraries.
+
+That last one is not cosmetic. On a 3-qubit, 2-layer problem at equal step count and
+step size:
+
+| | reaches |
+|---|---|
+| qmlkit QNG (exact metric) | **−2.9999999** |
+| PennyLane QNG, default `approx="block-diag"` | −2.22 |
+| PennyLane QNG, `approx=None` | traces qmlkit's trajectory to `1e-8` |
+
+## Where qmlkit is more accurate
+
+`state_fidelity` hits the analytic `|⟨a|b⟩|²` to `1e-16`. `qml.math.fidelity` takes
+matrix square roots of rank-1 density matrices, which is ill-conditioned, and loses
+about eight digits. Recorded as a test so a future tolerance change there is a
+decision rather than an accident.
+
+## Cross-backend equivalence
+
+`tests/test_cross_backend.py` runs one circuit zoo through every installed backend,
+asserting agreement on statevectors, probabilities, expectations over X/Y/Z and
+two-body terms, seeded sampling, and parameter-shift gradients. The zoo deliberately
+targets where SDKs differ: endianness, controlled-gate qubit order, idle qubits,
+basis rotations.
+
+It found three real upstream discrepancies, all handled — including **SpinQit's `CY`
+applying `−iY` instead of `Y`** to the control-1 subspace, which is a relative phase
+and therefore physically observable. Details in [Backends and
+conventions](../guides/backends.md).
+
+## Executable documentation
+
+Every Python block on this site is executed by `tests/test_docs.py`. The snippets are
+not illustrations of the API — they are tests of it, so a rename that breaks a
+tutorial breaks the build, and the outputs shown were produced by running the code.
+
+This caught two errors while the docs were being written: a wrong `RotationLayer`
+call signature, and a hand-typed number that did not match what the code printed.
+
+## Speed
+
+`examples/benchmark_pennylane.py` times identical work on both libraries. qmlkit is
+faster on 14 of 14 cases, median **6.1×**.
+
+| Operation | qmlkit | PennyLane | |
+|---|---|---|---|
+| Expectation, 12 qubits | 3.8 ms | 11.3 ms | 2.9× |
+| Gradient, 8 qubits, `P=96` | 11.1 ms | 63.9 ms | 5.7× |
+| Parameter-shift, 6 qubits, `P=72` | 308 ms | 1161 ms | 3.8× |
+| 20×20 kernel Gram matrix | 31 ms | 212 ms | 6.8× |
+| Exact metric tensor, `P=24` | 6.9 ms | 1863 ms | **268×** |
+
+Read that in two parts. The first four are largely dispatch overhead — PennyLane
+carries a general transform pipeline qmlkit does not have, which buys features this
+benchmark never exercises, and the gap narrows as `2ⁿ` starts to dominate (4.4× at 4
+qubits, 2.9× at 12). The metric tensor is different in kind: PennyLane runs `O(P²)`
+Hadamard-test circuits and needs a spare ancilla wire, while qmlkit differentiates the
+state in closed form. That gap widens with size rather than narrowing.
+
+Single machine, single thread, small registers, exact simulation throughout. Nothing
+here says anything about running on hardware.
+
+
+==============================================================================
+# About / Changelog    (source: docs/about/changelog.md)
+==============================================================================
+
+# Changelog
+
+--8<-- "CHANGELOG.md"
+
+
+==============================================================================
+# About / Releasing    (source: docs/about/releasing.md)
+==============================================================================
+
+--8<-- "RELEASING.md"
+
+
+==============================================================================
+# API reference    (generated from the package)
+==============================================================================
+
+class AngleFeatureMap(n_features: 'int', rotation: 'str' = 'ry', entangle: 'bool' = True, entanglement: 'str' = 'chain', reps: 'int' = 1) -> 'None'
+    One rotation per feature, optionally followed by an entangling layer.
+class AngleScaler(lo: 'float' = 0.0, hi: 'float' = 6.283185307179586, data_min: 'npt.NDArray[Any] | None' = None, data_max: 'npt.NDArray[Any] | None' = None) -> None
+    Fit-then-transform angle scaling, so train and test share one range.
+class Ansatz(n_qubits: 'int', block: 'Block', name: 'str' = 'ansatz', n_inputs: 'int' = 0) -> 'None'
+    A trainable circuit: a qubit count and a composable block.
+class AnsatzReport(ansatz: 'Ansatz', n_samples: 'int' = 300, seed: 'int | None' = 0, backend: 'BackendLike' = None, results: 'dict[str, object]' = <factory>) -> None
+    Expressibility, entanglement, depth, cost and trainability in one call.
+class Backend(seed: 'int | None' = None) -> 'None'
+    A device or simulator that can run a :class:`CircuitSpec`.
+class BackendNotAvailable
+    Raised when a backend's underlying SDK is not installed or not importable.
+class CircuitSpec(n_qubits: 'int', ops: 'tuple[Op, ...]' = (), n_params: 'int' = 0) -> None
+    An immutable circuit description.
+class Custom(fn: 'Callable[[QCircuit, BuildContext], None]', name: 'str' = 'Custom')
+    Wrap an arbitrary ``fn(qc, ctx)`` as a block.
+class DataReuploadEncoder(n_features: 'int', n_uploads: 'int' = 3, rotations: 'Sequence[str]' = ('rz', 'ry', 'rz'), encoding_rotation: 'str' = 'ry', entanglement: 'str | None' = 'chain', trainable_input: 'bool' = False) -> 'None'
+    One convenient re-uploading shape: angle encoding, rotations, entangler.
+class DressedQuantumNet(backbone: 'nn.Module | None', in_features: 'int', n_qubits: 'int', n_outputs: 'int', n_layers: 'int' = 2, feature_map: 'FeatureMap | None' = None, ansatz: 'Ansatz | None' = None, freeze_backbone: 'bool' = True, **kwargs: 'Any') -> 'None'
+    The dressed circuit: a frozen backbone, then ``Linear -> quantum -> Linear``.
+class EncodingLayer(feature_map: 'object') -> 'None'
+    Insert a feature map as a block, so re-uploading is just composition.
+class EntanglerLayer(gate: 'str' = 'cx', pattern: 'str' = 'chain')
+    A layer of fixed two-qubit gates following a named pattern.
+class FeatureMap()
+    Turns a feature vector into a circuit.
+class FeaturePipeline(n_qubits: 'int', method: 'str' = 'pca', standardize: 'bool' = True, angle_range: 'tuple[float, float]' = (0.0, 6.283185307179586)) -> 'None'
+    Standardise, reduce to ``n_qubits`` columns, and scale into rotation angles.
+class Finding(code: 'str', severity: 'str', message: 'str', fix: 'str' = '', value: 'float | None' = None) -> None
+    One thing that is wrong, why it matters, and the edit that fixes it.
+class GateDef(name: 'str', n_qubits: 'int', n_params: 'int', matrix: 'Callable[..., Matrix]', frequencies: 'tuple[float, ...]' = (), dmatrix: 'Callable[..., Matrix] | None' = None, adjoint_name: 'str | None' = None, aliases: 'tuple[str, ...]' = ()) -> None
+    Everything the library needs to know about one gate.
+class HybridModel(n_features: 'int', n_outputs: 'int', n_qubits: 'int | None' = None, n_layers: 'int' = 2, feature_map: 'FeatureMap | None' = None, ansatz: 'Ansatz | None' = None, observables: 'Sequence[Observable] | None' = None, shots: 'int | None' = None, backend: 'Any' = None, grad_method: 'str' = 'auto', scale_inputs: 'bool' = True, seed: 'int | None' = None) -> 'None'
+    Shared machinery: a training loop, and sensible construction defaults.
+def I() -> 'PauliString'
+    The identity observable.
+class MPSLayer(n_qubits: 'int', feature_map: 'FeatureMap | None' = None, observables: 'Sequence[Observable] | None' = None, filter: 'str | tuple[Any, int]' = 'ry_cx', tied: 'bool' = False, ansatz: 'Ansatz | None' = None, **kwargs: 'Any') -> 'None'
+    Matrix-product-state layer — a staircase of two-qubit blocks.
+class NearestFidelityClassifier(feature_map: 'FeatureMap', shots: 'int | None' = None, backend: 'BackendLike' = None) -> 'None'
+    Classify by fidelity to each class centroid — no solver, no sklearn.
+class NumpyBackend(seed: 'int | None' = None, max_qubits: 'int' = 24) -> 'None'
+    Exact statevector simulation in NumPy.
+class Op(gate: 'str', qubits: 'tuple[int, ...]', params: 'tuple[ParamLike, ...]' = ()) -> None
+    One gate application.
+class PCAReducer(n_components: 'int', mean_: 'npt.NDArray[Any] | None' = None, components_: 'npt.NDArray[Any] | None' = None, explained_variance_ratio_: 'npt.NDArray[Any] | None' = None) -> None
+    Project features onto their leading principal components, via SVD.
+class ParamRef(index: 'int', scale: 'float' = 1.0, offset: 'float' = 0.0) -> None
+    A reference to logical parameter ``index``, optionally linearly rescaled.
+class ParametricEntangler(gate: 'str' = 'crz', pattern: 'str' = 'ring')
+    A layer of *trainable* two-qubit gates — exercises the four-term shift rule.
+class PauliFeatureMap(n_features: 'int', paulis: 'Sequence[str]' = ('Z', 'ZZ'), reps: 'int' = 2, entanglement: 'str' = 'linear', data_map: 'DataMap | None' = None) -> 'None'
+    The general Pauli feature map — a runnable version of ``Lecture3`` cell 42.
+class PauliString(paulis: 'tuple[tuple[int, str], ...]' = (), coeff: 'complex' = 1.0) -> None
+    A weighted tensor product of Paulis, e.g. ``0.5 * Z0 X2``.
+class PauliSum(terms: 'tuple[PauliString, ...]' = ()) -> None
+    A linear combination of Pauli strings.
+class PoolLayer(keep: 'str' = 'odd', mode: 'str' = 'discard', tied: 'bool' = True)
+    Halve the active register — the pooling half of a QCNN.
+class QCNNLayer(n_qubits: 'int', feature_map: 'FeatureMap | None' = None, tie_weights: 'bool' = True, observables: 'Sequence[Observable] | None' = None, filter: 'str | tuple[Any, int]' = 'ry_cx', pattern: 'str' = 'chain', pool: 'str' = 'discard', ansatz: 'Ansatz | None' = None, **kwargs: 'Any') -> 'None'
+    Quantum convolutional layer: shared filter, then pooling.
+class QCircuit(n_qubits: 'int', n_params: 'int' = 0) -> 'None'
+    Builds a :class:`CircuitSpec` step by step.
+class QLSTM(n_inputs: 'int', hidden_size: 'int', n_qubits: 'int' = 4, **kwargs: 'Any') -> 'None'
+    A QLSTM over a sequence. Returns ``(outputs, (h, c))``.
+class QLSTMCell(n_inputs: 'int', hidden_size: 'int', n_qubits: 'int' = 4, ansatz: 'Ansatz | None' = None, n_layers: 'int' = 2, **kwargs: 'Any') -> 'None'
+    One LSTM cell with its four gates replaced by small circuits.
+class QSVC(feature_map: 'FeatureMap', C: 'float' = 1.0, **kwargs: 'Any') -> 'None'
+    Shared plumbing: fill the Gram matrix, hand it to a precomputed-kernel solver.
+class QSVR(feature_map: 'FeatureMap', C: 'float' = 1.0, epsilon: 'float' = 0.1, **kwargs: 'Any') -> 'None'
+    Quantum-kernel support vector regressor.
+class QuantumFunction(*args, **kwargs)
+    Autograd boundary: forward runs circuits, backward differentiates them.
+class QuantumKernel(feature_map: 'FeatureMap', estimator: 'str' = 'inversion', shots: 'int | None' = None, backend: 'BackendLike' = None, bandwidth: 'float' = 1.0, seed: 'int | None' = None, cache: 'bool' = True) -> 'None'
+    A feature map, as a kernel you can hand to any kernel method.
+class QuantumLayer(feature_map: 'FeatureMap', ansatz: 'Ansatz | None' = None, observables: 'Sequence[Observable] | None' = None, shots: 'int | None' = None, backend: 'Any' = None, grad_method: 'str' = 'auto', seed: 'int | None' = None, init: 'str' = 'small', init_seed: 'int | None' = None) -> 'None'
+    A circuit as an ``nn.Module``.
+class Report(subject: 'str', findings: 'tuple[Finding, ...]' = ()) -> None
+    Everything :func:`diagnose` found, worst first.
+class RotationLayer(gates: 'str | Sequence[str]' = ('ry',), wires: 'Sequence[int] | None' = None)
+    One trainable rotation per gate per active wire.
+class SPSASchedule(a: 'float' = 0.2, c: 'float' = 0.1, A: 'float | None' = None, alpha: 'float' = 0.602, gamma: 'float' = 0.101, n_iterations: 'int' = 100) -> 'None'
+    Spall's decay schedules for the step size and the perturbation size.
+class ShiftRule(shifts: 'tuple[float, ...]', coeffs: 'tuple[float, ...]', unshifted_coeff: 'float' = 0.0) -> None
+    ``f'(theta) = sum_i coeffs[i] * f(theta + shifts[i])`` (+ an unshifted term).
+class SklearnCompatible()
+    ``get_params`` / ``set_params``, read off the constructor signature.
+class Slot(op_index: 'int', param_pos: 'int', ref: 'ParamRef', gate: 'str') -> None
+    One concrete (operation, parameter-position) angle site.
+class TrainableKernel(feature_map_factory: 'Any', n_params: 'int', shots: 'int | None' = None, backend: 'BackendLike' = None) -> 'None'
+    Train the *feature map itself* by maximising kernel-target alignment.
+class VQC(n_features: 'int', n_classes: 'int' = 2, **kwargs: 'Any') -> 'None'
+    Variational quantum classifier.
+class VQRegressor(n_features: 'int', n_outputs: 'int' = 1, **kwargs: 'Any') -> 'None'
+    Variational quantum regressor.
+def X(q: 'int') -> 'PauliString'
+def Y(q: 'int') -> 'PauliString'
+def Z(q: 'int') -> 'PauliString'
+class ZFeatureMap(n_features: 'int', reps: 'int' = 2) -> 'None'
+    First-order, no entanglement — so its kernel factorises over features.
+def ZZ(a: 'int', b: 'int') -> 'PauliString'
+class ZZFeatureMap(n_features: 'int', reps: 'int' = 2, entanglement: 'str' = 'linear') -> 'None'
+    First order plus entangling ZZ couplings — the kernel stops factorising.
+__version__
+    str(object='') -> str
+def adjoint_grad(spec: 'CircuitSpec', theta: 'npt.NDArray[Any]', obs: 'Observable | None' = None, backend: 'Backend | str | None' = None) -> 'npt.NDArray[Any]'
+    Exact gradient of ``<obs>`` with respect to the logical parameter vector.
+algorithms
+    Algorithms built on the rest of the library.
+def amplitude_encode(vec: 'Sequence[float] | npt.NDArray[Any]', normalize: 'bool' = True, pad: 'bool' = True, check: 'bool' = False) -> 'CircuitSpec'
+    Encode a vector into the amplitudes of ``ceil(log2 len(vec))`` qubits.
+def angle_encode(x: 'Sequence[float]', rotation: 'str' = 'ry', trainable: 'bool' = False) -> 'CircuitSpec'
+    One feature per qubit, written into a rotation angle.
+def available_backends() -> 'tuple[str, ...]'
+    Only the backends whose SDK is actually importable right now.
+def backend_report() -> 'str'
+    A human-readable summary of which backends this interpreter can run.
+def barren_plateau_scan(ansatz_factory: 'Callable[[int], Ansatz]', qubit_range: 'Sequence[int]', obs_factory: 'Callable[[int], Observable] | None' = None, n_samples: 'int' = 100, seed: 'int | None' = None, backend: 'BackendLike' = None) -> 'dict[str, list]'
+    Gradient variance against qubit count.
+def basic_entangler(n_qubits: 'int', n_layers: 'int' = 2, rotation: 'str' = 'rx') -> 'Ansatz'
+    One rotation per wire plus a ring of CNOTs — the minimal useful template.
+def basis_encode(bits: 'Sequence[int]') -> 'CircuitSpec'
+    Computational-basis encoding: flip a qubit wherever the bit is 1.
+def basis_index(bits: 'Sequence[int]') -> 'int'
+    ``[1, 0, 1] -> 5``. Qubit 0 is the most significant bit.
+def bloch_vector(state: 'CircuitSpec | npt.NDArray[Any]', wire: 'int' = 0, n_qubits: 'int | None' = None, backend: 'BackendLike' = None) -> 'npt.NDArray[Any]'
+    ``(<X>, <Y>, <Z>)`` for one qubit — its point on (or in) the Bloch sphere.
+def choose_method(spec: 'CircuitSpec', backend: 'Backend | str | None' = None, shots: 'int | None' = None) -> 'str'
+    What ``method="auto"`` resolves to, and why.
+def closest_psd_matrix(K: 'npt.NDArray[Any]', method: 'str' = 'threshold') -> 'npt.NDArray[Any]'
+    Nearest PSD matrix by the named method.
+def compare_ansatze(ansatze: 'Sequence[Ansatz]', n_samples: 'int' = 300, seed: 'int | None' = 0) -> 'list[dict[str, object]]'
+    The same report across candidates — the table a paper would want.
+def concentration_report(K: 'npt.NDArray[Any]', n_qubits: 'int', shots: 'int | None' = None) -> 'dict'
+    Is this Gram matrix telling you anything, or has it concentrated?
+def concurrence(state: 'CircuitSpec | npt.NDArray[Any]', backend: 'BackendLike' = None) -> 'float'
+    Two-qubit concurrence — 0 for a product state, 1 for a Bell state.
+def conv_block(pattern: 'str' = 'chain', tied: 'bool' = True, filter: 'str | tuple[ConvFilter, int]' = 'ry_cx') -> 'Block'
+    A QCNN convolution layer: slide one two-qubit ``filter`` across ``pattern``.
+datasets
+    Datasets for benchmarking quantum models.
+def default_backend() -> 'Backend'
+    The process-wide default.
+def diagnose(subject: 'object', *, obs: 'Observable | None' = None, n_samples: 'int' = 30, probes: 'int' = 3, seed: 'int | None' = 0, backend: 'BackendLike' = None, shots: 'int | None' = None, n_qubits: 'int | None' = None) -> 'Report'
+    Check a model or a Gram matrix for the failures that do not raise.
+def displace_matrix(K: 'npt.NDArray[Any]') -> 'npt.NDArray[Any]'
+    Shift the whole spectrum up until it is non-negative.
+def draw(spec: 'CircuitSpec', max_width: 'int' = 160) -> 'str'
+    A text diagram of the circuit.
+def effective_dimension(fisher: 'npt.NDArray[Any]', n_samples: 'int' = 1000, gamma: 'float' = 1.0) -> 'float'
+    Normalised effective dimension of a model, from its Fisher information.
+def entangler_pairs(n_qubits: 'int', pattern: 'str' = 'chain') -> 'tuple[tuple[int, int], ...]'
+    Qubit pairs for a named entanglement pattern.
+def entangling_capability(ansatz: 'Ansatz', n_samples: 'int' = 200, seed: 'int | None' = None, backend: 'BackendLike' = None) -> 'float'
+    Mean Meyer–Wallach ``Q`` over randomly sampled parameters.
+def expectation(spec: 'CircuitSpec', obs: 'Observable | None' = None, theta: 'ArrayLike | None' = None, shots: 'int | None' = None, backend: 'BackendLike' = None, seed: 'int | None' = None, return_std: 'bool' = False) -> 'float | tuple[float, float]'
+    ``<O>`` for a circuit.
+def expectation_batch(specs: 'Sequence[CircuitSpec]', obs: 'Observable | None' = None, thetas: 'Sequence[ArrayLike] | None' = None, shots: 'int | None' = None, backend: 'BackendLike' = None, seed: 'int | None' = None) -> 'npt.NDArray[Any]'
+    ``<O>`` for several circuits, resolving the backend once.
+def expressibility(ansatz: 'Ansatz', n_samples: 'int' = 2000, n_bins: 'int' = 75, seed: 'int | None' = None, backend: 'BackendLike' = None) -> 'float'
+    ``KL(ansatz fidelities || Haar)``. **Smaller is more expressive**; 0 is Haar.
+def expval(spec: 'CircuitSpec', obs: 'Observable | None' = None, theta: 'ArrayLike | None' = None, shots: 'int | None' = None, backend: 'BackendLike' = None, seed: 'int | None' = None) -> 'float'
+    ``<O>`` as a plain float -- :func:`expectation` without the optional error bar.
+def fidelity_kernel(fmap: 'FeatureMap', x: 'Sequence[float]', xp: 'Sequence[float]', shots: 'int | None' = None, backend: 'BackendLike' = None, seed: 'int | None' = None) -> 'float'
+    ``k(x, x')`` by the compute-uncompute test — the default estimator.
+def finite_diff_grad(f: 'Callable[[npt.NDArray[Any]], float]', theta: 'Sequence[float]', eps: 'float' = 1e-06, mode: 'str' = 'central') -> 'npt.NDArray[Any]'
+    Finite differences. For debugging and tests only — never for training.
+def flip_matrix(K: 'npt.NDArray[Any]') -> 'npt.NDArray[Any]'
+    Take the absolute value of each eigenvalue.
+def four_term_rule() -> 'ShiftRule'
+    Controlled rotations: generator eigenvalues {0, 0, +-1/2} => frequencies {1/2, 1}.
+fourier
+    What function does this model actually represent?
+def general_shift_rule(frequencies: 'Sequence[float]', shifts: 'Sequence[float] | None' = None) -> 'ShiftRule'
+    Build the exact shift rule for a generator with these frequencies.
+def generalization_bound(n_trainable_gates: 'int', n_samples: 'int', with_log: 'bool' = True) -> 'float'
+    Expected generalization gap, ``O(sqrt(T log T / N))`` (Caro et al. 2022).
+generative
+    Generative models — learning a *distribution* rather than a mapping.
+def geometric_difference(k_quantum: 'npt.NDArray[Any]', k_classical: 'npt.NDArray[Any]') -> 'float'
+    ``g(K_c, K_q)`` — the statistic that says whether quantum *could* help.
+def get_ansatz(name: 'str', **kwargs: 'object') -> 'Ansatz'
+    Build a registered ansatz by name.
+def get_backend(backend: 'str | Backend | None' = None, **kwargs: 'object') -> 'Backend'
+    Resolve a backend name, instance, or ``None`` (the default) to an instance.
+def get_gate(name: 'str') -> 'GateDef'
+def grad(spec: 'CircuitSpec', theta: 'ArrayLike', obs: 'Observable | None' = None, method: 'str' = 'auto', backend: 'Backend | str | None' = None, shots: 'int | None' = None, **kwargs: 'object') -> 'npt.NDArray[Any]'
+    Gradient of ``<obs>`` with respect to ``theta``.
+def grad_circuit_cost(spec: 'CircuitSpec') -> 'int'
+    Circuit evaluations for one full parameter-shift gradient.
+def gradient_cost(spec: 'CircuitSpec', method: 'str' = 'parameter-shift') -> 'int | str'
+    Circuit evaluations one gradient needs under a given method.
+def gradient_variance(ansatz: 'Ansatz', obs: 'Observable | None' = None, n_samples: 'int' = 100, param_index: 'int' = 0, seed: 'int | None' = None, backend: 'BackendLike' = None) -> 'float'
+    Variance of one parameter's gradient over random initialisations.
+def hadamard_grad(spec: 'CircuitSpec', theta: 'npt.NDArray[Any]', obs: 'Observable | None' = None, backend: 'BackendLike' = None, shots: 'int | None' = None, seed: 'int | None' = None) -> 'npt.NDArray[Any]'
+    Exact gradient using one extra qubit and one circuit per parameter.
+def hadamard_test(fmap: 'FeatureMap', x: 'Sequence[float]', xp: 'Sequence[float]', part: 'str' = 'real', shots: 'int | None' = None, backend: 'BackendLike' = None, seed: 'int | None' = None) -> 'float'
+    ``Re<phi(x')|phi(x)>`` (or the imaginary part) — the **signed** inner product.
+def hamiltonian_encode(x: 'Sequence[float]', t: 'float' = 1.0, steps: 'int' = 3, entanglement: 'str' = 'chain', initial_hadamard: 'bool' = True) -> 'CircuitSpec'
+    Evolve under a data-dependent Ising Hamiltonian.
+def hardware_efficient(n_qubits: 'int', n_layers: 'int' = 2, rotations: 'Sequence[str]' = ('ry', 'rz'), entangler: 'str' = 'cx', pattern: 'str' = 'chain') -> 'Ansatz'
+    Rotations then entanglers, repeated. General-purpose, barren-plateau prone.
+def hessian(spec: 'CircuitSpec', theta: 'Sequence[float]', obs: 'Observable | None' = None, backend: 'Backend | str | None' = None, eps: 'float' = 0.0001) -> 'npt.NDArray[Any]'
+    Second derivatives, by differencing the exact gradient.
+info
+    Quantum information quantities — the ``qml.qinfo`` equivalent.
+def is_available(name: 'str') -> 'bool'
+    True if this backend's SDK can be imported in the current interpreter.
+def is_psd(K: 'npt.NDArray[Any]', tol: 'float' = 1e-09) -> 'bool'
+    True if every eigenvalue is non-negative to within ``tol``.
+def kernel_matrix(X: 'npt.NDArray[Any]', Y: 'npt.NDArray[Any] | None' = None, kernel: 'KernelFn | None' = None) -> 'npt.NDArray[Any]'
+    Gram matrix of ``X`` against ``Y`` (or itself, exploiting symmetry).
+kernels
+    Quantum kernels: estimators, Gram matrices, PSD repair, and kernel models.
+def list_ansatze() -> 'tuple[str, ...]'
+def list_backends() -> 'tuple[str, ...]'
+    Every registered backend name, installed or not.
+def list_conv_filters() -> 'tuple[str, ...]'
+def list_gates() -> 'tuple[str, ...]'
+def list_gradient_methods() -> 'tuple[str, ...]'
+def metric_tensor(spec: 'CircuitSpec', theta: 'Sequence[float]', approx: 'str' = 'block-diag', backend: 'BackendLike' = None, eps: 'float' = 0.0001) -> 'npt.NDArray[Any]'
+    Fubini–Study metric — the curvature of parameter space.
+metrics
+    Does this ansatz stand a chance? — expressibility, entanglement, trainability.
+def meyer_wallach(state: 'npt.NDArray[Any]', n_qubits: 'int | None' = None) -> 'float'
+    Meyer–Wallach ``Q = 2(1 - (1/n) sum_k Tr rho_k^2)``.
+def min_eigenvalue(K: 'npt.NDArray[Any]') -> 'float'
+def minimize_qng(spec: 'CircuitSpec', theta0: 'Sequence[float]', obs: 'Observable | None' = None, n_steps: 'int' = 50, lr: 'float' = 0.1, approx: 'str' = 'block-diag', backend: 'BackendLike' = None, callback: 'Callable[[int, npt.NDArray[Any], float], None] | None' = None) -> 'tuple[npt.NDArray[Any], list[float]]'
+    Minimise ``<obs>`` by quantum natural gradient descent.
+def minimize_rotosolve(f: 'LossFn', theta0: 'Sequence[float]', n_sweeps: 'int' = 20, tol: 'float' = 1e-09, callback: 'Callable[[int, npt.NDArray[Any], float], None] | None' = None) -> 'tuple[npt.NDArray[Any], list[float]]'
+    Minimise by repeated Rotosolve sweeps. No learning rate to choose.
+def minimize_spsa(f: 'LossFn', theta0: 'ArrayLike', n_iterations: 'int' = 100, schedule: 'SPSASchedule | None' = None, seed: 'int | None' = None, callback: 'Callable[[int, npt.NDArray[Any], float], None] | None' = None) -> 'tuple[npt.NDArray[Any], list[float]]'
+    Minimise ``f`` with SPSA. Returns the final parameters and the loss history.
+def mps_ansatz(n_qubits: 'int', filter: 'str | tuple[ConvFilter, int]' = 'ry_cx', tied: 'bool' = False) -> 'Ansatz'
+    A staircase of two-qubit blocks — a bond-dimension-2 matrix product state.
+def mutual_info(state: 'CircuitSpec | npt.NDArray[Any]', wires_a: 'Sequence[int]', wires_b: 'Sequence[int]', n_qubits: 'int | None' = None, backend: 'BackendLike' = None) -> 'float'
+    ``S(A) + S(B) - S(AB)`` — total correlation between two subsystems.
+def n_qubits_for(n_values: 'int') -> 'int'
+    Qubits needed to hold ``n_values`` amplitudes: ``ceil(log2 N)``.
+optim
+    Optimisers that only make sense for quantum circuits.
+def p0_from_z(z: 'float') -> 'float'
+    P(0) from <Z>.
+def param_shift_grad(f_slots: 'SlotFn', spec: 'CircuitSpec', theta: 'Sequence[float]', rules: 'dict[int, ShiftRule] | None' = None, f0: 'float | None' = None) -> 'npt.NDArray[Any]'
+    Exact gradient of ``f`` with respect to the logical parameter vector.
+def param_shift_grad_circuit(spec: 'CircuitSpec', theta: 'Sequence[float]', obs: 'Observable | None' = None, shots: 'int | None' = None, backend: 'BackendLike' = None, seed: 'int | None' = None) -> 'npt.NDArray[Any]'
+    Convenience wrapper: parameter-shift gradient of ``<obs>`` for a circuit.
+def probabilities(spec: 'CircuitSpec', theta: 'ArrayLike | None' = None, backend: 'BackendLike' = None) -> 'npt.NDArray[Any]'
+    Exact outcome probabilities over the ``2**n`` basis states.
+def projected_kernel_matrix(feature_map: 'FeatureMap', X: 'npt.NDArray[Any]', gamma: 'float' = 1.0, backend: 'BackendLike' = None) -> 'npt.NDArray[Any]'
+    Projected quantum kernel — the standard answer to exponential concentration.
+def purity(state: 'CircuitSpec | npt.NDArray[Any]', wires: 'Sequence[int] | None' = None, n_qubits: 'int | None' = None, backend: 'BackendLike' = None) -> 'float'
+    ``Tr(rho^2)`` — 1 for a pure state, ``1/d`` for the maximally mixed one.
+def qaoa_ansatz(n_qubits: 'int', edges: 'Sequence[tuple[int, int]] | None' = None, p: 'int' = 1, mixer: 'str' = 'x') -> 'Ansatz'
+    Cost and mixer layers — only ``2p`` parameters, whatever the width.
+def qcnn_ansatz(n_qubits: 'int', tie_weights: 'bool' = True, filter: 'str | tuple[ConvFilter, int]' = 'ry_cx', pattern: 'str' = 'chain', pool: 'str' = 'discard', keep: 'str' = 'odd') -> 'Ansatz'
+    Convolution + pooling, halving the register until one qubit is left.
+def quantum_fisher_information(spec: 'CircuitSpec', theta: 'Sequence[float]', backend: 'BackendLike' = None) -> 'npt.NDArray[Any]'
+    QFIM — exactly ``4 x`` the Fubini–Study metric.
+def random_layers(n_qubits: 'int', n_layers: 'int' = 2, ratio_imprimitive: 'float' = 0.3, seed: 'int | None' = None) -> 'Ansatz'
+    Randomly placed rotations and CNOTs — the baseline a new ansatz must beat.
+def reduce_to_qubits(x: 'npt.NDArray[Any]', n_qubits: 'int', method: 'str' = 'pca', to_angles: 'bool' = True, lo: 'float' = 0.0, hi: 'float' = 6.283185307179586) -> 'npt.NDArray[Any]'
+    Reduce a feature matrix to ``n_qubits`` columns, ready for angle encoding.
+def reduced_dm(state: 'CircuitSpec | npt.NDArray[Any]', wires: 'Sequence[int]', n_qubits: 'int | None' = None, backend: 'BackendLike' = None) -> 'npt.NDArray[Any]'
+    Trace out everything except ``wires``.
+def register_ansatz(name: 'str', factory: 'AnsatzFactory | None' = None) -> 'Callable[[AnsatzFactory], AnsatzFactory] | AnsatzFactory'
+    Register an ansatz factory. Usable as a decorator or a direct call.
+def register_backend(name: 'str', factory: 'Callable[..., Backend]', requires: 'str | None' = None, extra: 'str | None' = None) -> 'None'
+    Register a backend factory.
+def register_conv_filter(name: 'str', fn: 'ConvFilter', n_params: 'int') -> 'None'
+    Make a two-qubit filter reachable by name from :func:`conv_block`.
+def register_gate(gate: 'GateDef') -> 'GateDef'
+    Add a gate to the registry. Re-registering the same name is an error.
+def register_gradient(name: 'str', fn: 'GradFn | None' = None) -> 'Callable[[GradFn], GradFn] | GradFn'
+    Register a gradient estimator under ``name``. Usable as a decorator.
+def repeat(times: 'int', block: 'Block') -> 'Repeat'
+    ``repeat(3, RotationLayer("ry"))`` — three layers, fresh weights each.
+def reupload(feature_map: 'object', n_layers: 'int' = 3, block: 'Block | None' = None, order: 'str' = 'SW', entangler: 'str | None' = 'cx', pattern: 'str' = 'chain', rotations: 'Sequence[str]' = ('rz', 'ry', 'rz'), share_weights: 'bool' = False, name: 'str' = 'reupload') -> 'Ansatz'
+    Build a re-uploading ansatz from any feature map and any trainable block.
+def rotosolve_step(f: 'LossFn', theta: 'Sequence[float]', indices: 'Sequence[int] | None' = None) -> 'npt.NDArray[Any]'
+    One sweep: set every coordinate to its exact optimum, in turn.
+def rule_for_gate(gate: 'str') -> 'ShiftRule'
+    Look the rule up from the gate's declared generator frequencies.
+def run_counts(spec: 'CircuitSpec', shots: 'int' = 8192, theta: 'ArrayLike | None' = None, backend: 'BackendLike' = None, seed: 'int | None' = None) -> 'dict[str, int]'
+    Sample the computational basis. Keys are ``n_qubits``-wide bitstrings.
+def set_default_backend(backend: 'str | Backend', **kwargs: 'object') -> 'Backend'
+    Set the process-wide default backend and return it.
+shadows
+    Classical shadows — estimate many observables from few measurements.
+def share(times: 'int', block: 'Block') -> 'Share'
+    ``share(3, conv_block)`` — three applications of one tied weight set.
+def shots_for_precision(eps: 'float', z: 'float' = 0.0) -> 'int'
+    Shots needed to reach standard error ``eps`` — the ``1/eps**2`` price.
+def simplified_two_design(n_qubits: 'int', n_layers: 'int' = 2) -> 'Ansatz'
+    The standard reference ansatz in barren-plateau studies.
+def specs(spec: 'CircuitSpec') -> 'dict[str, object]'
+    Everything worth knowing about a circuit's cost, in one dict.
+def spsa_grad(f: 'LossFn', theta: 'ArrayLike', c: 'float' = 0.1, n_avg: 'int' = 1, seed: 'int | None' = None, rng: 'np.random.Generator | None' = None) -> 'npt.NDArray[Any]'
+    A stochastic gradient estimate from ``2 * n_avg`` evaluations.
+def standard_error(z: 'float', shots: 'int') -> 'float'
+    Standard error of an expectation estimated from ``shots`` samples.
+def state_fidelity(state_a: 'CircuitSpec | npt.NDArray[Any]', state_b: 'CircuitSpec | npt.NDArray[Any]', backend: 'BackendLike' = None) -> 'float'
+    ``|<a|b>|^2`` — the quantity a fidelity kernel estimates.
+def statevector(spec: 'CircuitSpec', theta: 'ArrayLike | None' = None, backend: 'BackendLike' = None) -> 'npt.NDArray[Any]'
+    Final state as a flat ``2**n`` complex vector.
+def strongly_entangling(n_qubits: 'int', n_layers: 'int' = 2) -> 'Ansatz'
+    Three rotations per wire, plus a ring of CX per layer.
+def supports_adjoint(spec: 'CircuitSpec', backend: 'Backend | str | None' = None) -> 'bool'
+    True if every parameterised gate in ``spec`` has a closed-form derivative.
+def swap_test_kernel(fmap: 'FeatureMap', x: 'Sequence[float]', xp: 'Sequence[float]', shots: 'int | None' = None, backend: 'BackendLike' = None, seed: 'int | None' = None) -> 'float'
+    ``k(x, x')`` by the swap test — two registers plus one ancilla.
+def target_alignment(K: 'npt.NDArray[Any]', y: 'npt.NDArray[Any]', rescale: 'bool' = True) -> 'float'
+    Kernel-target alignment: how much the Gram matrix looks like the labels.
+def threshold_matrix(K: 'npt.NDArray[Any]') -> 'npt.NDArray[Any]'
+    Clip negative eigenvalues to zero — the standard projection onto the cone.
+def to_angle_range(x: 'npt.NDArray[Any]', lo: 'float' = 0.0, hi: 'float' = 6.283185307179586, data_min: 'npt.NDArray[Any] | None' = None, data_max: 'npt.NDArray[Any] | None' = None) -> 'npt.NDArray[Any]'
+    Rescale features into an angle window, per column.
+def tree_tensor_network(n_qubits: 'int', filter: 'str | tuple[ConvFilter, int]' = 'ry_cx', tied: 'bool' = False) -> 'Ansatz'
+    Log-depth merge tree — shallow, and resistant to barren plateaus.
+def two_local(n_qubits: 'int', n_layers: 'int' = 2, rotations: 'Sequence[str]' = ('ry',), entangler: 'str' = 'cx', pattern: 'str' = 'full') -> 'Ansatz'
+    A configurable rotation/entangler alternation, ending on a rotation layer.
+def two_term_rule() -> 'ShiftRule'
+    The familiar Pauli-rotation rule: shifts +-pi/2, coefficients +-1/2.
+def variance(z: 'float') -> 'float'
+    Single-shot variance of a +-1 observable with mean ``z``: ``1 - z**2``.
+def vn_entropy(state: 'CircuitSpec | npt.NDArray[Any]', wires: 'Sequence[int]', n_qubits: 'int | None' = None, base: 'float | None' = None, backend: 'BackendLike' = None) -> 'float'
+    Von Neumann entropy of a subsystem — how entangled it is with the rest.
+def z_from_p0(p0: 'float') -> 'float'
+    <Z> from P(0).

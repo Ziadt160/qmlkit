@@ -34,6 +34,10 @@ jobs:
       - run: pip install -e ".[docs,dev,sklearn,torch]"
       - name: Every snippet in the docs must run
         run: pytest tests/test_docs.py -q
+      # llms.txt is generated from these pages and from the package, and committed.
+      # Regenerating here would hide the drift; checking makes the staleness the failure.
+      - name: The llms.txt files must be current
+        run: python scripts/generate_llms_txt.py --check
       # --strict turns broken internal links and missing nav entries into failures
       - run: mkdocs build --strict
       - uses: actions/upload-pages-artifact@v3

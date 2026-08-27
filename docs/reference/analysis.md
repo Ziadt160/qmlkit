@@ -2,6 +2,10 @@
 
 Measuring an ansatz rather than asserting things about it: expressibility, entanglement, spectra, geometry.
 
+## `qmlkit.diagnostics`
+
+::: qmlkit.diagnostics
+
 ## `qmlkit.metrics`
 
 ::: qmlkit.metrics

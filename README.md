@@ -112,6 +112,57 @@ Any of these drops straight into a `QuantumLayer`, input gradients included.
 > shift. It looks like a `3L`-parameter model; it is a one-parameter family.
 > `reupload()` warns. Verify any model with `qmlkit.fourier.spectrum`.
 
+## Built to be used by a model
+
+Most code written against a library now is written by one, and a model does not read
+a documentation site before it types. It guesses a name, runs it, reads the
+traceback, and tries again. qmlkit treats that loop as the interface — which helps a
+human on their first afternoon exactly as much.
+
+**A wrong name answers with the right one.** The training data for any model holds
+far more PennyLane and Qiskit than qmlkit, so the first guess is usually theirs:
+
+```python
+qk.AngleEmbedding
+# AttributeError: module 'qmlkit' has no attribute 'AngleEmbedding'.
+# 'AngleEmbedding' is PennyLane's name for qmlkit.AngleFeatureMap
+# (or angle_encode(x) for a one-shot circuit).
+
+qk.get_ansatz("hardware-efficient")
+# KeyError: unknown ansatz 'hardware-efficient'. Did you mean 'hardware_efficient'?
+# Valid: basic_entangler, hardware_efficient, mps, qaoa, ...
+```
+
+A translation, not an alias — the foreign name still raises, because an alias would
+become API and would hide the semantic drift underneath it.
+
+**`qk.diagnose(model)` catches what does not raise.** In this field a mistake usually
+returns a plausible number rather than an exception. This model builds, binds,
+differentiates and trains, and reaches one Fourier frequency instead of three:
+
+```python
+fmap  = qk.AngleFeatureMap(2, rotation="ry")
+model = qk.Ansatz(2, qk.repeat(3, qk.EncodingLayer(fmap) + qk.RotationLayer("ry")),
+                  n_inputs=2)
+print(qk.diagnose(model))
+# [error] ENCODING_COMMUTES: 3 uploads, but every trainable rotation is 'ry', the
+# same generator the encoding uses ... the model reaches 1 frequency rather than
+# 0..3.  Fix: Use a non-commuting block, e.g. RotationLayer(('rz', 'ry', 'rz')).
+```
+
+It takes an ansatz, anything holding one, or a Gram matrix, and returns findings with
+a stable code, the number measured, and the edit that fixes it. Empty means nothing
+found, so `if qk.diagnose(model):` reads the way it should.
+
+**The whole library in one fetch.** [`/llms.txt`](https://ziadt160.github.io/qmlkit/llms.txt)
+indexes the site and the constraints that are not inferable from the API;
+[`/llms-full.txt`](https://ziadt160.github.io/qmlkit/llms-full.txt) is every tutorial
+and guide plus the entire public API with signatures. Both are generated from the
+pages and the package, committed, and checked in CI, so neither can drift.
+
+[Working with a coding agent](https://ziadt160.github.io/qmlkit/guides/agents/) is
+the long version; [`AGENTS.md`](AGENTS.md) is for working *on* qmlkit.
+
 ## Install
 
 ```bash

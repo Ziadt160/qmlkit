@@ -15,7 +15,9 @@ loop is the real interface, and these tests hold it to three promises:
 from __future__ import annotations
 
 import doctest
+import importlib.util
 import re
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -25,6 +27,8 @@ from qmlkit import _aliases, diagnostics
 from qmlkit.ansatz import EncodingLayer, repeat
 from qmlkit.utils import errors
 from qmlkit.utils.errors import did_you_mean, unknown, wrong_size
+
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_the_examples_in_these_modules_run() -> None:
@@ -332,6 +336,52 @@ def test_diagnose_says_what_it_takes_when_given_something_else() -> None:
     text = str(caught.value)
     assert "cannot inspect a str" in text
     assert "Ansatz" in text and "Gram matrix" in text
+
+
+# --------------------------------------------------------------------------- #
+# llms.txt: the documentation as one fetch
+# --------------------------------------------------------------------------- #
+def _generator():
+    """Load scripts/generate_llms_txt.py, which is a script rather than a module."""
+    path = ROOT / "scripts" / "generate_llms_txt.py"
+    spec = importlib.util.spec_from_file_location("generate_llms_txt", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("name", ["llms.txt", "llms-full.txt"])
+def test_the_llms_files_are_committed_and_current(name: str) -> None:
+    """Generated, committed, and verified — the same contract test_docs.py holds pages to.
+
+    A summary of an API that is written by hand is a second copy of the truth, and
+    second copies rot silently. This one cannot: change a page or a public signature
+    without regenerating, and the build goes red here.
+    """
+    pytest.importorskip("torch")  # the API index covers the torch exports too
+    generator = _generator()
+    build = generator.build_index if name == "llms.txt" else generator.build_full
+    path = ROOT / "docs" / name
+    assert path.is_file(), f"docs/{name} is missing"
+    assert path.read_text(encoding="utf-8") == build(), (
+        f"docs/{name} is stale. Regenerate: python scripts/generate_llms_txt.py"
+    )
+
+
+def test_llms_txt_carries_the_things_a_caller_cannot_infer() -> None:
+    """An index that omits the constraints is a table of contents, not a briefing."""
+    text = (ROOT / "docs" / "llms.txt").read_text(encoding="utf-8")
+    for essential in ("pip install qmlkit", "Simulator-only", "qk.diagnose", "adjoint"):
+        assert essential in text, f"llms.txt no longer mentions {essential!r}"
+
+
+def test_llms_full_carries_signatures_not_just_prose() -> None:
+    """Guessing at keyword names is where most first attempts fail, so show them."""
+    text = (ROOT / "docs" / "llms-full.txt").read_text(encoding="utf-8")
+    assert "# API reference" in text
+    assert "class Ansatz(" in text
+    assert "def diagnose(" in text
 
 
 def test_a_report_behaves_like_the_sequence_it_is() -> None:
