@@ -2403,6 +2403,190 @@ because it could ever run anywhere but a simulator.
 
 
 ==============================================================================
+# Guides / Evaluating a model honestly    (source: docs/guides/evaluation.md)
+==============================================================================
+
+# Evaluating a quantum model honestly
+
+Three things go wrong between a trained model and a reported result, and none of
+them raises an exception.
+
+1. **The metric flatters the model.** Accuracy on a skewed dataset is high for a
+   model that has learned to predict the majority class.
+2. **The comparison is missing.** "Compared to what?" is the first question a
+   reviewer asks, and the RBF-kernel SVM usually never got run.
+3. **The number cannot be reproduced.** Library version, SDK version, backend and
+   seed all move the answer, and none of them is recorded.
+
+This guide covers the three modules that close those gaps:
+[`qmlkit.evaluate`](../reference/evaluation.md), [`qmlkit.imbalance`](../reference/evaluation.md)
+and [`qk.baseline`](../reference/evaluation.md).
+
+## Every metric for the task, in one call
+
+`qk.evaluate` groups metrics by task rather than making you assemble them:
+
+```python
+import numpy as np
+import qmlkit as qk
+
+y_true = np.array([0] * 95 + [1] * 5)
+y_pred = np.zeros(100, dtype=int)          # a model that always says "class 0"
+
+scores = qk.evaluate.classification(y_true, y_pred)
+print(round(scores["accuracy"], 3), round(scores["balanced_accuracy"], 3))
+```
+
+That prints `0.95 0.5`. The model has learned nothing, and accuracy says 95%.
+
+The point of returning every metric at once is that the disagreement between them
+stays visible. `Scores` also says so directly:
+
+```python
+print(scores.primary)
+print(scores.notes[0][:60])
+```
+
+`primary` is `balanced_accuracy` here rather than `accuracy`, because the class
+distribution makes accuracy unusable — and `notes` explains why in a sentence.
+
+There are four tasks: `classification`, `regression`, `clustering` and
+`generative`. Each returns the same `Scores` object, which indexes like a dict:
+
+```python
+reg = qk.evaluate.regression([1.0, 2.0, 3.0, 4.0], [1.1, 1.9, 3.2, 3.8])
+sorted(reg.keys())[:4]
+```
+
+Nothing in `qmlkit.evaluate` needs scikit-learn. Everything in it is asserted equal
+to scikit-learn in `tests/test_evaluate.py`, on randomly generated inputs — the same
+cross-validation-against-a-second-implementation approach used for the
+[PennyLane parity suite](../about/validation.md).
+
+## Skewed classes
+
+Imbalance breaks the loss and the split, not only the score.
+`qk.imbalance.imbalance_report` says which:
+
+```python
+report = qk.imbalance.imbalance_report(y_true)
+print(report.codes)
+```
+
+Each finding carries the call that fixes it. The three that matter:
+
+```python
+qk.imbalance.class_weights(y_true)          # {0: 0.526..., 1: 10.0} - for a weighted loss
+qk.imbalance.pos_weight(y_true)             # 19.0 - for BCEWithLogitsLoss
+train, test = qk.imbalance.stratified_split(y_true, test_size=0.2, seed=0)
+int(y_true[test].sum())                      # 1, never 0
+```
+
+A random 80/20 split of this data leaves the minority class out of the test set
+entirely about a third of the time, which makes the test score noise.
+`stratified_split` and `stratified_folds` guarantee it cannot happen.
+
+`VQC` takes the weighting directly, computed from the `y` passed to `fit`:
+
+```python
+model = qk.VQC(n_features=2, n_classes=2, class_weight="balanced")
+```
+
+`focal_gamma=2.0` additionally down-weights examples the model already gets right
+— worth reaching for when the majority class is not merely abundant but trivially
+separable. On a variational circuit that matters more than it does classically,
+because gradient signal spent on easy examples is a budget measured in circuits.
+
+## The classical bar
+
+`qk.baseline` runs every classical baseline on the same folds, the same metric and
+the same preprocessing as the model under test:
+
+```python
+X, y = qk.datasets.make_moons(n_samples=60, seed=0)
+table = qk.baseline(X, y, cv=3, seed=0, include=["majority", "rbf-kernel-ridge"])
+print(table.best_classical.name)
+```
+
+`rbf-kernel-ridge` is the one to watch for a quantum kernel method: it is the
+*identical* algorithm — a closed-form kernel ridge solve — differing only in which
+kernel fills the Gram matrix. Any gap between it and a quantum kernel is
+attributable to the kernel and nothing else.
+
+Pass `model=` and the model joins the table with a verdict:
+
+```python
+table = qk.baseline(X, y, model=qk.baselines.NearestCentroid(), cv=3, seed=0,
+                    include=["majority"])
+print(table.beats_classical)
+```
+
+The verdict does not call a lead a result when the lead is smaller than the
+fold-to-fold spread:
+
+> `quantum (0.810) leads svc-rbf (0.800) by 0.010, which is inside the fold-to-fold
+> spread (0.071) — not yet a result`
+
+Baselines that need scikit-learn are listed as **skipped** when it is absent rather
+than dropped, because a table that quietly omits the strong baseline is the problem
+this module exists to solve.
+
+The companion check for kernel methods is `qk.geometric_difference`, which asks
+whether the quantum kernel reaches a geometry the classical one cannot. A large
+geometric difference with no accuracy gain is a real finding; a small one says the
+classical kernel was always going to be enough.
+
+## Before the run: what it will cost
+
+`qk.plan` computes the circuit budget from the ansatz, the training set size and
+the gradient method, and lists the cheaper routes with what each gives up:
+
+```python
+budget = qk.plan(qk.hardware_efficient(4, 3), n_samples=100, steps=50, shots=1024)
+print(f"{budget.circuits:,} circuits, {budget.hours(0.5):.1f} hours at 0.5 s each")
+print([r.name for r in budget.reductions])
+```
+
+Qubit-wise-commuting grouping is counted rather than assumed, so a four-term
+observable that shares one measurement setting is costed as one circuit, not four.
+
+## After the run: was it right, and can it be repeated
+
+`qk.selfcheck` computes the gradient by every exact route available — adjoint,
+backprop, Hadamard-test, parameter-shift — and compares them. They share the
+circuit IR and almost nothing else, so agreement is evidence and disagreement
+localises the method that is wrong:
+
+```python
+ansatz = qk.hardware_efficient(3, 2)
+check = qk.selfcheck(ansatz.build(), np.full(ansatz.n_params, 0.3), qk.Z(0))
+bool(check)          # False: every route agrees, nothing to report
+```
+
+This is what to run when a number looks wrong and nothing raised. It catches a
+custom gate with wrong declared `frequencies`, which produces a plausible gradient
+rather than an error.
+
+`qk.fingerprint` records the stack that decided the number:
+
+```python
+stamp = qk.fingerprint(seed=0, shots=1024)
+sorted(stamp.as_dict())[:4]
+```
+
+It is JSON-serialisable, so it is cheap enough to attach to every result file.
+
+## Putting it together
+
+The order these run in is the order the questions arise:
+
+| Before training | `qk.imbalance.imbalance_report(y)` · `qk.plan(model, ...)` · `qk.diagnose(ansatz)` |
+| During | `class_weight="balanced"` · `stratified_folds(y)` |
+| After | `qk.evaluate.classification(...)` · `qk.baseline(X, y, model=...)` |
+| Before publishing | `qk.selfcheck(...)` · `qk.fingerprint(...)` |
+
+
+==============================================================================
 # Guides / Extending qmlkit    (source: docs/guides/extending.md)
 ==============================================================================
 
@@ -2885,6 +3069,30 @@ Measuring an ansatz rather than asserting things about it: expressibility, entan
 
 
 ==============================================================================
+# Reference / Evaluation    (source: docs/reference/evaluation.md)
+==============================================================================
+
+# Evaluation
+
+Scoring predictions, handling skewed classes, comparing against classical
+baselines, costing a run before it starts, and recording what produced a number.
+
+The guide is [Evaluating a quantum model honestly](../guides/evaluation.md).
+
+## `qmlkit.evaluate`
+
+## `qmlkit.imbalance`
+
+## `qmlkit.baselines`
+
+## `qmlkit.budget`
+
+## `qmlkit.provenance`
+
+## `qmlkit.nn.losses`
+
+
+==============================================================================
 # About / Validation    (source: docs/about/validation.md)
 ==============================================================================
 
@@ -3035,6 +3243,12 @@ class Backend(seed: 'int | None' = None) -> 'None'
     A device or simulator that can run a :class:`CircuitSpec`.
 class BackendNotAvailable
     Raised when a backend's underlying SDK is not installed or not importable.
+class BaselineRow(name: 'str', mean: 'float', std: 'float', fold_scores: 'tuple[float, ...]' = (), is_model: 'bool' = False, skipped: 'str' = '') -> None
+    One model's score across the folds.
+class BaselineSpec(name: 'str', task: 'str', factory: 'Callable[[], Any]', requires: 'str | None' = None, note: 'str' = '') -> None
+    One classical model that can stand next to a quantum one.
+class BaselineTable(task: 'str', metric: 'str', n_samples: 'int', n_folds: 'int', rows: 'tuple[BaselineRow, ...]' = (), notes: 'tuple[str, ...]' = (), extras: 'dict[str, Any]' = <factory>) -> None
+    Every model on the same folds, sorted best first.
 class CircuitSpec(n_qubits: 'int', ops: 'tuple[Op, ...]' = (), n_params: 'int' = 0) -> None
     An immutable circuit description.
 class Custom(fn: 'Callable[[QCircuit, BuildContext], None]', name: 'str' = 'Custom')
@@ -3053,6 +3267,8 @@ class FeaturePipeline(n_qubits: 'int', method: 'str' = 'pca', standardize: 'bool
     Standardise, reduce to ``n_qubits`` columns, and scale into rotation angles.
 class Finding(code: 'str', severity: 'str', message: 'str', fix: 'str' = '', value: 'float | None' = None) -> None
     One thing that is wrong, why it matters, and the edit that fixes it.
+class Fingerprint(qmlkit: 'str', python: 'str', platform: 'str', numpy: 'str', default_backend: 'str', backends: 'dict[str, str | None]' = <factory>, optional: 'dict[str, str | None]' = <factory>, seed: 'int | None' = None, extra: 'dict[str, Any]' = <factory>) -> None
+    Everything that could change a number, recorded in one object.
 class GateDef(name: 'str', n_qubits: 'int', n_params: 'int', matrix: 'Callable[..., Matrix]', frequencies: 'tuple[float, ...]' = (), dmatrix: 'Callable[..., Matrix] | None' = None, adjoint_name: 'str | None' = None, aliases: 'tuple[str, ...]' = ()) -> None
     Everything the library needs to know about one gate.
 class HybridModel(n_features: 'int', n_outputs: 'int', n_qubits: 'int | None' = None, n_layers: 'int' = 2, feature_map: 'FeatureMap | None' = None, ansatz: 'Ansatz | None' = None, observables: 'Sequence[Observable] | None' = None, shots: 'int | None' = None, backend: 'Any' = None, grad_method: 'str' = 'auto', scale_inputs: 'bool' = True, seed: 'int | None' = None) -> 'None'
@@ -3079,6 +3295,8 @@ class PauliString(paulis: 'tuple[tuple[int, str], ...]' = (), coeff: 'complex' =
     A weighted tensor product of Paulis, e.g. ``0.5 * Z0 X2``.
 class PauliSum(terms: 'tuple[PauliString, ...]' = ()) -> None
     A linear combination of Pauli strings.
+class Plan(circuits: 'int', shots_total: 'int | None', method: 'str', n_params: 'int', n_samples: 'int', steps: 'int', shots: 'int | None', measurement_settings: 'int', observable_terms: 'int', reductions: 'tuple[Reduction, ...]' = (), notes: 'tuple[str, ...]' = ()) -> None
+    The circuit budget for a training run, and the ways to shrink it.
 class PoolLayer(keep: 'str' = 'odd', mode: 'str' = 'discard', tied: 'bool' = True)
     Halve the active register — the pooling half of a QCNN.
 class QCNNLayer(n_qubits: 'int', feature_map: 'FeatureMap | None' = None, tie_weights: 'bool' = True, observables: 'Sequence[Observable] | None' = None, filter: 'str | tuple[Any, int]' = 'ry_cx', pattern: 'str' = 'chain', pool: 'str' = 'discard', ansatz: 'Ansatz | None' = None, **kwargs: 'Any') -> 'None'
@@ -3099,6 +3317,8 @@ class QuantumKernel(feature_map: 'FeatureMap', estimator: 'str' = 'inversion', s
     A feature map, as a kernel you can hand to any kernel method.
 class QuantumLayer(feature_map: 'FeatureMap', ansatz: 'Ansatz | None' = None, observables: 'Sequence[Observable] | None' = None, shots: 'int | None' = None, backend: 'Any' = None, grad_method: 'str' = 'auto', seed: 'int | None' = None, init: 'str' = 'small', init_seed: 'int | None' = None) -> 'None'
     A circuit as an ``nn.Module``.
+class Reduction(name: 'str', circuits: 'int', factor: 'float', trade: 'str') -> None
+    One way to make the run cheaper, and what it costs to take it.
 class Report(subject: 'str', findings: 'tuple[Finding, ...]' = ()) -> None
     Everything :func:`diagnose` found, worst first.
 class RotationLayer(gates: 'str | Sequence[str]' = ('ry',), wires: 'Sequence[int] | None' = None)
@@ -3113,7 +3333,7 @@ class Slot(op_index: 'int', param_pos: 'int', ref: 'ParamRef', gate: 'str') -> N
     One concrete (operation, parameter-position) angle site.
 class TrainableKernel(feature_map_factory: 'Any', n_params: 'int', shots: 'int | None' = None, backend: 'BackendLike' = None) -> 'None'
     Train the *feature map itself* by maximising kernel-target alignment.
-class VQC(n_features: 'int', n_classes: 'int' = 2, **kwargs: 'Any') -> 'None'
+class VQC(n_features: 'int', n_classes: 'int' = 2, class_weight: 'str | None' = None, focal_gamma: 'float' = 0.0, **kwargs: 'Any') -> 'None'
     Variational quantum classifier.
 class VQRegressor(n_features: 'int', n_outputs: 'int' = 1, **kwargs: 'Any') -> 'None'
     Variational quantum regressor.
@@ -3141,6 +3361,8 @@ def backend_report() -> 'str'
     A human-readable summary of which backends this interpreter can run.
 def barren_plateau_scan(ansatz_factory: 'Callable[[int], Ansatz]', qubit_range: 'Sequence[int]', obs_factory: 'Callable[[int], Observable] | None' = None, n_samples: 'int' = 100, seed: 'int | None' = None, backend: 'BackendLike' = None) -> 'dict[str, list]'
     Gradient variance against qubit count.
+def baseline(X: 'Any', y: 'Any', model: 'Any' = None, task: 'str' = 'auto', cv: 'int' = 5, metric: 'str | None' = None, seed: 'int | None' = 0, include: 'Sequence[str] | None' = None, max_samples: 'int | None' = None, fit_kwargs: 'dict[str, Any] | None' = None) -> 'BaselineTable'
+    Score every classical baseline — and optionally ``model`` — on shared folds.
 def basic_entangler(n_qubits: 'int', n_layers: 'int' = 2, rotation: 'str' = 'rx') -> 'Ansatz'
     One rotation per wire plus a ring of CNOTs — the minimal useful template.
 def basis_encode(bits: 'Sequence[int]') -> 'CircuitSpec'
@@ -3177,6 +3399,8 @@ def entangler_pairs(n_qubits: 'int', pattern: 'str' = 'chain') -> 'tuple[tuple[i
     Qubit pairs for a named entanglement pattern.
 def entangling_capability(ansatz: 'Ansatz', n_samples: 'int' = 200, seed: 'int | None' = None, backend: 'BackendLike' = None) -> 'float'
     Mean Meyer–Wallach ``Q`` over randomly sampled parameters.
+evaluate
+    Every score a task needs, in one call — and a note when a score is lying.
 def expectation(spec: 'CircuitSpec', obs: 'Observable | None' = None, theta: 'ArrayLike | None' = None, shots: 'int | None' = None, backend: 'BackendLike' = None, seed: 'int | None' = None, return_std: 'bool' = False) -> 'float | tuple[float, float]'
     ``<O>`` for a circuit.
 def expectation_batch(specs: 'Sequence[CircuitSpec]', obs: 'Observable | None' = None, thetas: 'Sequence[ArrayLike] | None' = None, shots: 'int | None' = None, backend: 'BackendLike' = None, seed: 'int | None' = None) -> 'npt.NDArray[Any]'
@@ -3187,6 +3411,8 @@ def expval(spec: 'CircuitSpec', obs: 'Observable | None' = None, theta: 'ArrayLi
     ``<O>`` as a plain float -- :func:`expectation` without the optional error bar.
 def fidelity_kernel(fmap: 'FeatureMap', x: 'Sequence[float]', xp: 'Sequence[float]', shots: 'int | None' = None, backend: 'BackendLike' = None, seed: 'int | None' = None) -> 'float'
     ``k(x, x')`` by the compute-uncompute test — the default estimator.
+def fingerprint(seed: 'int | None' = None, **extra: 'Any') -> 'Fingerprint'
+    The versions and settings that decide what a number comes out as.
 def finite_diff_grad(f: 'Callable[[npt.NDArray[Any]], float]', theta: 'Sequence[float]', eps: 'float' = 1e-06, mode: 'str' = 'central') -> 'npt.NDArray[Any]'
     Finite differences. For debugging and tests only — never for training.
 def flip_matrix(K: 'npt.NDArray[Any]') -> 'npt.NDArray[Any]'
@@ -3207,6 +3433,8 @@ def get_ansatz(name: 'str', **kwargs: 'object') -> 'Ansatz'
     Build a registered ansatz by name.
 def get_backend(backend: 'str | Backend | None' = None, **kwargs: 'object') -> 'Backend'
     Resolve a backend name, instance, or ``None`` (the default) to an instance.
+def get_baseline(name: 'str', task: 'str' = 'classification') -> 'BaselineSpec'
+    One registered baseline. Names are unique within a task, not across tasks.
 def get_gate(name: 'str') -> 'GateDef'
 def grad(spec: 'CircuitSpec', theta: 'ArrayLike', obs: 'Observable | None' = None, method: 'str' = 'auto', backend: 'Backend | str | None' = None, shots: 'int | None' = None, **kwargs: 'object') -> 'npt.NDArray[Any]'
     Gradient of ``<obs>`` with respect to ``theta``.
@@ -3226,6 +3454,8 @@ def hardware_efficient(n_qubits: 'int', n_layers: 'int' = 2, rotations: 'Sequenc
     Rotations then entanglers, repeated. General-purpose, barren-plateau prone.
 def hessian(spec: 'CircuitSpec', theta: 'Sequence[float]', obs: 'Observable | None' = None, backend: 'Backend | str | None' = None, eps: 'float' = 0.0001) -> 'npt.NDArray[Any]'
     Second derivatives, by differencing the exact gradient.
+imbalance
+    Skewed classes: measuring the skew, weighting the loss, and splitting safely.
 info
     Quantum information quantities — the ``qml.qinfo`` equivalent.
 def is_available(name: 'str') -> 'bool'
@@ -3239,6 +3469,8 @@ kernels
 def list_ansatze() -> 'tuple[str, ...]'
 def list_backends() -> 'tuple[str, ...]'
     Every registered backend name, installed or not.
+def list_baselines(task: 'str | None' = None) -> 'tuple[str, ...]'
+    Registered baseline names, optionally filtered to one task.
 def list_conv_filters() -> 'tuple[str, ...]'
 def list_gates() -> 'tuple[str, ...]'
 def list_gradient_methods() -> 'tuple[str, ...]'
@@ -3269,6 +3501,8 @@ def param_shift_grad(f_slots: 'SlotFn', spec: 'CircuitSpec', theta: 'Sequence[fl
     Exact gradient of ``f`` with respect to the logical parameter vector.
 def param_shift_grad_circuit(spec: 'CircuitSpec', theta: 'Sequence[float]', obs: 'Observable | None' = None, shots: 'int | None' = None, backend: 'BackendLike' = None, seed: 'int | None' = None) -> 'npt.NDArray[Any]'
     Convenience wrapper: parameter-shift gradient of ``<obs>`` for a circuit.
+def plan(model: 'Any', n_samples: 'int' = 1, steps: 'int' = 1, method: 'str' = 'parameter-shift', obs: 'Observable | None' = None, shots: 'int | None' = None) -> 'Plan'
+    Circuits, shots and wall-clock for a training run, plus the ways to shrink it.
 def probabilities(spec: 'CircuitSpec', theta: 'ArrayLike | None' = None, backend: 'BackendLike' = None) -> 'npt.NDArray[Any]'
     Exact outcome probabilities over the ``2**n`` basis states.
 def projected_kernel_matrix(feature_map: 'FeatureMap', X: 'npt.NDArray[Any]', gamma: 'float' = 1.0, backend: 'BackendLike' = None) -> 'npt.NDArray[Any]'
@@ -3291,6 +3525,8 @@ def register_ansatz(name: 'str', factory: 'AnsatzFactory | None' = None) -> 'Cal
     Register an ansatz factory. Usable as a decorator or a direct call.
 def register_backend(name: 'str', factory: 'Callable[..., Backend]', requires: 'str | None' = None, extra: 'str | None' = None) -> 'None'
     Register a backend factory.
+def register_baseline(name: 'str', task: 'str', factory: 'Callable[[], Any]', requires: 'str | None' = None, note: 'str' = '') -> 'None'
+    Add a baseline, so it appears in every table for that task from now on.
 def register_conv_filter(name: 'str', fn: 'ConvFilter', n_params: 'int') -> 'None'
     Make a two-qubit filter reachable by name from :func:`conv_block`.
 def register_gate(gate: 'GateDef') -> 'GateDef'
@@ -3307,6 +3543,8 @@ def rule_for_gate(gate: 'str') -> 'ShiftRule'
     Look the rule up from the gate's declared generator frequencies.
 def run_counts(spec: 'CircuitSpec', shots: 'int' = 8192, theta: 'ArrayLike | None' = None, backend: 'BackendLike' = None, seed: 'int | None' = None) -> 'dict[str, int]'
     Sample the computational basis. Keys are ``n_qubits``-wide bitstrings.
+def selfcheck(spec: 'CircuitSpec', theta: 'ArrayLike', obs: 'Observable', backend: 'Any' = None, cross_backend: 'bool' = True) -> 'Any'
+    Compute this circuit's value and gradient every available way, and compare.
 def set_default_backend(backend: 'str | Backend', **kwargs: 'object') -> 'Backend'
     Set the process-wide default backend and return it.
 shadows

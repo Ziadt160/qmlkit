@@ -112,6 +112,7 @@ nav:
       - The parameter-shift rule: guides/parameter-shift.md
       - Choosing a gradient method: guides/choosing-a-gradient.md
       - Backends and conventions: guides/backends.md
+      - Evaluating a model honestly: guides/evaluation.md
       - Extending qmlkit: guides/extending.md
       - Working with a coding agent: guides/agents.md
   - Reference:
@@ -123,6 +124,7 @@ nav:
       - Kernels: reference/kernels.md
       - PyTorch: reference/nn.md
       - Analysis: reference/analysis.md
+      - Evaluation: reference/evaluation.md
   - About:
       - Validation: about/validation.md
       - Changelog: about/changelog.md

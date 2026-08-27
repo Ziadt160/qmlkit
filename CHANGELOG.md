@@ -4,6 +4,56 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added — the evaluation layer
+
+The half of a quantum machine learning result that is not the circuit: whether the
+score means what it appears to, what the classical bar is, and whether the number
+can be trusted or reproduced.
+
+- **`qmlkit.evaluate`** — every metric a task needs in one call, for
+  `classification`, `regression`, `clustering` and `generative`. The returned
+  `Scores` object indexes like a mapping, names the metric to quote as `primary`,
+  and carries `notes` that fire when a metric misleads — accuracy sitting at the
+  majority-class rate, a class too small for its per-class scores to mean anything,
+  ROC AUC flattering a rare positive class. Pure NumPy; cross-validated against
+  scikit-learn on randomly generated inputs in `tests/test_evaluate.py`.
+- **`qmlkit.imbalance`** — `class_weights` (interchangeable with scikit-learn's
+  `class_weight="balanced"`), `pos_weight`, `sample_weights`, `resample`,
+  `stratified_split` and `stratified_folds`, plus `imbalance_report`, which names
+  what the skew will break and the call that fixes each one. Stratified splitting
+  guarantees a rare class cannot vanish from a fold, which is what makes a
+  small-data test score mean anything.
+- **`qmlkit.nn.losses`** — `weighted_cross_entropy`, `class_weight_tensor` and
+  `FocalLoss`. `VQC` now takes `class_weight=` and `focal_gamma=`, computed from
+  the `y` passed to `fit` rather than assumed at construction.
+- **`qk.baseline`** — every classical baseline on the same folds, the same metric
+  and the same preprocessing as the model under test, with a verdict that refuses
+  to call a lead a result when it is smaller than the fold-to-fold spread. The
+  NumPy-only baselines (majority, nearest-centroid, RBF kernel ridge, linear least
+  squares) always run; scikit-learn's are listed as *skipped* when it is absent
+  rather than dropped. Extensible through `register_baseline`.
+- **`qk.plan`** — the circuit and shot budget for a training run before it starts,
+  with wall-clock at a given queue latency and the cheaper gradient methods listed
+  alongside what each one gives up. Qubit-wise-commuting grouping is counted, not
+  assumed.
+- **`qk.selfcheck`** — the parity idea from `tests/test_pennylane_parity.py` turned
+  outward: computes the gradient by every exact route available and compares them,
+  then runs the circuit through every installed backend. Catches a custom gate with
+  wrong declared `frequencies`, which returns a plausible number rather than
+  raising.
+- **`qk.fingerprint`** — the versions, backend and seed that decided a number,
+  JSON-serialisable and cheap enough to attach to every run.
+- **Documentation** — a new guide, *Evaluating a model honestly*, and a reference
+  page. Every snippet in the guide executes in `tests/test_docs.py` like the rest.
+
+### Changed
+
+- `HybridModel._loss_fn` now takes the training targets, so a subclass can build a
+  loss that depends on the label distribution. `VQC` and `VQRegressor` are updated;
+  any external subclass overriding `_loss_fn` needs the same one-argument signature.
+
 ## [0.1.0] - 2026-08-26
 
 First release.

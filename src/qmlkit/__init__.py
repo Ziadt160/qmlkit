@@ -18,8 +18,10 @@ __version__ = "0.1.0"
 from qmlkit import (
     algorithms,
     datasets,
+    evaluate,
     fourier,
     generative,
+    imbalance,
     info,
     kernels,
     metrics,
@@ -54,6 +56,16 @@ from qmlkit.ansatz import (
     tree_tensor_network,
     two_local,
 )
+from qmlkit.baselines import (
+    BaselineRow,
+    BaselineSpec,
+    BaselineTable,
+    baseline,
+    get_baseline,
+    list_baselines,
+    register_baseline,
+)
+from qmlkit.budget import Plan, Reduction, plan
 from qmlkit.core.backends.base import Backend, BackendNotAvailable
 from qmlkit.core.backends.numpy_backend import NumpyBackend
 from qmlkit.core.backends.registry import (
@@ -175,6 +187,7 @@ from qmlkit.optim import (
     quantum_fisher_information,
     rotosolve_step,
 )
+from qmlkit.provenance import Fingerprint, fingerprint, selfcheck
 from qmlkit.utils.shots import (
     p0_from_z,
     shots_for_precision,
@@ -262,6 +275,23 @@ __all__ = [
     "datasets",
     "shadows",
     "generative",
+    "evaluate",
+    "imbalance",
+    # baselines
+    "baseline",
+    "BaselineTable",
+    "BaselineRow",
+    "BaselineSpec",
+    "register_baseline",
+    "list_baselines",
+    "get_baseline",
+    # budget and provenance
+    "plan",
+    "Plan",
+    "Reduction",
+    "fingerprint",
+    "Fingerprint",
+    "selfcheck",
     # kernels
     "QuantumKernel",
     "fidelity_kernel",

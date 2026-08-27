@@ -89,7 +89,13 @@ class HybridModel(nn.Module):
             arr = self.scaler.fit_transform(arr) if fit_scaler else self.scaler.transform(arr)
         return torch.as_tensor(arr, dtype=torch.get_default_dtype())
 
-    def _loss_fn(self) -> nn.Module:  # pragma: no cover - overridden
+    def _loss_fn(self, y: npt.NDArray[Any]) -> nn.Module:  # pragma: no cover - overridden
+        """The loss for these targets.
+
+        Takes ``y`` because a class-weighted loss cannot be built until the label
+        distribution is known, and that is a property of the training set rather
+        than of the model.
+        """
         raise NotImplementedError
 
     def _targets(self, y: npt.NDArray[Any]) -> torch.Tensor:  # pragma: no cover - overridden
@@ -109,7 +115,7 @@ class HybridModel(nn.Module):
         xt = self._prepare(X, fit_scaler=True)
         yt = self._targets(np.asarray(y))
         opt = optimizer or torch.optim.Adam(self.parameters(), lr=lr)
-        loss_fn = self._loss_fn()
+        loss_fn = self._loss_fn(np.asarray(y))
         n = xt.shape[0]
         bs = batch_size or n
         self.history_ = []
@@ -144,14 +150,39 @@ class VQC(HybridModel):
 
     model = VQC(n_features=4, n_classes=3).fit(X, y)
     model.score(X, y)
+
+    ``class_weight="balanced"`` reweights the loss by class frequency, which is
+    what stops a skewed training set training the circuit to a constant. The
+    weights are computed from the ``y`` passed to :meth:`fit`, so they describe the
+    data actually trained on rather than an assumption made at construction.
+    ``focal_gamma`` additionally down-weights examples the model already gets
+    right; ``0.0`` disables it, ``2.0`` is the published default.
     """
 
-    def __init__(self, n_features: int, n_classes: int = 2, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        n_features: int,
+        n_classes: int = 2,
+        class_weight: str | None = None,
+        focal_gamma: float = 0.0,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(n_features, n_classes, **kwargs)
         self.n_classes = n_classes
+        self.class_weight = class_weight
+        self.focal_gamma = focal_gamma
 
-    def _loss_fn(self) -> nn.Module:
-        return nn.CrossEntropyLoss()
+    def _loss_fn(self, y: npt.NDArray[Any]) -> nn.Module:
+        from qmlkit.nn.losses import FocalLoss, class_weight_tensor
+
+        weight = (
+            class_weight_tensor(y, self.class_weight, self.n_classes)
+            if self.class_weight is not None
+            else None
+        )
+        if self.focal_gamma:
+            return FocalLoss(gamma=self.focal_gamma, weight=weight)
+        return nn.CrossEntropyLoss(weight=weight)
 
     def _targets(self, y: npt.NDArray[Any]) -> torch.Tensor:
         return torch.as_tensor(np.asarray(y).ravel(), dtype=torch.long)
@@ -179,7 +210,7 @@ class VQRegressor(HybridModel):
     def __init__(self, n_features: int, n_outputs: int = 1, **kwargs: Any) -> None:
         super().__init__(n_features, n_outputs, **kwargs)
 
-    def _loss_fn(self) -> nn.Module:
+    def _loss_fn(self, y: npt.NDArray[Any]) -> nn.Module:
         return nn.MSELoss()
 
     def _targets(self, y: npt.NDArray[Any]) -> torch.Tensor:

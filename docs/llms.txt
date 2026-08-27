@@ -59,6 +59,7 @@ What is worth knowing before writing any of it:
 - [The parameter-shift rule](https://ziadt160.github.io/qmlkit/guides/parameter-shift/): It is correct — for a gate whose generator has a single frequency, differentiated one occurrence at a time.
 - [Choosing a gradient method](https://ziadt160.github.io/qmlkit/guides/choosing-a-gradient/): Six methods, and qk.grad(spec, theta, obs) with no method picks a sensible one.
 - [Backends and conventions](https://ziadt160.github.io/qmlkit/guides/backends/): One circuit, five backends, one answer. tests/testcrossbackend.py runs the same circuit zoo through every installed backend and asserts agreement with the NumPy reference on statevectors, probabilities, expectations over X/Y/Z and two-body terms, seeded sampling, and parameter-shift gradients.
+- [Evaluating a model honestly](https://ziadt160.github.io/qmlkit/guides/evaluation/): Three things go wrong between a trained model and a reported result, and none of them raises an exception.
 - [Extending qmlkit](https://ziadt160.github.io/qmlkit/guides/extending/): Every extension point is a registry. Register something and it becomes reachable by name everywhere the library takes one — no subclassing, no plugin manifest, no coordination with anything else.
 - [Working with a coding agent](https://ziadt160.github.io/qmlkit/guides/agents/): Most code written against a library now is written by a model, and a model does not read this page before it types.
 
@@ -72,6 +73,7 @@ What is worth knowing before writing any of it:
 - [Kernels](https://ziadt160.github.io/qmlkit/reference/kernels/): Three overlap estimators, Gram matrices that stay positive semi-definite, and the models on top.
 - [PyTorch](https://ziadt160.github.io/qmlkit/reference/nn/): Circuits as nn.Modules, with gradients flowing to the inputs as well as the weights.
 - [Analysis](https://ziadt160.github.io/qmlkit/reference/analysis/): Measuring an ansatz rather than asserting things about it: expressibility, entanglement, spectra, geometry.
+- [Evaluation](https://ziadt160.github.io/qmlkit/reference/evaluation/): Scoring predictions, handling skewed classes, comparing against classical baselines, costing a run before it starts, and recording what produced a number.
 
 ## About
 
