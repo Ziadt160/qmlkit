@@ -110,23 +110,27 @@ class _Runner:
         return np.concatenate([self.feature_map.angles(x_row), theta])
 
     def forward_batch(self, x: npt.NDArray[Any], theta: npt.NDArray[Any]) -> npt.NDArray[Any]:
-        from qmlkit.core.execute import expectation
+        """Every sample's observables, in one batched call per observable.
+
+        The whole batch shares one circuit *structure* and differs only in the encoded
+        angles, which is exactly what :func:`~qmlkit.core.execute.expectation_over`
+        exists for. The backend decides whether it can do better than a loop; this
+        just stops throwing the information away.
+        """
+        from qmlkit.core.execute import expectation_over
 
         rows = np.atleast_2d(x)
+        params = np.stack([self._full(row, theta) for row in rows])
         out = np.empty((rows.shape[0], len(self.observables)), dtype=float)
-        for b, row in enumerate(rows):
-            params = self._full(row, theta)
-            for j, obs in enumerate(self.observables):
-                out[b, j] = float(
-                    expectation(
-                        self.spec,
-                        obs,
-                        theta=params,
-                        shots=self.shots,
-                        backend=self.backend,
-                        seed=self.seed,
-                    )
-                )
+        for j, obs in enumerate(self.observables):
+            out[:, j] = expectation_over(
+                self.spec,
+                params,
+                obs,
+                shots=self.shots,
+                backend=self.backend,
+                seed=self.seed,
+            )
         return out if x.ndim == 2 else out[0]
 
     def backward_batch(

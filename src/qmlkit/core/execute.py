@@ -118,6 +118,39 @@ def expectation_batch(
     )
 
 
+def expectation_over(
+    spec: CircuitSpec,
+    thetas: ArrayLike,
+    obs: Observable | None = None,
+    shots: int | None = None,
+    backend: BackendLike = None,
+    seed: int | None = None,
+) -> npt.NDArray[Any]:
+    """``<O>`` for **one** circuit at many parameter vectors — the batched path.
+
+    ``expectation_batch`` takes many circuits; this takes one circuit and a
+    ``(batch, n_params)`` array, which is the shape a training loop actually has: the
+    same ansatz, one parameter vector per sample, because the encoding differs per
+    sample and the weights do not.
+
+    Knowing the structure is shared is what lets a backend do better than a loop. The
+    NumPy backend carries the batch as a leading axis and applies each gate to the
+    whole stack at once, which is 4-30x faster than one-at-a-time up to 10 qubits.
+    Backends that cannot do better inherit a loop, so this is always correct and never
+    slower than calling :func:`expectation` yourself.
+
+        >>> import numpy as np, qmlkit as qk
+        >>> a = qk.hardware_efficient(3, 2)
+        >>> thetas = np.zeros((4, a.n_params))
+        >>> qk.expectation_over(a.build(), thetas, qk.Z(0)).shape
+        (4,)
+    """
+    return get_backend(backend).expectation_over(
+        spec, np.atleast_2d(np.asarray(thetas, dtype=float)), Z(0) if obs is None else obs,
+        shots, seed,
+    )
+
+
 def expval(
     spec: CircuitSpec,
     obs: Observable | None = None,

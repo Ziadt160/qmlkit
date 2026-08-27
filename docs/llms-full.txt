@@ -3476,6 +3476,8 @@ def expectation(spec: 'CircuitSpec', obs: 'Observable | None' = None, theta: 'Ar
     ``<O>`` for a circuit.
 def expectation_batch(specs: 'Sequence[CircuitSpec]', obs: 'Observable | None' = None, thetas: 'Sequence[ArrayLike] | None' = None, shots: 'int | None' = None, backend: 'BackendLike' = None, seed: 'int | None' = None) -> 'npt.NDArray[Any]'
     ``<O>`` for several circuits, resolving the backend once.
+def expectation_over(spec: 'CircuitSpec', thetas: 'ArrayLike', obs: 'Observable | None' = None, shots: 'int | None' = None, backend: 'BackendLike' = None, seed: 'int | None' = None) -> 'npt.NDArray[Any]'
+    ``<O>`` for **one** circuit at many parameter vectors — the batched path.
 def expressibility(ansatz: 'Ansatz', n_samples: 'int' = 2000, n_bins: 'int' = 75, seed: 'int | None' = None, backend: 'BackendLike' = None) -> 'float'
     ``KL(ansatz fidelities || Haar)``. **Smaller is more expressive**; 0 is Haar.
 def expval(spec: 'CircuitSpec', obs: 'Observable | None' = None, theta: 'ArrayLike | None' = None, shots: 'int | None' = None, backend: 'BackendLike' = None, seed: 'int | None' = None) -> 'float'

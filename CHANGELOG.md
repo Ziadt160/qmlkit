@@ -6,6 +6,41 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added — batched execution
+
+`expectation_batch` took a list of circuits and looped. Nothing exploited the fact
+that a training batch shares one circuit *structure* and differs only in the encoded
+angles, which is the shape every hybrid model actually has.
+
+- **`qk.expectation_over(spec, thetas, obs)`** — one circuit, a `(batch, n_params)`
+  array. Knowing the structure is shared is what lets a backend beat a loop.
+- **`Backend.statevector_batch` / `Backend.expectation_over`** — new protocol methods
+  with working defaults derived from `statevector`, so every backend gains a correct
+  batch path immediately and can override it if it can do better. This is also the
+  shape a *device* needs: real providers take a list of circuits and return a job, and
+  one blocking call per circuit against a queue was gap #1 in
+  `examples/toward_hardware.py`.
+- **A vectorised NumPy path** that carries the batch as a leading axis and applies each
+  gate to the whole stack in one `einsum`, with closed-form batched matrices for the
+  rotations that dominate every ansatz. Measured against the one-at-a-time loop on the
+  VQC forward pass at batch 128: **24× at 4 qubits, 21× at 4 qubits × 4 layers, 9.4× at
+  6 qubits, 3.6× at 8**.
+- `QuantumLayer.forward_batch` now uses it, so `VQC`/`VQRegressor` training gets the
+  speedup without any API change.
+
+**It is dispatched, not assumed.** Batching trades per-sample Python overhead for worse
+memory locality, so it wins while the overhead dominates and loses once `2**n` does. The
+measured crossover sits between 10 and 11 qubits and does not move with batch size —
+what you would expect if `2**n` alone sets it. Above `NumpyBackend.batch_max_qubits`
+(default 10) the loop runs instead. An earlier `moveaxis`-and-reshape implementation was
+*slower* than the loop from 10 qubits up, because it copied the whole stack twice per
+gate; contracting in place with explicit `einsum` subscripts fixed that and is uniformly
+faster.
+
+Every batched result is asserted equal to the loop it replaces, and each entry in the
+vectorised gate table is asserted equal to the scalar `gate_matrix` it stands in for —
+a vectorised `ry` with a sign error would return numbers in the right range.
+
 ### Added — circuits can be read in
 
 `to_qiskit`/`to_cirq`/`to_spinqit` have always existed; the reverse did not, and

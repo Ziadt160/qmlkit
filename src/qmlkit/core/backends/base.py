@@ -25,6 +25,7 @@ from qmlkit.core.observables import (
     basis_rotation,
     expectation_from_counts,
     expectation_from_statevector,
+    expectation_from_statevectors,
     group_qubit_wise_commuting,
 )
 
@@ -68,6 +69,55 @@ class Backend:
     def probabilities(self, spec: CircuitSpec) -> npt.NDArray[Any]:
         """Exact outcome probabilities over the ``2**n`` basis states."""
         return np.abs(self.statevector(spec)) ** 2
+
+    # ----------------------------------------------------------------- batch --
+    def statevector_batch(
+        self, spec: CircuitSpec, thetas: npt.NDArray[Any]
+    ) -> npt.NDArray[Any]:
+        """States for one circuit at many parameter vectors: ``(batch, 2**n)``.
+
+        The default binds and simulates one row at a time, so every backend has a
+        working implementation the moment it can produce a statevector. A backend that
+        can do better overrides this — :class:`~qmlkit.core.backends.numpy_backend.NumpyBackend`
+        carries the batch as a leading axis and applies each gate to the whole stack
+        at once.
+
+        This is also the shape a *device* wants: real providers take a list of circuits
+        and return a job, and one blocking call per circuit against a queue is the
+        difference between a run taking minutes and taking weeks.
+        """
+        values = np.atleast_2d(np.asarray(thetas, dtype=float))
+        states: npt.NDArray[Any] = np.stack(
+            [self.statevector(spec.bind(row)) for row in values]
+        )
+        return states
+
+    def expectation_over(
+        self,
+        spec: CircuitSpec,
+        thetas: npt.NDArray[Any],
+        obs: Observable,
+        shots: int | None = None,
+        seed: int | None = None,
+    ) -> npt.NDArray[Any]:
+        """``<O>`` for one circuit at many parameter vectors.
+
+        Exact evaluation goes through :meth:`statevector_batch`, so a backend that
+        vectorises that gets a vectorised expectation for free. Sampling stays
+        one circuit at a time, because a shot budget is spent per circuit either way.
+        """
+        values = np.atleast_2d(np.asarray(thetas, dtype=float))
+        if shots is None:
+            if not self.supports_exact:
+                raise ValueError(
+                    f"the {self.name!r} backend has no exact mode; pass shots=N to sample"
+                )
+            states = self.statevector_batch(spec, values)
+            return expectation_from_statevectors(obs, states, spec.n_qubits)
+        return np.array(
+            [self.expectation(spec.bind(row), obs, shots, seed) for row in values],
+            dtype=float,
+        )
 
     # ------------------------------------------------------------- semantics --
     def expectation(

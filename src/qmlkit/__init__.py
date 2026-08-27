@@ -82,6 +82,7 @@ from qmlkit.core.builder import QCircuit, entangler_pairs
 from qmlkit.core.execute import (
     expectation,
     expectation_batch,
+    expectation_over,
     expval,
     probabilities,
     run_counts,
@@ -245,6 +246,7 @@ __all__ = [
     "probabilities",
     "expectation",
     "expectation_batch",
+    "expectation_over",
     # encoding
     "angle_encode",
     "basis_encode",

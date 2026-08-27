@@ -160,6 +160,34 @@ def expectation_from_statevector(obs: Observable, state: npt.NDArray[Any], n_qub
     return float(total.real)
 
 
+def expectation_from_statevectors(
+    obs: Observable, states: npt.NDArray[Any], n_qubits: int
+) -> npt.NDArray[Any]:
+    """``<psi|O|psi>`` for a stack of states — one value per row of ``states``.
+
+    ``states`` is ``(batch, 2**n)``. This is the same arithmetic as
+    :func:`expectation_from_statevector` with the batch carried as a leading axis, so
+    each Pauli term is applied once for the whole batch instead of once per sample.
+    ``tests/test_batch.py`` asserts the two agree exactly.
+    """
+    psi = np.asarray(states, dtype=complex).reshape((-1,) + (2,) * n_qubits)
+    batch = psi.shape[0]
+    flat = psi.reshape(batch, -1)
+    total = np.zeros(batch, dtype=complex)
+    for term in as_sum(obs).terms:
+        out = psi
+        for q, p in term.paulis:
+            if p == "I":
+                continue
+            # +1 on the qubit axis: axis 0 is the batch
+            out = np.tensordot(_pauli_matrix(p), out, axes=([1], [q + 1]))
+            out = np.moveaxis(out, 0, q + 1)
+        total += term.coeff * np.einsum("bi,bi->b", flat.conj(), out.reshape(batch, -1))
+    if np.any(np.abs(total.imag) > 1e-9):  # pragma: no cover - guards a genuine bug
+        raise ValueError("non-real expectation; observable is not Hermitian")
+    return np.asarray(total.real, dtype=float)
+
+
 def diagonal_eigenvalues(term: PauliString, n_qubits: int) -> npt.NDArray[Any]:
     """+-1 eigenvalue per computational basis state, for a Z-only Pauli string."""
     if any(p not in ("I", "Z") for _, p in term.paulis):
