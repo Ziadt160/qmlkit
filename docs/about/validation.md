@@ -9,10 +9,10 @@ others cannot.
 | | |
 |---|---|
 | **Cross-backend equivalence** | The same circuit through five backends, compared to the NumPy reference |
-| **Cross-library parity** | 301 cases against PennyLane, an independently written implementation |
+| **Cross-library parity** | 301 cases against PennyLane, and every metric in `qk.evaluate` against scikit-learn — both independently written implementations |
 | **Executable documentation** | Every snippet on this site runs in CI |
 
-Plus the ordinary suite: **864 tests, 93% combined coverage** measured in CI,
+Plus the ordinary suite: **1121 tests, 94% combined coverage** measured in CI,
 `ruff` and `mypy --strict` clean.
 
 ## Parity with PennyLane

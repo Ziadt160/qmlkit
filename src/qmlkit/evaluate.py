@@ -258,6 +258,8 @@ def classification(
     labels:
         Optional fixed class order, for when a fold is missing a class.
 
+    Notes
+    -----
     The primary metric is ``balanced_accuracy`` on imbalanced data and ``accuracy``
     otherwise, because quoting accuracy on a skewed problem is the most common way
     a quantum classifier gets reported as working when it is not.

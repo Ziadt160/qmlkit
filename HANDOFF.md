@@ -32,7 +32,7 @@ lecture repo — it maps lectures to library features and belongs with the lectu
 
 ## Status
 
-**924 tests, 0 failures.** ruff + `mypy --strict` clean. **93% coverage**, combined in
+**1121 tests, 0 failures.** ruff + `mypy --strict` clean. **94% coverage**, combined in
 CI across every job — the number CI actually computes, not a local estimate. Two of the
 twelve coverage files still fail to map (macOS and Windows record different absolute
 roots), so the figure is carried by the `full` job, which installs every extra and runs
@@ -142,17 +142,25 @@ Then pushing the tag `v0.1.0` does the rest. `RELEASING.md` has the full procedu
 what to do when it goes wrong. **A PyPI version number can never be reused**, so the
 tag is deliberately not pushed yet.
 
-### 2. Circuit import from Qiskit and PennyLane
+### 2. The seven lecture notebooks — and the first real users
 
-`to_qiskit` / `to_cirq` / `to_spinqit` exist; the reverse does not. One-way interop
-means people must *start* here rather than migrate here, which is the difference
-between a library someone tries and one someone adopts.
+Phase 7's stated acceptance test, and now the highest-value item after PyPI. Every
+lecture rewritten to `import qmlkit as qk`, every snippet still running, the notebooks
+getting *shorter*. Your students are the first people who will use this without having
+written it, which is the only way to find out whether the API survives contact and
+whether the thresholds in `qmlkit.diagnostics` and `qmlkit.evaluate` are calibrated.
 
-### 3. The seven lecture notebooks
+**Done since this file was last updated:** circuit import (`from_qasm`, `from_qiskit`,
+`from_pennylane`), the evaluation layer (`evaluate`, `imbalance`, `baselines`, `budget`,
+`provenance`), batched execution, and an honest re-run of the PennyLane benchmark
+against `lightning.qubit` and `adjoint_metric_tensor`.
 
-Still Phase 7's stated acceptance test: every lecture rewritten to `import qmlkit as
-qk`, every snippet still running, and the notebooks getting *shorter*. Your students
-are the first real users.
+### 3. Batched submission on a real device
+
+`Backend.statevector_batch`/`expectation_over` now exist, so the protocol change is
+made; what remains is a backend that submits a *list* and polls a job. Async is the
+other half, and together they are the two items in `examples/toward_hardware.py` that
+would change the `Backend` protocol.
 
 ### 4. Smaller, worth doing
 

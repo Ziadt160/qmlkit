@@ -340,7 +340,7 @@ unclaimed; it would narrow the overhead rows further.
 
 ## What it does today
 
-`0.1.0.dev0` is the foundation layer:
+`0.1.0` is the foundation layer:
 
 - **A backend-neutral circuit IR.** A circuit is data — a list of `Op`. Backends
   compile it; gradients, resource counting and drawing all read it.
@@ -371,6 +371,21 @@ unclaimed; it would narrow the overhead rows further.
   generative ones — `QCBM`, `QGAN`, `QuantumBoltzmannMachine`, `QuantumHopfield`.
 - **Analysis** — expressibility, Meyer–Wallach entanglement, barren-plateau scans,
   effective dimension, Fourier spectra, and `draw()` / `specs()`.
+- **Diagnostics** — `diagnose()` for the circuit (dead parameters, collapsed
+  re-uploading, concentrated kernels, flat gradients) and `selfcheck()` for the number
+  (every exact gradient route compared against every other, every backend against the
+  reference).
+- **Evaluation** — `qk.evaluate` returns every metric a task needs at once and says
+  when one is misleading; `qk.imbalance` handles the loss and the split that skew
+  breaks; `qk.baseline` runs the classical bar on identical folds and refuses to call
+  a lead inside the fold spread a result.
+- **Budget and provenance** — `qk.plan()` costs a run in circuits before it starts;
+  `qk.fingerprint()` records the versions, backend and seed that produced a number.
+- **Circuit import** — `from_qasm` (standard library only), `from_qiskit` (unbound
+  parameters included) and `from_pennylane` (templates decompose), so circuits come
+  back in as well as out.
+- **Batched execution** — one circuit at many parameter vectors in a single pass;
+  3.6–24× on the training forward pass up to 10 qubits.
 
 ## Gradients
 
@@ -523,7 +538,7 @@ qk.shots_for_precision(0.01)      # what a target precision actually costs
 | 4 · Torch bridge: `QuantumLayer`, `VQC`, `VQRegressor` | **done** |
 | 5 · Quantum kernels, `QSVC`/`QSVR` | **done** |
 | 6 · QCNN, QLSTM, MPS; QCBM, qGAN, QBM | **done** |
-| 7 · Docs, tutorials, `v0.1.0` on PyPI | in progress |
+| 7 · Docs, tutorials, `v0.1.0` on PyPI | docs and tutorials **done**; PyPI pending |
 
 ## Development
 

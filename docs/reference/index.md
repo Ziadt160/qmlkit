@@ -11,6 +11,7 @@ Generated from the docstrings in the source, so it cannot drift from the code.
 | [Kernels](kernels.md) | Overlap estimators, Gram matrices, `QSVC`/`QSVR` |
 | [PyTorch](nn.md) | `QuantumLayer`, `VQC`, structured architectures |
 | [Analysis](analysis.md) | Metrics, Fourier spectra, quantum information, optimisers |
+| [Evaluation](evaluation.md) | Scores, class imbalance, classical baselines, budget, provenance |
 
 If you are looking for the shape of the library rather than a particular function,
 the [tutorials](../tutorials/index.md) are the faster route.

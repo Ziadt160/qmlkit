@@ -9,6 +9,7 @@ when a particular question comes up.
 | **[Choosing a gradient method](choosing-a-gradient.md)** | Six options, a decision table, and measured costs |
 | **[Backends and conventions](backends.md)** | Endianness, controlled-gate ordering, precision floors, and three upstream discrepancies worth knowing about |
 | **[Extending qmlkit](extending.md)** | Adding a gate, an ansatz, a gradient estimator or a backend — every extension point is a registry |
+| **[Evaluating a model honestly](evaluation.md)** | Metrics that say when they mislead, skewed classes, the classical bar, and whether a number can be trusted or reproduced |
 | **[Working with a coding agent](agents.md)** | Why a wrong name answers with the right one, and what `diagnose()` catches that nothing raises for |
 
 For how any of this is known to be correct, see [Validation](../about/validation.md).

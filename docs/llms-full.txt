@@ -2028,6 +2028,7 @@ when a particular question comes up.
 | **[Choosing a gradient method](choosing-a-gradient.md)** | Six options, a decision table, and measured costs |
 | **[Backends and conventions](backends.md)** | Endianness, controlled-gate ordering, precision floors, and three upstream discrepancies worth knowing about |
 | **[Extending qmlkit](extending.md)** | Adding a gate, an ansatz, a gradient estimator or a backend — every extension point is a registry |
+| **[Evaluating a model honestly](evaluation.md)** | Metrics that say when they mislead, skewed classes, the classical bar, and whether a number can be trusted or reproduced |
 | **[Working with a coding agent](agents.md)** | Why a wrong name answers with the right one, and what `diagnose()` catches that nothing raises for |
 
 For how any of this is known to be correct, see [Validation](../about/validation.md).
@@ -2986,6 +2987,7 @@ Generated from the docstrings in the source, so it cannot drift from the code.
 | [Kernels](kernels.md) | Overlap estimators, Gram matrices, `QSVC`/`QSVR` |
 | [PyTorch](nn.md) | `QuantumLayer`, `VQC`, structured architectures |
 | [Analysis](analysis.md) | Metrics, Fourier spectra, quantum information, optimisers |
+| [Evaluation](evaluation.md) | Scores, class imbalance, classical baselines, budget, provenance |
 
 If you are looking for the shape of the library rather than a particular function,
 the [tutorials](../tutorials/index.md) are the faster route.
@@ -3165,10 +3167,10 @@ others cannot.
 | | |
 |---|---|
 | **Cross-backend equivalence** | The same circuit through five backends, compared to the NumPy reference |
-| **Cross-library parity** | 301 cases against PennyLane, an independently written implementation |
+| **Cross-library parity** | 301 cases against PennyLane, and every metric in `qk.evaluate` against scikit-learn — both independently written implementations |
 | **Executable documentation** | Every snippet on this site runs in CI |
 
-Plus the ordinary suite: **864 tests, 93% combined coverage** measured in CI,
+Plus the ordinary suite: **1121 tests, 94% combined coverage** measured in CI,
 `ruff` and `mypy --strict` clean.
 
 ## Parity with PennyLane
