@@ -14,7 +14,12 @@ reference = qk.grad(spec, theta, obs, method="adjoint")
 
 for method in qk.list_gradient_methods():
     kwargs = {"seed": 0, "n_avg": 50} if method == "spsa" else {}
-    g = qk.grad(spec, theta, obs, method=method, **kwargs)
+    try:
+        g = qk.grad(spec, theta, obs, method=method, **kwargs)
+    except qk.BackendNotAvailable as exc:
+        # every method is registered, but backprop needs the torch extra
+        print(f"{method:<17}{'-':>4}            {exc.args[0].splitlines()[0]}")
+        continue
     cost = qk.gradient_cost(spec, method)
     print(f"{method:<17}{str(cost):>4} circuits   max error {np.abs(g - reference).max():.2e}")
 ```
@@ -27,6 +32,10 @@ hadamard           12 circuits   max error 1.11e-16
 parameter-shift    24 circuits   max error 7.67e-16
 spsa                2 circuits   max error 4.29e-02
 ```
+
+Every method is registered whether or not its extra is installed, so
+`list_gradient_methods()` always lists all six and `backprop` explains itself if
+PyTorch is missing rather than raising `ModuleNotFoundError`.
 
 `qk.grad(spec, theta, obs)` with no `method` picks for you: adjoint when every gate
 has a closed-form derivative and the backend can produce a statevector,

@@ -23,6 +23,7 @@ import numpy as np
 import numpy.typing as npt
 
 from qmlkit.ansatz.library import Ansatz, hardware_efficient
+from qmlkit.core.builder import entangler_pairs
 from qmlkit.core.execute import BackendLike, probabilities, run_counts
 from qmlkit.core.ir import CircuitSpec
 
@@ -299,6 +300,8 @@ class QuantumBoltzmannMachine:
         gamma: float = 0.7,
         beta: float = 1.0,
         seed: int | None = None,
+        edges: Sequence[tuple[int, int]] | None = None,
+        pattern: str = "chain",
     ) -> None:
         self.n_visible = n_visible
         self.n_hidden = n_hidden
@@ -307,7 +310,16 @@ class QuantumBoltzmannMachine:
         self.beta = beta
         rng = np.random.default_rng(seed)
         self.fields = rng.normal(0, 0.1, self.n_spins)
-        self.couplings = {(i, i + 1): float(rng.normal(0, 0.1)) for i in range(self.n_spins - 1)}
+        # The connectivity is the model's structure, so it is an argument like any
+        # other: a chain by default, "full" for an all-to-all machine, or an explicit
+        # edge list for a restricted (bipartite visible/hidden) one.
+        graph = (
+            [(int(a), int(b)) for a, b in edges]
+            if edges is not None
+            else list(entangler_pairs(self.n_spins, pattern))
+        )
+        self.edges = graph
+        self.couplings = {(a, b): float(rng.normal(0, 0.1)) for a, b in graph}
 
     def energies(self) -> npt.NDArray[Any]:
         """Diagonal energy of every spin configuration."""

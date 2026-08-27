@@ -22,10 +22,10 @@ from qmlkit.core.ir import CircuitSpec, Op
 from qmlkit.core.observables import (
     Observable,
     PauliString,
-    as_sum,
     basis_rotation,
     expectation_from_counts,
     expectation_from_statevector,
+    group_qubit_wise_commuting,
 )
 
 
@@ -77,7 +77,14 @@ class Backend:
         shots: int | None = None,
         seed: int | None = None,
     ) -> float:
-        """``<O>``. ``shots=None`` means exact, where the backend supports it."""
+        """``<O>``. ``shots=None`` means exact, where the backend supports it.
+
+        When sampling, terms are partitioned into qubit-wise-commuting groups and each
+        group costs **one** circuit rather than one per term. On a simulator that is a
+        modest saving; on a device, where circuit count is the binding constraint, it
+        is the difference between ``Z0 + Z1 + Z2 + Z0Z2`` costing four circuits and
+        costing one.
+        """
         self._check_bound(spec)
         if shots is None:
             if not self.supports_exact:
@@ -85,19 +92,41 @@ class Backend:
                     f"the {self.name!r} backend has no exact mode; pass shots=N to sample"
                 )
             return expectation_from_statevector(obs, self.statevector(spec), spec.n_qubits)
-        return sum(self._sampled_term(spec, t, shots, seed) for t in as_sum(obs).terms)
+        return sum(
+            self._sampled_group(spec, group, shots, seed)
+            for group in group_qubit_wise_commuting(obs)
+        )
 
-    def _sampled_term(
-        self, spec: CircuitSpec, term: PauliString, shots: int, seed: int | None
+    def _sampled_group(
+        self, spec: CircuitSpec, group: list[PauliString], shots: int, seed: int | None
     ) -> float:
-        if not term.paulis:  # identity term carries no measurement
-            return float(term.coeff.real)
+        """One circuit for a whole group of mutually qubit-wise-commuting terms."""
+        # identity terms carry no measurement at all
+        value = sum(float(t.coeff.real) for t in group if not t.paulis)
+        measured = [t for t in group if t.paulis]
+        if not measured:
+            return value
+
+        # Qubit-wise commuting means every term in the group agrees on the Pauli it
+        # wants on any qubit they share, so one rotation diagonalises all of them.
+        wanted: dict[int, str] = {}
+        for term in measured:
+            for qubit, pauli in term.paulis:
+                if pauli != "I":
+                    wanted[qubit] = pauli
+        rotation: list[tuple[str, tuple[int, ...]]] = []
+        for qubit, pauli in sorted(wanted.items()):
+            rotation.extend(basis_rotation(PauliString(((qubit, pauli),), 1.0)))
+
         rotated = CircuitSpec(
             n_qubits=spec.n_qubits,
-            ops=spec.ops + tuple(Op(g, q) for g, q in basis_rotation(term)),
+            ops=spec.ops + tuple(Op(g, q) for g, q in rotation),
             n_params=0,
         )
-        return expectation_from_counts(term, self.counts(rotated, shots, seed), spec.n_qubits)
+        counts = self.counts(rotated, shots, seed)
+        return value + sum(
+            expectation_from_counts(term, counts, spec.n_qubits) for term in measured
+        )
 
     # ------------------------------------------------------------- utilities --
     @staticmethod

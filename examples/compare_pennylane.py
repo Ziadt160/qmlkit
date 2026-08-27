@@ -103,7 +103,10 @@ APPROXIMATE = {"finite-diff": 1e-6, "spsa": None}
 for method in qk.list_gradient_methods():
     if method == "spsa":
         continue  # stochastic: compared separately, on its mean
-    g = qk.grad(qk_ansatz.build(), theta, obs, method=method)
+    try:
+        g = qk.grad(qk_ansatz.build(), theta, obs, method=method)
+    except qk.BackendNotAvailable:
+        continue  # optional extra missing; the exact methods still cross-check
     check(
         f"qmlkit {method:<16} vs PennyLane backprop",
         g,

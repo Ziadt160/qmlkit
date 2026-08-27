@@ -47,6 +47,8 @@ __all__ = [
     "qcnn_ansatz",
     "qaoa_ansatz",
     "conv_block",
+    "register_conv_filter",
+    "list_conv_filters",
     "basic_entangler",
     "two_local",
     "random_layers",
@@ -232,18 +234,27 @@ def simplified_two_design(n_qubits: int, n_layers: int = 2) -> Ansatz:
     )
 
 
-def tree_tensor_network(n_qubits: int) -> Ansatz:
-    """Log-depth merge tree — shallow, and resistant to barren plateaus."""
+def tree_tensor_network(
+    n_qubits: int,
+    filter: str | tuple[ConvFilter, int] = "ry_cx",  # noqa: A002 - the domain word
+    tied: bool = False,
+) -> Ansatz:
+    """Log-depth merge tree — shallow, and resistant to barren plateaus.
+
+    Each merge is a two-qubit ``filter`` from the same registry a QCNN convolves
+    with, so the tensor at every node is as general as you choose to pay for.
+    """
+    fn, n_params = _resolve_filter(filter)
 
     def build(qc: QCircuit, ctx: BuildContext) -> None:
         nodes = list(ctx.active)
+        shared = tuple(ctx.new_param() for _ in range(n_params)) if tied else None
         while len(nodes) > 1:
             nxt = []
             for i in range(0, len(nodes) - 1, 2):
                 a, b = nodes[i], nodes[i + 1]
-                qc.ry(a, ctx.new_param())
-                qc.ry(b, ctx.new_param())
-                qc.cx(a, b)
+                params = shared or tuple(ctx.new_param() for _ in range(n_params))
+                fn(qc, a, b, params)
                 nxt.append(b)
             if len(nodes) % 2:
                 nxt.append(nodes[-1])
@@ -253,44 +264,178 @@ def tree_tensor_network(n_qubits: int) -> Ansatz:
     return Ansatz(n_qubits, Custom(build, "ttn"), "tree_tensor_network")
 
 
-def mps_ansatz(n_qubits: int) -> Ansatz:
-    """A staircase of two-qubit blocks — a bond-dimension-2 matrix product state."""
+def mps_ansatz(
+    n_qubits: int,
+    filter: str | tuple[ConvFilter, int] = "ry_cx",  # noqa: A002 - the domain word
+    tied: bool = False,
+) -> Ansatz:
+    """A staircase of two-qubit blocks — a bond-dimension-2 matrix product state.
+
+    The block is the same two-qubit *filter* a QCNN convolves with, so it comes from
+    the same registry: ``"su4"`` gives a genuine bond-dimension-2 MPS with arbitrary
+    tensors, ``"ry_cx"`` the cheap real-valued one. ``tied=True`` reuses one tensor
+    down the whole chain, which is the translation-invariant MPS.
+    """
+    fn, n_params = _resolve_filter(filter)
 
     def build(qc: QCircuit, ctx: BuildContext) -> None:
         wires = ctx.active
+        shared = tuple(ctx.new_param() for _ in range(n_params)) if tied else None
         for i in range(len(wires) - 1):
-            qc.ry(wires[i], ctx.new_param())
-            qc.ry(wires[i + 1], ctx.new_param())
-            qc.cx(wires[i], wires[i + 1])
+            params = shared or tuple(ctx.new_param() for _ in range(n_params))
+            fn(qc, wires[i], wires[i + 1], params)
 
     return Ansatz(n_qubits, Custom(build, "mps"), "mps")
 
 
-def conv_block(pattern: str = "chain", tied: bool = True) -> Block:
-    """A QCNN convolution layer.
+# --------------------------------------------------------------------------- #
+# QCNN convolution filters
+#
+# A QCNN is a *pattern* — convolve, pool, repeat — not one circuit. The literature
+# differs mainly in which two-qubit filter slides across the register: Cong, Choi &
+# Lukin (2019) use a general SU(4); Hur, Kim & Park (2022) benchmark eight cheaper
+# ones. So the filter is a value you pass in, not a subclass you pick, and adding
+# your own is a function rather than a fork.
+#
+# A filter is ``fn(qc, a, b, params)`` plus the number of parameters it consumes.
+# --------------------------------------------------------------------------- #
+ConvFilter = Callable[[QCircuit, int, int, "Sequence[Any]"], None]
 
-    ``tied=True`` allocates **one** two-qubit filter and slides it across every
-    pair — the genuine convolutional structure, and the reason the gradient code
-    sums over occurrences. ``tied=False`` gives each pair its own weights.
+_FILTERS: dict[str, tuple[ConvFilter, int]] = {}
+
+
+def register_conv_filter(name: str, fn: ConvFilter, n_params: int) -> None:
+    """Make a two-qubit filter reachable by name from :func:`conv_block`."""
+    if name in _FILTERS:
+        raise ValueError(f"conv filter {name!r} is already registered")
+    _FILTERS[name] = (fn, n_params)
+
+
+def list_conv_filters() -> tuple[str, ...]:
+    return tuple(sorted(_FILTERS))
+
+
+def _f_ry_cx(qc: QCircuit, a: int, b: int, p: Sequence[Any]) -> None:
+    """The cheapest useful filter: one rotation each, one entangler."""
+    qc.ry(a, p[0])
+    qc.ry(b, p[1])
+    qc.cx(a, b)
+
+
+def _f_real(qc: QCircuit, a: int, b: int, p: Sequence[Any]) -> None:
+    """Real-amplitude block — rotations either side of the entangler."""
+    qc.ry(a, p[0])
+    qc.ry(b, p[1])
+    qc.cx(a, b)
+    qc.ry(a, p[2])
+    qc.ry(b, p[3])
+
+
+def _f_zz(qc: QCircuit, a: int, b: int, p: Sequence[Any]) -> None:
+    """Single-qubit Ry rotations plus a genuine ZZ interaction.
+
+    The single-qubit part is deliberately ``ry`` rather than ``rz``: an all-``rz``
+    filter is diagonal, so from ``|0...0>`` it does *nothing at all* — measured, not
+    guessed, and the reason ``test_no_shipped_filter_is_inert`` exists.
     """
+    qc.ry(a, p[0])
+    qc.ry(b, p[1])
+    qc.cx(a, b)
+    qc.rz(b, p[2])
+    qc.cx(a, b)
+
+
+def _u3(qc: QCircuit, wire: int, p: Sequence[Any]) -> None:
+    """An arbitrary single-qubit unitary, as Rz-Ry-Rz."""
+    qc.rz(wire, p[0])
+    qc.ry(wire, p[1])
+    qc.rz(wire, p[2])
+
+
+def _f_su4(qc: QCircuit, a: int, b: int, p: Sequence[Any]) -> None:
+    """A general two-qubit unitary — the Vatan-Williams form, 3 CNOTs, 15 angles.
+
+    This is what Cong, Choi & Lukin's QCNN uses. It can express *any* two-qubit
+    gate, which is the most expressive filter possible and also the most expensive.
+    """
+    _u3(qc, a, p[0:3])
+    _u3(qc, b, p[3:6])
+    qc.cx(b, a)
+    qc.rz(a, p[6])
+    qc.ry(b, p[7])
+    qc.cx(a, b)
+    qc.ry(b, p[8])
+    qc.cx(b, a)
+    _u3(qc, a, p[9:12])
+    _u3(qc, b, p[12:15])
+
+
+register_conv_filter("ry_cx", _f_ry_cx, 2)
+register_conv_filter("real", _f_real, 4)
+register_conv_filter("zz", _f_zz, 3)
+register_conv_filter("su4", _f_su4, 15)
+
+
+def _resolve_filter(spec: str | tuple[ConvFilter, int]) -> tuple[ConvFilter, int]:
+    if isinstance(spec, str):
+        try:
+            return _FILTERS[spec]
+        except KeyError:
+            raise KeyError(
+                f"unknown conv filter {spec!r}; available: {', '.join(list_conv_filters())}"
+            ) from None
+    fn, n_params = spec
+    return fn, int(n_params)
+
+
+def conv_block(
+    pattern: str = "chain",
+    tied: bool = True,
+    filter: str | tuple[ConvFilter, int] = "ry_cx",  # noqa: A002 - the domain word
+) -> Block:
+    """A QCNN convolution layer: slide one two-qubit ``filter`` across ``pattern``.
+
+    ``tied=True`` allocates **one** filter and reuses it at every pair — the genuine
+    convolutional structure, and the reason the gradient code sums over occurrences.
+    ``tied=False`` gives each pair its own weights.
+
+    ``filter`` is a registered name (:func:`list_conv_filters`) or a
+    ``(fn, n_params)`` pair, where ``fn(qc, a, b, params)`` writes the filter. That
+    is the whole extension point: a filter from a paper we have never heard of is a
+    function you pass in, not a class you subclass.
+    """
+    fn, n_params = _resolve_filter(filter)
+    label = filter if isinstance(filter, str) else getattr(filter[0], "__name__", "custom")
 
     def build(qc: QCircuit, ctx: BuildContext) -> None:
         wires = ctx.active
         pairs = entangler_pairs(len(wires), pattern)
         if not pairs:
             return
-        shared = (ctx.new_param(), ctx.new_param()) if tied else None
+        shared = tuple(ctx.new_param() for _ in range(n_params)) if tied else None
         for a, b in pairs:
-            ta, tb = shared if shared is not None else (ctx.new_param(), ctx.new_param())
-            qc.ry(wires[a], ta)
-            qc.ry(wires[b], tb)
-            qc.cx(wires[a], wires[b])
+            params = (
+                shared if shared is not None else tuple(ctx.new_param() for _ in range(n_params))
+            )
+            fn(qc, wires[a], wires[b], params)
 
-    return Custom(build, f"conv{'_tied' if tied else ''}")
+    return Custom(build, f"conv_{label}{'_tied' if tied else ''}")
 
 
-def qcnn_ansatz(n_qubits: int, tie_weights: bool = True) -> Ansatz:
+def qcnn_ansatz(
+    n_qubits: int,
+    tie_weights: bool = True,
+    filter: str | tuple[ConvFilter, int] = "ry_cx",  # noqa: A002 - the domain word
+    pattern: str = "chain",
+    pool: str = "discard",
+    keep: str = "odd",
+) -> Ansatz:
     """Convolution + pooling, halving the register until one qubit is left.
+
+    There is no single "the QCNN": papers differ in the two-qubit filter and in how
+    pooling discards a wire. Rather than shipping one class per paper, this is the
+    shared skeleton with both choices exposed — so reproducing a particular variant
+    is a keyword, and inventing one is a function.
 
     ``tie_weights=True`` shares one filter across all applications in a layer — the
     genuine convolutional structure, and the case whose gradient needs a sum over
@@ -299,12 +444,17 @@ def qcnn_ansatz(n_qubits: int, tie_weights: bool = True) -> Ansatz:
     import math
 
     n_layers = max(1, int(math.ceil(math.log2(n_qubits))))
-    layer = conv_block(tied=tie_weights) + PoolLayer("odd")
+    layer = conv_block(pattern=pattern, tied=tie_weights, filter=filter) + PoolLayer(
+        keep, mode=pool, tied=tie_weights
+    )
     return Ansatz(n_qubits, repeat(n_layers, layer), "qcnn")
 
 
 def qaoa_ansatz(
-    n_qubits: int, edges: Sequence[tuple[int, int]] | None = None, p: int = 1
+    n_qubits: int,
+    edges: Sequence[tuple[int, int]] | None = None,
+    p: int = 1,
+    mixer: str = "x",
 ) -> Ansatz:
     """Cost and mixer layers — only ``2p`` parameters, whatever the width.
 
@@ -312,6 +462,8 @@ def qaoa_ansatz(
     the parameter count at ``2p`` rather than growing with the graph.
     """
     graph = list(edges) if edges is not None else list(entangler_pairs(n_qubits, "chain"))
+    if mixer not in ("x", "y", "xy"):
+        raise ValueError(f"mixer must be 'x', 'y' or 'xy', got {mixer!r}")
 
     def build(qc: QCircuit, ctx: BuildContext) -> None:
         for q in ctx.active:
@@ -323,8 +475,12 @@ def qaoa_ansatz(
                 qc.apply("rz", b, gamma)
                 qc.cx(a, b)
             beta = ctx.new_param()  # one mixer angle for the whole round
-            for q in ctx.active:
-                qc.apply("rx", q, beta)
+            if mixer in ("x", "xy"):
+                for q in ctx.active:
+                    qc.apply("rx", q, beta)
+            if mixer in ("y", "xy"):
+                for q in ctx.active:
+                    qc.apply("ry", q, beta)
 
     return Ansatz(n_qubits, Custom(build, "qaoa"), "qaoa")
 

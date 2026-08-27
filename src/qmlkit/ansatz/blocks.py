@@ -190,20 +190,45 @@ class PoolLayer(Block):
 
     ``keep="odd"`` retains every second wire starting from the second, matching the
     convention where the surviving qubit is the target of the preceding entangler.
+
+    Two pooling modes, because the literature uses both:
+
+    ``mode="discard"``
+        Simply stop using the wire. Cheap, adds no parameters, and the information
+        it held survives only through whatever the convolution already moved.
+
+    ``mode="controlled"``
+        Before dropping a wire, apply a trainable ``crz`` from it onto its surviving
+        partner, so pooling *learns* what to carry forward. This is the simulator's
+        stand-in for the measure-and-conditionally-rotate pooling of Cong, Choi &
+        Lukin, which needs mid-circuit measurement and feed-forward.
+
+    ``tied`` shares one pooling angle across the whole layer, matching the way a
+    tied convolution shares one filter.
     """
 
-    def __init__(self, keep: str = "odd"):
+    def __init__(self, keep: str = "odd", mode: str = "discard", tied: bool = True):
         if keep not in ("even", "odd"):
             raise ValueError(f"keep must be 'even' or 'odd', got {keep!r}")
+        if mode not in ("discard", "controlled"):
+            raise ValueError(f"mode must be 'discard' or 'controlled', got {mode!r}")
         self.keep = keep
+        self.mode = mode
+        self.tied = tied
 
     def emit(self, qc: QCircuit, ctx: BuildContext) -> None:
         if len(ctx.active) <= 1:
             return
-        ctx.active = ctx.active[1::2] if self.keep == "odd" else ctx.active[0::2]
+        survivors = ctx.active[1::2] if self.keep == "odd" else ctx.active[0::2]
+        if self.mode == "controlled":
+            dropped = [w for w in ctx.active if w not in set(survivors)]
+            shared = ctx.new_param() if self.tied else None
+            for source, target in zip(dropped, survivors, strict=False):
+                qc.crz(source, target, shared if shared is not None else ctx.new_param())
+        ctx.active = survivors
 
     def __repr__(self) -> str:
-        return f"PoolLayer({self.keep!r})"
+        return f"PoolLayer({self.keep!r}, mode={self.mode!r})"
 
 
 class Custom(Block):

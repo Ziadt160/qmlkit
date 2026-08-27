@@ -157,7 +157,17 @@ def _hadamard(spec, theta, obs, *, backend=None, shots=None, seed=None, **kw):  
 @register_gradient("backprop")
 def _backprop(spec, theta, obs, *, backend=None, shots=None, **kw):  # type: ignore[no-untyped-def]
     """Differentiate the torch statevector simulator directly."""
-    import torch
+    from qmlkit.core.backends.base import BackendNotAvailable
+
+    try:
+        import torch
+    except ImportError as exc:  # pragma: no cover - depends on the environment
+        # `backprop` is registered unconditionally, so it shows up in
+        # list_gradient_methods() on a bare install too. Anyone iterating those
+        # methods deserves the install command rather than a raw ModuleNotFoundError.
+        raise BackendNotAvailable(
+            "the backprop gradient needs PyTorch:\n    pip install 'qmlkit[torch]'"
+        ) from exc
 
     from qmlkit.core.backends.torch_backend import torch_expectation
 

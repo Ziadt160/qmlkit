@@ -15,7 +15,17 @@ from __future__ import annotations
 
 __version__ = "0.1.0"
 
-from qmlkit import datasets, fourier, generative, info, kernels, metrics, optim
+from qmlkit import (
+    algorithms,
+    datasets,
+    fourier,
+    generative,
+    info,
+    kernels,
+    metrics,
+    optim,
+    shadows,
+)
 from qmlkit.ansatz import (
     Ansatz,
     Custom,
@@ -29,11 +39,13 @@ from qmlkit.ansatz import (
     get_ansatz,
     hardware_efficient,
     list_ansatze,
+    list_conv_filters,
     mps_ansatz,
     qaoa_ansatz,
     qcnn_ansatz,
     random_layers,
     register_ansatz,
+    register_conv_filter,
     repeat,
     reupload,
     share,
@@ -241,7 +253,9 @@ __all__ = [
     "optim",
     "fourier",
     "info",
+    "algorithms",
     "datasets",
+    "shadows",
     "generative",
     # kernels
     "QuantumKernel",
@@ -313,6 +327,8 @@ __all__ = [
     "qcnn_ansatz",
     "qaoa_ansatz",
     "conv_block",
+    "list_conv_filters",
+    "register_conv_filter",
     "basic_entangler",
     "two_local",
     "random_layers",

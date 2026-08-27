@@ -411,3 +411,41 @@ def test_gradient_cost_is_reported_for_every_built_in_method():
     assert qk.gradient_cost(spec, "finite-diff") == 2 * p
     assert qk.gradient_cost(spec, "parameter-shift") >= 2 * p
     assert qk.gradient_cost(spec, "always_zero_test") == "unknown"
+
+
+def test_every_advertised_method_explains_itself_when_its_extra_is_missing(monkeypatch):
+    """`list_gradient_methods()` promises six methods on a bare install too.
+
+    Anyone who iterates them — the quickstart and the gradients tutorial both do —
+    must get an install command, not a raw ModuleNotFoundError from deep inside an
+    optional dependency. Simulated by making `import torch` fail.
+    """
+    import sys
+
+    from qmlkit.core.backends.base import BackendNotAvailable
+
+    assert "backprop" in list_gradient_methods()
+    monkeypatch.setitem(sys.modules, "torch", None)
+
+    spec, theta, obs = _case("hardware_efficient", 2)
+    with pytest.raises(BackendNotAvailable, match=r"pip install 'qmlkit\[torch\]'"):
+        grad(spec, theta, obs, method="backprop")
+
+
+def test_iterating_every_method_never_raises_an_uncaught_import_error(monkeypatch):
+    """The exact shape of the loop the docs and examples use."""
+    import sys
+
+    from qmlkit.core.backends.base import BackendNotAvailable
+
+    monkeypatch.setitem(sys.modules, "torch", None)
+    spec, theta, obs = _case("hardware_efficient", 2)
+    ran = 0
+    for method in list_gradient_methods():
+        kwargs = {"seed": 0} if method == "spsa" else {}
+        try:
+            grad(spec, theta, obs, method=method, **kwargs)
+            ran += 1
+        except BackendNotAvailable:
+            continue
+    assert ran >= 4, "the methods that need no extra must still all run"

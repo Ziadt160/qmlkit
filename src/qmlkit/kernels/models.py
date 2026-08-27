@@ -68,6 +68,16 @@ class _KernelEstimator:
         self.solver_kwargs = solver_kwargs
         self.X_train_: npt.NDArray[Any] | None = None
 
+    @property
+    def feature_map(self) -> FeatureMap:
+        """The embedding this estimator is built on.
+
+        A kernel method *is* its feature map, so it has to be reachable by the same
+        name here as on :class:`QuantumKernel` — otherwise "swap the embedding" means
+        something different depending on which object you are holding.
+        """
+        return self.kernel.feature_map
+
     def _gram(self, X: npt.NDArray[Any], Y: npt.NDArray[Any] | None = None) -> npt.NDArray[Any]:
         K = self.kernel(X, Y)
         # only a square training matrix needs (or admits) a PSD repair

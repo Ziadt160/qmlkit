@@ -26,6 +26,7 @@ from qmlkit.core.ir import CircuitSpec
 from qmlkit.core.observables import Observable, Z
 
 __all__ = [
+    "supports_rotosolve",
     "rotosolve_step",
     "minimize_rotosolve",
     "metric_tensor",
@@ -58,6 +59,31 @@ def _optimal_angle(f: LossFn, theta: npt.NDArray[Any], k: int) -> float:
     return float(-np.pi / 2 - np.arctan2(2.0 * m0 - mp - mm, mp - mm))
 
 
+def supports_rotosolve(spec: CircuitSpec) -> bool:
+    r"""Whether Rotosolve's closed form is actually valid for this circuit.
+
+    Rotosolve works because a circuit expectation is a *single* sinusoid
+    :math:`A\sin(	heta + B) + C` in any one Pauli-rotation angle — three samples then
+    determine it exactly. That holds when a parameter drives one rotation, or several
+    that compose into one (same qubit, same generator).
+
+    It does **not** hold when one parameter is shared across gates that do not compose
+    — QAOA's cost angle drives one ``rz`` per graph edge, so ``E(gamma)`` carries one
+    frequency per edge. Rotosolve then solves for the wrong minimum, converges
+    immediately, and reports a number that looks like a result. Measured on a 5-edge
+    MaxCut: frequencies 1 through 4 are all present, and Rotosolve sticks at the
+    uniform-state energy no matter how many sweeps it is given.
+    """
+    from collections import defaultdict
+
+    by_param: dict[int, list[tuple[str, tuple[int, ...]]]] = defaultdict(list)
+    for slot in spec.slots():
+        op = spec.ops[slot.op_index]
+        by_param[slot.ref.index].append((slot.gate, op.qubits))
+    # several occurrences are fine only if they are the same rotation on the same wire
+    return all(len(set(sites)) <= 1 for sites in by_param.values())
+
+
 def rotosolve_step(
     f: LossFn, theta: Sequence[float], indices: Sequence[int] | None = None
 ) -> npt.NDArray[Any]:
@@ -79,7 +105,17 @@ def minimize_rotosolve(
     tol: float = 1e-9,
     callback: Callable[[int, npt.NDArray[Any], float], None] | None = None,
 ) -> tuple[npt.NDArray[Any], list[float]]:
-    """Minimise by repeated Rotosolve sweeps. No learning rate to choose."""
+    """Minimise by repeated Rotosolve sweeps. No learning rate to choose.
+
+    **Precondition.** ``f`` must be a single sinusoid in each angle — true for a plain
+    expectation value ``<O>`` of a circuit where each parameter drives one Pauli
+    rotation. It is *not* true when an angle is shared across gates that do not
+    compose (QAOA's cost angle drives one ``rz`` per edge), nor when the loss is
+    non-linear in the state (purity is ``Tr(rho^2)``, so it carries double
+    frequencies). In those cases Rotosolve converges immediately on the wrong point
+    and reports it as a result. :func:`supports_rotosolve` checks the first case;
+    the second is a property of your loss, not of the circuit.
+    """
     theta = np.asarray(theta0, dtype=float).ravel().copy()
     history = [float(f(theta))]
     for sweep in range(n_sweeps):

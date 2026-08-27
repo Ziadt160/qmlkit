@@ -114,6 +114,18 @@ check(
 )
 check("the drawer works on a bare install", "RY" in qk.draw(spec.bind(theta)).upper())
 
+# every advertised gradient method either runs or says how to install itself
+for method in qk.list_gradient_methods():
+    try:
+        qk.grad(spec, theta, obs, method=method, **({"seed": 0} if method == "spsa" else {}))
+        check(f"gradient method {method!r} runs", True)
+    except Exception as exc:  # noqa: BLE001 - this is exactly what a user would hit
+        check(
+            f"gradient method {method!r} explains its missing extra",
+            "pip install" in str(exc) and not isinstance(exc, ImportError),
+            repr(str(exc)[:48]),
+        )
+
 # --------------------------------------------------------------------------- #
 print()
 if failures:

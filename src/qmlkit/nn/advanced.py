@@ -47,13 +47,22 @@ class QCNNLayer(nn.Module):
         feature_map: FeatureMap | None = None,
         tie_weights: bool = True,
         observables: Sequence[Observable] | None = None,
+        filter: str | tuple[Any, int] = "ry_cx",  # noqa: A002 - the domain word
+        pattern: str = "chain",
+        pool: str = "discard",
+        ansatz: Ansatz | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__()
         self.n_qubits = n_qubits
+        # The QCNN's structural choices are arguments, not a subclass per paper:
+        # `filter` and `pool` reach qcnn_ansatz, or hand in a whole `ansatz` instead.
         self.quantum = QuantumLayer(
             feature_map or _default_map(n_qubits),
-            qcnn_ansatz(n_qubits, tie_weights=tie_weights),
+            ansatz
+            or qcnn_ansatz(
+                n_qubits, tie_weights=tie_weights, filter=filter, pattern=pattern, pool=pool
+            ),
             observables or [Z(n_qubits - 1)],  # the surviving wire after pooling
             **kwargs,
         )
@@ -77,13 +86,18 @@ class MPSLayer(nn.Module):
         n_qubits: int,
         feature_map: FeatureMap | None = None,
         observables: Sequence[Observable] | None = None,
+        filter: str | tuple[Any, int] = "ry_cx",  # noqa: A002 - the domain word
+        tied: bool = False,
+        ansatz: Ansatz | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__()
         self.n_qubits = n_qubits
+        # `filter="su4"` gives genuinely arbitrary bond tensors; `tied=True` makes the
+        # chain translation-invariant. Same registry the QCNN convolves with.
         self.quantum = QuantumLayer(
             feature_map or _default_map(n_qubits),
-            mps_ansatz(n_qubits),
+            ansatz or mps_ansatz(n_qubits, filter=filter, tied=tied),
             observables or [Z(n_qubits - 1)],  # readout on the last wire of the chain
             **kwargs,
         )
@@ -199,7 +213,7 @@ class DressedQuantumNet(nn.Module):
 
     def __init__(
         self,
-        backbone: nn.Module,
+        backbone: nn.Module | None,
         in_features: int,
         n_qubits: int,
         n_outputs: int,
@@ -212,7 +226,10 @@ class DressedQuantumNet(nn.Module):
         super().__init__()
         from qmlkit.ansatz.library import hardware_efficient
 
-        self.backbone = backbone
+        # `None` means "no pretrained backbone" — the dressed block on its own. Without
+        # this the class is unusable except in a transfer-learning setting, which is a
+        # narrower thing than it needs to be.
+        self.backbone = backbone if backbone is not None else nn.Identity()
         if freeze_backbone:
             self.backbone.requires_grad_(False)
         self.pre = nn.Linear(in_features, n_qubits)

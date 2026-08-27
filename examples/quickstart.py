@@ -69,7 +69,12 @@ KIND = {
 print(f"{'method':<18}{'circuits':>10}   {'max error vs adjoint':>22}   {'kind':<16}")
 for method in qk.list_gradient_methods():
     kwargs = {"seed": 0, "n_avg": 50} if method == "spsa" else {}
-    g = qk.grad(ansatz.build(), theta, obs, method=method, **kwargs)
+    try:
+        g = qk.grad(ansatz.build(), theta, obs, method=method, **kwargs)
+    except qk.BackendNotAvailable as exc:
+        # registered but not installed -- show what a bare install would show
+        print(f"{method:<18}{'-':>10}   {exc.args[0].splitlines()[0]:>22}")
+        continue
     cost = qk.gradient_cost(ansatz.build(), method)
     err = float(np.abs(g - reference).max())
     print(f"{method:<18}{str(cost):>10}   {err:>22.2e}   {KIND.get(method, 'custom'):<16}")

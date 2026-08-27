@@ -26,6 +26,7 @@ from qmlkit.ansatz import (
     repeat,
     share,
 )
+from qmlkit.ansatz.library import list_conv_filters
 
 ZOO = list(list_ansatze())
 
@@ -217,3 +218,88 @@ def test_conv_block_tied_and_free():
     free = Ansatz(4, conv_block(tied=False))
     assert tied.n_params == 2
     assert free.n_params == 6  # three chain pairs, two angles each
+
+
+# --------------------------------------------------------------------------- #
+# QCNN: one skeleton, the filter and the pooling inserted
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("name", list_conv_filters())
+def test_no_shipped_filter_is_inert(name):
+    """A filter that leaves |0...0> untouched would silently do nothing.
+
+    An all-Rz filter is diagonal, so it cannot move probability out of |0...0> no
+    matter what its angles are. Shipping one as a convolution would look fine, train
+    to a flat loss, and never announce the problem — so every registered filter has
+    to demonstrate it actually changes the state.
+    """
+    ansatz = qk.qcnn_ansatz(4, filter=name)
+    moved = False
+    for seed in range(5):
+        state = qk.statevector(ansatz.build(ansatz.init("uniform", seed=seed)))
+        if abs(abs(state[0]) ** 2 - 1.0) > 1e-6:
+            moved = True
+            break
+    assert moved, f"conv filter {name!r} leaves |0...0> unchanged — it does nothing"
+
+
+@pytest.mark.parametrize(
+    ("name", "expected_params"), [("ry_cx", 2), ("real", 4), ("zz", 3), ("su4", 15)]
+)
+def test_each_filter_declares_its_parameter_count_honestly(name, expected_params):
+    """One tied filter per layer, so a 2-qubit single-layer QCNN costs exactly one."""
+    from qmlkit.ansatz.library import conv_block
+
+    ansatz = qk.Ansatz(2, conv_block(filter=name, tied=True))
+    assert ansatz.n_params == expected_params
+
+
+def test_su4_filter_is_two_qubit_universal():
+    """Cong-Choi-Lukin's QCNN uses a general SU(4); ours must actually be one."""
+    from qmlkit.ansatz.library import conv_block
+
+    ansatz = qk.Ansatz(2, conv_block(filter="su4", tied=True))
+    assert ansatz.n_params == 15
+    assert ansatz.resources()["gate_counts"]["cx"] == 3  # Vatan-Williams optimum
+
+    rng = np.random.default_rng(0)
+    best = max(
+        qk.vn_entropy(ansatz.build(rng.uniform(-np.pi, np.pi, 15)), [0], base=2) for _ in range(400)
+    )
+    assert best > 0.95, "a universal two-qubit filter must reach near-maximal entanglement"
+
+
+def test_a_custom_filter_needs_no_subclassing():
+    """The extension point: a filter from any paper is a function you pass in."""
+    from qmlkit.ansatz.library import conv_block
+
+    def my_filter(qc, a, b, p):
+        qc.rx(a, p[0])
+        qc.cx(a, b)
+        qc.rx(b, p[1])
+
+    ansatz = qk.Ansatz(4, conv_block(filter=(my_filter, 2), tied=True))
+    assert ansatz.n_params == 2
+    assert qk.grad(ansatz.build(), ansatz.init(seed=0), qk.Z(0)).shape == (2,)
+
+
+def test_controlled_pooling_adds_trainable_parameters():
+    """Discarding is free; learning what to carry forward is not."""
+    discard = qk.qcnn_ansatz(8, pool="discard")
+    controlled = qk.qcnn_ansatz(8, pool="controlled")
+    assert controlled.n_params > discard.n_params
+    assert controlled.resources()["n_2q"] > discard.resources()["n_2q"]
+    # and it still differentiates correctly end to end
+    theta = controlled.init(seed=0)
+    assert qk.grad(controlled.build(), theta, qk.Z(0)) == pytest.approx(
+        qk.param_shift_grad_circuit(controlled.build(), theta, qk.Z(0)), abs=1e-10
+    )
+
+
+def test_weight_tying_survives_every_filter():
+    """The tied/untied distinction is the whole point of a *convolutional* ansatz."""
+    for name in list_conv_filters():
+        tied = qk.qcnn_ansatz(8, filter=name, tie_weights=True)
+        untied = qk.qcnn_ansatz(8, filter=name, tie_weights=False)
+        assert untied.n_params > tied.n_params
+        spec = tied.build()
+        assert len(spec.slots()) > spec.n_params, f"{name}: tying allocated nothing"

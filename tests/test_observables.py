@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 import qmlkit as qk
+from qmlkit.core.backends.numpy_backend import NumpyBackend
 from qmlkit.core.observables import (
     PauliString,
     as_sum,
@@ -171,3 +172,69 @@ def test_probabilities_sum_to_one():
     p = qk.probabilities(spec, theta=np.linspace(0.1, 1.0, spec.n_params))
     assert p.sum() == pytest.approx(1.0)
     assert p.shape == (8,)
+
+
+# --------------------------------------------------------------------------- #
+# qubit-wise-commuting grouping: one circuit per measurement setting
+# --------------------------------------------------------------------------- #
+class _CountingBackend(NumpyBackend):
+    """A NumPy backend that records how many circuits it was asked to sample."""
+
+    name = "counting"
+
+    def __init__(self, seed=None):
+        super().__init__(seed)
+        self.circuits = 0
+
+    def counts(self, spec, shots, seed=None):
+        self.circuits += 1
+        return super().counts(spec, shots, seed)
+
+
+@pytest.mark.parametrize(
+    ("obs_fn", "n_terms", "n_settings"),
+    [
+        (lambda: qk.Z(0), 1, 1),
+        (lambda: qk.Z(0) + 0.5 * qk.ZZ(0, 2), 2, 1),
+        (lambda: qk.Z(0) + qk.Z(1) + qk.Z(2) + qk.ZZ(0, 2), 4, 1),
+        # different qubits never conflict, so these still share one setting
+        (lambda: qk.Z(0) + 0.3 * qk.X(1), 2, 1),
+        # ...but Z0Z2 wants Z on qubit 2 while Y2 wants Y, so that pair does conflict
+        (lambda: qk.Z(0) + 0.5 * qk.ZZ(0, 2) + 0.3 * qk.X(1) + 0.2 * qk.Y(2), 4, 2),
+        # the same qubit wanting two different bases is what actually costs a circuit
+        (lambda: qk.Z(0) + 0.3 * qk.X(0), 2, 2),
+        (lambda: qk.Z(0) + qk.X(0) + qk.Y(0), 3, 3),
+    ],
+)
+def test_sampling_costs_one_circuit_per_commuting_group(obs_fn, n_terms, n_settings):
+    """Circuit count is what binds on hardware, so it is asserted, not assumed."""
+    obs = obs_fn()
+    assert len(as_sum(obs).terms) == n_terms
+    assert len(group_qubit_wise_commuting(obs)) == n_settings
+
+    ansatz = qk.hardware_efficient(3, 2)
+    spec, theta = ansatz.build(), ansatz.init(seed=0)
+    backend = _CountingBackend(seed=0)
+    qk.expectation(spec, obs, theta=theta, shots=1000, seed=0, backend=backend)
+    assert backend.circuits == n_settings
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_grouped_sampling_still_converges_on_the_exact_value(seed):
+    """Grouping must not change the physics, only the number of circuits."""
+    ansatz = qk.hardware_efficient(3, 2)
+    spec, theta = ansatz.build(), ansatz.init(seed=seed)
+    obs = qk.Z(0) + qk.Z(1) + 0.5 * qk.ZZ(0, 2) + 0.3 * qk.X(1)
+
+    exact = qk.expval(spec, obs, theta=theta)
+    sampled = qk.expectation(spec, obs, theta=theta, shots=400_000, seed=seed)
+    assert sampled == pytest.approx(exact, abs=0.02)
+
+
+def test_identity_terms_need_no_circuit_at_all():
+    ansatz = qk.hardware_efficient(2, 1)
+    spec, theta = ansatz.build(), ansatz.init(seed=0)
+    backend = _CountingBackend(seed=0)
+    value = qk.expectation(spec, 2.5 * qk.I(), theta=theta, shots=1000, backend=backend)
+    assert value == pytest.approx(2.5)
+    assert backend.circuits == 0
