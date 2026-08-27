@@ -32,8 +32,11 @@ lecture repo — it maps lectures to library features and belongs with the lectu
 
 ## Status
 
-**864 tests, 0 failures.** ruff + `mypy --strict` clean. 95% coverage combined across
-two interpreters (no single one can import every backend).
+**864 tests, 0 failures.** ruff + `mypy --strict` clean. **93% coverage**, combined in
+CI across every job — the number CI actually computes, not a local estimate. Two of the
+twelve coverage files still fail to map (macOS and Windows record different absolute
+roots), so the figure is carried by the `full` job, which installs every extra and runs
+the whole suite on Linux.
 
 Phases 0–6 are done, plus the algorithm and interoperability work. Phase 7 (release) is
 the open one.
