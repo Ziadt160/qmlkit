@@ -25,3 +25,7 @@ The circuit IR, gates, observables, execution and backends. Everything else in t
 ## `qmlkit.core.backends.registry`
 
 ::: qmlkit.core.backends.registry
+
+## `qmlkit.interop`
+
+::: qmlkit.interop

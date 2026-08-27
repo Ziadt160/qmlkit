@@ -125,5 +125,5 @@ warn_return_any = false
 # Optional SDKs ship no type stubs (or stubs we do not want to depend on). Silencing
 # just these keeps `mypy --strict` meaningful for everything we actually own.
 [[tool.mypy.overrides]]
-module = ["spinqit.*", "qiskit.*", "cirq.*", "torch.*"]
+module = ["spinqit.*", "qiskit.*", "cirq.*", "torch.*", "pennylane.*"]
 ignore_missing_imports = true

@@ -2380,6 +2380,62 @@ print(type(qk.get_backend("qiskit").to_qiskit(qc.to_spec())).__name__)
 
 `to_qiskit`, `to_cirq` and `to_spinqit` are the three.
 
+## Reading circuits in
+
+The translations run both ways. `to_qiskit`/`to_cirq`/`to_spinqit` hand a circuit to
+another SDK; `from_qasm`/`from_qiskit`/`from_pennylane` bring one back.
+
+```python
+import qmlkit as qk
+
+spec = qk.from_qasm("""
+OPENQASM 2.0;
+include "qelib1.inc";
+qreg q[2];
+h q[0];
+cx q[0],q[1];
+""")
+print(spec.n_qubits, len(spec.ops))
+```
+
+`from_qasm` uses the standard library alone, so it works in a bare `pip install
+qmlkit`. Every major SDK exports OpenQASM 2.0, which makes it the widest import path
+the library has.
+
+`from_qiskit` exists next to it for the one thing QASM cannot represent — an unbound
+`Parameter`, which becomes a `ParamRef` indexed in Qiskit's own parameter order:
+
+```python
+# docs: requires qiskit
+from qiskit import QuantumCircuit
+from qiskit.circuit import Parameter
+
+qc = QuantumCircuit(2)
+qc.ry(Parameter("theta"), 0)
+spec = qk.from_qiskit(qc)
+print(spec.n_params)
+```
+
+### The convention that matters
+
+Importing is where qubit order goes wrong quietly. Qiskit and QASM are little-endian,
+so their qubit `j` becomes qmlkit's `n-1-j` — the exact inverse of what `to_qiskit`
+does on the way out. PennyLane is big-endian like qmlkit, so its wires pass through.
+
+Neither claim is taken on trust. `tests/test_import.py` asserts the *statevector*
+after `from_qiskit(to_qiskit(spec))` over randomly generated circuits at `1e-12`, and
+checks the PennyLane importer against PennyLane's own simulator. A circuit whose gates
+are symmetric across the register cannot tell a correct mapping from a reversed one,
+so the test zoo is deliberately asymmetric.
+
+### What is refused
+
+A gate with no qmlkit definition raises `UnsupportedGate` naming it, rather than being
+dropped or approximated. So do `measure` and `reset`, which the 0.x line does not
+model. The single exception is the `u`/`u3` family: it is decomposed into `rz·ry·rz`
+and warns that an overall phase was dropped — unobservable for the circuit alone, and
+a *relative* phase if that circuit is later used inside a controlled block.
+
 ## SpinQit needs its own environment
 
 SpinQit ships wheels for Python 3.8–3.10 only and pins `numpy<2`, so the extra is
@@ -2955,6 +3011,8 @@ The circuit IR, gates, observables, execution and backends. Everything else in t
 
 ## `qmlkit.core.backends.registry`
 
+## `qmlkit.interop`
+
 
 ==============================================================================
 # Reference / Gradients    (source: docs/reference/gradients.md)
@@ -3205,26 +3263,37 @@ call signature, and a hand-typed number that did not match what the code printed
 
 ## Speed
 
-`examples/benchmark_pennylane.py` times identical work on both libraries. qmlkit is
-faster on 14 of 14 cases, median **6.1×**.
+`examples/benchmark_pennylane.py` times identical work on both libraries, against
+PennyLane's **fastest** configuration rather than its reference one.
 
-| Operation | qmlkit | PennyLane | |
-|---|---|---|---|
-| Expectation, 12 qubits | 3.8 ms | 11.3 ms | 2.9× |
-| Gradient, 8 qubits, `P=96` | 11.1 ms | 63.9 ms | 5.7× |
-| Parameter-shift, 6 qubits, `P=72` | 308 ms | 1161 ms | 3.8× |
-| 20×20 kernel Gram matrix | 31 ms | 212 ms | 6.8× |
-| Exact metric tensor, `P=24` | 6.9 ms | 1863 ms | **268×** |
+This section previously reported a median 6.1× against `default.qubit` alone. That was
+not a fair comparison: `pennylane-lightning` is a dependency of PennyLane, so the C++
+`lightning.qubit` is present in every install, and `qml.adjoint_metric_tensor` is an
+`O(P)` statevector algorithm sitting right next to the `O(P²)` Hadamard-test
+`qml.metric_tensor`. The numbers below are against both, summarised on the faster.
 
-Read that in two parts. The first four are largely dispatch overhead — PennyLane
-carries a general transform pipeline qmlkit does not have, which buys features this
-benchmark never exercises, and the gap narrows as `2ⁿ` starts to dominate (4.4× at 4
-qubits, 2.9× at 12). The metric tensor is different in kind: PennyLane runs `O(P²)`
-Hadamard-test circuits and needs a spare ancilla wire, while qmlkit differentiates the
-state in closed form. That gap widens with size rather than narrowing.
+| Operation | qmlkit | PennyLane (best) | | vs `default.qubit` |
+|---|---|---|---|---|
+| Expectation, 12 qubits | 3.9 ms | 4.6 ms `lightning` | 1.2× | 2.9× |
+| Gradient, 8 qubits, `P=96` | 11.0 ms | 11.3 ms `lightning-adjoint` | 1.02× | 6.1× |
+| Parameter-shift, 6 qubits, `P=72` | 300 ms | 347 ms `lightning` | 1.2× | 3.9× |
+| 20×20 kernel Gram matrix | 32 ms | 210 ms `default` | 6.6× | 6.6× |
+| Exact metric tensor, `P=24` | 6.8 ms | 715 ms `adjoint_metric` | **105×** | 276× |
 
-Single machine, single thread, small registers, exact simulation throughout. Nothing
-here says anything about running on hardware.
+qmlkit is ahead on 14 of 14 cases, median **1.6×**.
+
+Read that in three parts. The expectation, gradient and parameter-shift rows are
+dispatch and interpreter overhead rather than arithmetic — qmlkit does less per call,
+leads at small registers, and ties by 8 qubits. The kernel Gram matrix stays ~6.6×
+because per-pair QNode dispatch dominates there, and `lightning` is actually slower
+than `default.qubit` across many tiny circuits. The metric tensor is different in kind:
+closed-form differentiation of the state, agreeing with PennyLane's own routes to
+`1.7e-16`, and *widening* with parameter count (49× at `P=12`, 105× at `P=24`) rather
+than narrowing.
+
+Single machine, single thread, small registers, exact simulation throughout. JAX is not
+installed on the benchmark machine, so jit-compiled PennyLane is untested and unclaimed.
+Nothing here says anything about running on hardware.
 
 
 ==============================================================================
@@ -3333,6 +3402,8 @@ class Slot(op_index: 'int', param_pos: 'int', ref: 'ParamRef', gate: 'str') -> N
     One concrete (operation, parameter-position) angle site.
 class TrainableKernel(feature_map_factory: 'Any', n_params: 'int', shots: 'int | None' = None, backend: 'BackendLike' = None) -> 'None'
     Train the *feature map itself* by maximising kernel-target alignment.
+class UnsupportedGate
+    A source circuit used a gate qmlkit has no definition for.
 class VQC(n_features: 'int', n_classes: 'int' = 2, class_weight: 'str | None' = None, focal_gamma: 'float' = 0.0, **kwargs: 'Any') -> 'None'
     Variational quantum classifier.
 class VQRegressor(n_features: 'int', n_outputs: 'int' = 1, **kwargs: 'Any') -> 'None'
@@ -3421,6 +3492,12 @@ def four_term_rule() -> 'ShiftRule'
     Controlled rotations: generator eigenvalues {0, 0, +-1/2} => frequencies {1/2, 1}.
 fourier
     What function does this model actually represent?
+def from_pennylane(source: 'Any', *args: 'Any', **kwargs: 'Any') -> 'CircuitSpec'
+    Convert a PennyLane tape, QNode or quantum function.
+def from_qasm(text: 'str', little_endian: 'bool' = True) -> 'CircuitSpec'
+    Parse OpenQASM 2.0 into a :class:`~qmlkit.core.ir.CircuitSpec`.
+def from_qiskit(circuit: 'Any') -> 'CircuitSpec'
+    Convert a Qiskit ``QuantumCircuit``, bound or parameterised.
 def general_shift_rule(frequencies: 'Sequence[float]', shifts: 'Sequence[float] | None' = None) -> 'ShiftRule'
     Build the exact shift rule for a generator with these frequencies.
 def generalization_bound(n_trainable_gates: 'int', n_samples: 'int', with_log: 'bool' = True) -> 'float'
@@ -3436,6 +3513,7 @@ def get_backend(backend: 'str | Backend | None' = None, **kwargs: 'object') -> '
 def get_baseline(name: 'str', task: 'str' = 'classification') -> 'BaselineSpec'
     One registered baseline. Names are unique within a task, not across tasks.
 def get_gate(name: 'str') -> 'GateDef'
+def get_importer(name: 'str') -> 'Callable[..., CircuitSpec]'
 def grad(spec: 'CircuitSpec', theta: 'ArrayLike', obs: 'Observable | None' = None, method: 'str' = 'auto', backend: 'Backend | str | None' = None, shots: 'int | None' = None, **kwargs: 'object') -> 'npt.NDArray[Any]'
     Gradient of ``<obs>`` with respect to ``theta``.
 def grad_circuit_cost(spec: 'CircuitSpec') -> 'int'
@@ -3474,6 +3552,7 @@ def list_baselines(task: 'str | None' = None) -> 'tuple[str, ...]'
 def list_conv_filters() -> 'tuple[str, ...]'
 def list_gates() -> 'tuple[str, ...]'
 def list_gradient_methods() -> 'tuple[str, ...]'
+def list_importers() -> 'tuple[str, ...]'
 def metric_tensor(spec: 'CircuitSpec', theta: 'Sequence[float]', approx: 'str' = 'block-diag', backend: 'BackendLike' = None, eps: 'float' = 0.0001) -> 'npt.NDArray[Any]'
     Fubini–Study metric — the curvature of parameter space.
 metrics
@@ -3533,6 +3612,8 @@ def register_gate(gate: 'GateDef') -> 'GateDef'
     Add a gate to the registry. Re-registering the same name is an error.
 def register_gradient(name: 'str', fn: 'GradFn | None' = None) -> 'Callable[[GradFn], GradFn] | GradFn'
     Register a gradient estimator under ``name``. Usable as a decorator.
+def register_importer(name: 'str', fn: 'Callable[..., CircuitSpec]') -> 'None'
+    Add an importer, so a new source format is reachable by name.
 def repeat(times: 'int', block: 'Block') -> 'Repeat'
     ``repeat(3, RotationLayer("ry"))`` — three layers, fresh weights each.
 def reupload(feature_map: 'object', n_layers: 'int' = 3, block: 'Block | None' = None, order: 'str' = 'SW', entangler: 'str | None' = 'cx', pattern: 'str' = 'chain', rotations: 'Sequence[str]' = ('rz', 'ry', 'rz'), share_weights: 'bool' = False, name: 'str' = 'reupload') -> 'Ansatz'

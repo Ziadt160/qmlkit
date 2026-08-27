@@ -68,6 +68,62 @@ print(type(qk.get_backend("qiskit").to_qiskit(qc.to_spec())).__name__)
 
 `to_qiskit`, `to_cirq` and `to_spinqit` are the three.
 
+## Reading circuits in
+
+The translations run both ways. `to_qiskit`/`to_cirq`/`to_spinqit` hand a circuit to
+another SDK; `from_qasm`/`from_qiskit`/`from_pennylane` bring one back.
+
+```python
+import qmlkit as qk
+
+spec = qk.from_qasm("""
+OPENQASM 2.0;
+include "qelib1.inc";
+qreg q[2];
+h q[0];
+cx q[0],q[1];
+""")
+print(spec.n_qubits, len(spec.ops))
+```
+
+`from_qasm` uses the standard library alone, so it works in a bare `pip install
+qmlkit`. Every major SDK exports OpenQASM 2.0, which makes it the widest import path
+the library has.
+
+`from_qiskit` exists next to it for the one thing QASM cannot represent — an unbound
+`Parameter`, which becomes a `ParamRef` indexed in Qiskit's own parameter order:
+
+```python
+# docs: requires qiskit
+from qiskit import QuantumCircuit
+from qiskit.circuit import Parameter
+
+qc = QuantumCircuit(2)
+qc.ry(Parameter("theta"), 0)
+spec = qk.from_qiskit(qc)
+print(spec.n_params)
+```
+
+### The convention that matters
+
+Importing is where qubit order goes wrong quietly. Qiskit and QASM are little-endian,
+so their qubit `j` becomes qmlkit's `n-1-j` — the exact inverse of what `to_qiskit`
+does on the way out. PennyLane is big-endian like qmlkit, so its wires pass through.
+
+Neither claim is taken on trust. `tests/test_import.py` asserts the *statevector*
+after `from_qiskit(to_qiskit(spec))` over randomly generated circuits at `1e-12`, and
+checks the PennyLane importer against PennyLane's own simulator. A circuit whose gates
+are symmetric across the register cannot tell a correct mapping from a reversed one,
+so the test zoo is deliberately asymmetric.
+
+### What is refused
+
+A gate with no qmlkit definition raises `UnsupportedGate` naming it, rather than being
+dropped or approximated. So do `measure` and `reset`, which the 0.x line does not
+model. The single exception is the `u`/`u3` family: it is decomposed into `rz·ry·rz`
+and warns that an overall phase was dropped — unobservable for the circuit alone, and
+a *relative* phase if that circuit is later used inside a controlled block.
+
 ## SpinQit needs its own environment
 
 SpinQit ships wheels for Python 3.8–3.10 only and pins `numpy<2`, so the extra is

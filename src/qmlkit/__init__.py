@@ -148,6 +148,15 @@ from qmlkit.info import (
     state_fidelity,
     vn_entropy,
 )
+from qmlkit.interop import (
+    UnsupportedGate,
+    from_pennylane,
+    from_qasm,
+    from_qiskit,
+    get_importer,
+    list_importers,
+    register_importer,
+)
 from qmlkit.kernels import (
     QSVC,
     QSVR,
@@ -285,6 +294,14 @@ __all__ = [
     "register_baseline",
     "list_baselines",
     "get_baseline",
+    # interop
+    "from_qasm",
+    "from_qiskit",
+    "from_pennylane",
+    "register_importer",
+    "list_importers",
+    "get_importer",
+    "UnsupportedGate",
     # budget and provenance
     "plan",
     "Plan",

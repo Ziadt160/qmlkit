@@ -208,6 +208,32 @@ qk.get_backend("cirq").to_cirq(spec)
 qk.get_backend("spinqit").to_spinqit(spec)
 ```
 
+### And circuits come back in
+
+One-way interop is the difference between a library someone *tries* and one someone
+*adopts*: an existing project has circuits already.
+
+```python
+qk.from_qasm(text)          # OpenQASM 2.0 -- standard library only, no extras needed
+qk.from_qiskit(circuit)     # a QuantumCircuit, unbound Parameters included
+qk.from_pennylane(qnode)    # a tape, QNode or quantum function; templates decompose
+```
+
+`from_qasm` takes no dependency on anything: Qiskit, Cirq, Braket, t|ket> and Q# all
+export QASM 2.0, so one stdlib parser reaches all of them. `from_qiskit` exists
+alongside it because QASM cannot carry an unbound `Parameter`, and qmlkit maps those
+onto `ParamRef` in Qiskit's own parameter order.
+
+Qubit order is where importers actually break, so it is what the tests check:
+`from_qiskit(to_qiskit(spec))` reproduces the **statevector** to `1e-12` across
+randomly generated circuits, not merely the same list of gates. Qiskit and QASM are
+little-endian and get flipped; PennyLane is big-endian like qmlkit and does not — and
+that claim is asserted against PennyLane's own simulator rather than assumed.
+
+A gate qmlkit has no definition for is refused by name, never approximated. The one
+exception is the `u`/`u3` family, decomposed into rotations with a warning that an
+overall phase was dropped — unobservable alone, observable inside a controlled block.
+
 ### Why the translations are trustworthy
 
 `tests/test_cross_backend.py` runs the same circuit zoo through every installed

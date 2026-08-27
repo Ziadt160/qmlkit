@@ -6,6 +6,46 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added — circuits can be read in
+
+`to_qiskit`/`to_cirq`/`to_spinqit` have always existed; the reverse did not, and
+one-way interop is the difference between a library someone tries and one someone
+adopts. An existing project has circuits already.
+
+- **`qk.from_qasm`** — OpenQASM 2.0, parsed with the **standard library alone**, so it
+  works in a bare `pip install qmlkit`. Qiskit, Cirq, Braket, t|ket> and Q# all export
+  QASM 2.0, so one parser reaches all of them without qmlkit depending on any. Angle
+  expressions (`pi/2`, `-2*pi/3`) are evaluated through a restricted AST walk rather
+  than `eval`, which on file contents would be a code-execution hole.
+- **`qk.from_qiskit`** — a `QuantumCircuit`, including unbound `Parameter`s, which QASM
+  cannot represent; they become `ParamRef`s in Qiskit's own parameter order.
+- **`qk.from_pennylane`** — a tape, QNode or quantum function. Templates such as
+  `BasicEntanglerLayers` are recursively decomposed into the gates they stand for.
+- **`register_importer`** — the same registry pattern as the rest of the library.
+
+**Qubit order is what these tests check.** An importer that maps the register the wrong
+way round produces a circuit that runs and returns plausible numbers. So
+`from_qiskit(to_qiskit(spec))` is asserted to reproduce the *statevector* to `1e-12`
+over randomly generated circuits, and the PennyLane importer is checked against
+PennyLane's own simulator rather than against the assumption that both are big-endian.
+The test circuits are deliberately asymmetric, because a symmetric one cannot tell a
+correct mapping from a reversed one.
+
+Gates with no qmlkit definition raise `UnsupportedGate` naming them, as do `measure`
+and `reset`. The `u`/`u3` family is the one exception: decomposed to `rz·ry·rz` with a
+warning that an overall phase was dropped, which is unobservable alone and a relative
+phase inside a controlled block.
+
+### Changed — the benchmark now runs against PennyLane's fastest configuration
+
+The speed claims were measured against `default.qubit` and the Hadamard-test
+`qml.metric_tensor`, and reported a median 6.1×. `pennylane-lightning` ships with every
+PennyLane install and `qml.adjoint_metric_tensor` sits next to `qml.metric_tensor`, so
+that was not a fair comparison. Re-measured against both, summarised on the faster:
+the honest median is **1.6×**, the 8-qubit gradient is a tie, the kernel Gram matrix
+holds at 6.6×, and the metric tensor holds at 49–105× while agreeing to `1.7e-16`.
+README and the validation page carry both columns.
+
 ### Added — the evaluation layer
 
 The half of a quantum machine learning result that is not the circuit: whether the
