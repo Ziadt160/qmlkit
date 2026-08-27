@@ -279,24 +279,38 @@ density matrices and loses about eight digits.
 
 ### Speed
 
-`examples/benchmark_pennylane.py` times identical work on both libraries. qmlkit is
-faster on 14/14 cases, median **6.1×**:
+`examples/benchmark_pennylane.py` times identical work on both libraries — against
+PennyLane's **fastest** configuration, not its reference one. `pennylane-lightning`
+ships with every PennyLane install, so `lightning.qubit` is always available, and
+`qml.adjoint_metric_tensor` is an `O(P)` route sitting next to the `O(P²)` Hadamard-test
+`qml.metric_tensor`. Benchmarking against the slow option when the fast one is one
+string away would flatter the author.
 
-| Operation | qmlkit | PennyLane | |
-|---|---|---|---|
-| Expectation, 12 qubits | 3.8 ms | 11.3 ms | 2.9× |
-| Gradient, 8 qubits, `P=96` | 11.1 ms | 63.9 ms | 5.7× |
-| Parameter-shift, 6 qubits, `P=72` | 308 ms | 1161 ms | 3.8× |
-| 20×20 kernel Gram matrix | 31 ms | 212 ms | 6.8× |
-| Exact metric tensor, `P=24` | 6.9 ms | 1863 ms | **268×** |
+| Operation | qmlkit | PennyLane (best) | | vs `default.qubit` |
+|---|---|---|---|---|
+| Expectation, 12 qubits | 3.9 ms | 4.6 ms `lightning` | 1.2× | 2.9× |
+| Gradient, 8 qubits, `P=96` | 11.0 ms | 11.3 ms `lightning-adjoint` | 1.02× | 6.1× |
+| Parameter-shift, 6 qubits, `P=72` | 300 ms | 347 ms `lightning` | 1.2× | 3.9× |
+| 20×20 kernel Gram matrix | 32 ms | 210 ms `default` | 6.6× | 6.6× |
+| Exact metric tensor, `P=24` | 6.8 ms | 715 ms `adjoint_metric` | **105×** | 276× |
 
-Read those two ways. The first four are mostly dispatch overhead — PennyLane carries
-a general transform pipeline qmlkit does not have, which buys features this benchmark
-never exercises, and the gap narrows as `2^n` starts to dominate (4.4× at 4 qubits,
-2.9× at 12). The metric tensor is different in kind: PennyLane runs `O(P²)`
-Hadamard-test circuits and needs a spare ancilla wire, while qmlkit differentiates the
-state in closed form — `P` derivative states from one forward sweep. That gap widens
-with size rather than narrowing.
+qmlkit is ahead on 14/14, but the honest median is **1.6×**, not the 6.1× an earlier
+version of this file reported against `default.qubit` alone.
+
+**What that means.** The first three rows are dispatch and interpreter overhead rather
+than arithmetic: qmlkit does less per call, so it leads at small register sizes and the
+gap closes as `2ⁿ` starts to dominate — the 8-qubit gradient is a tie. Anyone quoting
+the `default.qubit` column as qmlkit's speed advantage is quoting the wrong number.
+
+Two results are real. The **kernel Gram matrix** stays ~6.6× because the per-pair QNode
+dispatch dominates there — `lightning` is actually *slower* than `default.qubit` on many
+tiny circuits. And the **metric tensor** is different in kind: closed-form
+differentiation of the state, `P` derivative states from one forward sweep, agreeing with
+PennyLane's own routes to `1.7e-16` and *widening* with parameter count (49× at `P=12`,
+105× at `P=24`) rather than narrowing. That is the one speed claim here worth making.
+
+JAX is not installed on the benchmark machine, so jit-compiled PennyLane is untested and
+unclaimed; it would narrow the overhead rows further.
 
 ## What it does today
 

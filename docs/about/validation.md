@@ -107,23 +107,34 @@ call signature, and a hand-typed number that did not match what the code printed
 
 ## Speed
 
-`examples/benchmark_pennylane.py` times identical work on both libraries. qmlkit is
-faster on 14 of 14 cases, median **6.1×**.
+`examples/benchmark_pennylane.py` times identical work on both libraries, against
+PennyLane's **fastest** configuration rather than its reference one.
 
-| Operation | qmlkit | PennyLane | |
-|---|---|---|---|
-| Expectation, 12 qubits | 3.8 ms | 11.3 ms | 2.9× |
-| Gradient, 8 qubits, `P=96` | 11.1 ms | 63.9 ms | 5.7× |
-| Parameter-shift, 6 qubits, `P=72` | 308 ms | 1161 ms | 3.8× |
-| 20×20 kernel Gram matrix | 31 ms | 212 ms | 6.8× |
-| Exact metric tensor, `P=24` | 6.9 ms | 1863 ms | **268×** |
+This section previously reported a median 6.1× against `default.qubit` alone. That was
+not a fair comparison: `pennylane-lightning` is a dependency of PennyLane, so the C++
+`lightning.qubit` is present in every install, and `qml.adjoint_metric_tensor` is an
+`O(P)` statevector algorithm sitting right next to the `O(P²)` Hadamard-test
+`qml.metric_tensor`. The numbers below are against both, summarised on the faster.
 
-Read that in two parts. The first four are largely dispatch overhead — PennyLane
-carries a general transform pipeline qmlkit does not have, which buys features this
-benchmark never exercises, and the gap narrows as `2ⁿ` starts to dominate (4.4× at 4
-qubits, 2.9× at 12). The metric tensor is different in kind: PennyLane runs `O(P²)`
-Hadamard-test circuits and needs a spare ancilla wire, while qmlkit differentiates the
-state in closed form. That gap widens with size rather than narrowing.
+| Operation | qmlkit | PennyLane (best) | | vs `default.qubit` |
+|---|---|---|---|---|
+| Expectation, 12 qubits | 3.9 ms | 4.6 ms `lightning` | 1.2× | 2.9× |
+| Gradient, 8 qubits, `P=96` | 11.0 ms | 11.3 ms `lightning-adjoint` | 1.02× | 6.1× |
+| Parameter-shift, 6 qubits, `P=72` | 300 ms | 347 ms `lightning` | 1.2× | 3.9× |
+| 20×20 kernel Gram matrix | 32 ms | 210 ms `default` | 6.6× | 6.6× |
+| Exact metric tensor, `P=24` | 6.8 ms | 715 ms `adjoint_metric` | **105×** | 276× |
 
-Single machine, single thread, small registers, exact simulation throughout. Nothing
-here says anything about running on hardware.
+qmlkit is ahead on 14 of 14 cases, median **1.6×**.
+
+Read that in three parts. The expectation, gradient and parameter-shift rows are
+dispatch and interpreter overhead rather than arithmetic — qmlkit does less per call,
+leads at small registers, and ties by 8 qubits. The kernel Gram matrix stays ~6.6×
+because per-pair QNode dispatch dominates there, and `lightning` is actually slower
+than `default.qubit` across many tiny circuits. The metric tensor is different in kind:
+closed-form differentiation of the state, agreeing with PennyLane's own routes to
+`1.7e-16`, and *widening* with parameter count (49× at `P=12`, 105× at `P=24`) rather
+than narrowing.
+
+Single machine, single thread, small registers, exact simulation throughout. JAX is not
+installed on the benchmark machine, so jit-compiled PennyLane is untested and unclaimed.
+Nothing here says anything about running on hardware.
