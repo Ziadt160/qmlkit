@@ -24,6 +24,7 @@ from qmlkit.encoding.hamiltonian import (
     trotter_rz_angle,
     trotter_zz_angle,
 )
+from qmlkit.encoding.pipeline import FeaturePipeline, SklearnCompatible
 from qmlkit.encoding.scaling import (
     AngleScaler,
     PCAReducer,
@@ -54,6 +55,8 @@ __all__ = [
     "DataReuploadEncoder",
     "n_reachable_frequencies",
     "to_angle_range",
+    "FeaturePipeline",
+    "SklearnCompatible",
     "AngleScaler",
     "reduce_to_qubits",
     "PCAReducer",

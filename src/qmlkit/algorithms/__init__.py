@@ -31,6 +31,14 @@ from qmlkit.algorithms.hamiltonians import (
     max_cut_hamiltonian,
     pauli_hamiltonian,
 )
+from qmlkit.algorithms.molecule import (
+    MolecularInfo,
+    Molecule,
+    from_integrals,
+    hydrogen_chain,
+    hydrogen_ring,
+    molecular_hamiltonian,
+)
 from qmlkit.algorithms.qaoa import QAOA, QAOAResult
 from qmlkit.algorithms.rl import ContextualBandit, QuantumPolicy, ReinforceResult, train_reinforce
 from qmlkit.algorithms.vqe import OPTIMIZERS, VQE, VQEResult
@@ -48,6 +56,12 @@ __all__ = [
     "AutoencoderResult",
     "QMeans",
     "h2_hamiltonian",
+    "Molecule",
+    "MolecularInfo",
+    "molecular_hamiltonian",
+    "from_integrals",
+    "hydrogen_chain",
+    "hydrogen_ring",
     "h2_curve",
     "CHEMICAL_ACCURACY",
     "HARTREE_TO_KCAL",

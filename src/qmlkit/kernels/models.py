@@ -16,6 +16,7 @@ import numpy.typing as npt
 
 from qmlkit.core.execute import BackendLike
 from qmlkit.encoding.feature_maps import FeatureMap
+from qmlkit.encoding.pipeline import SklearnCompatible
 from qmlkit.info import reduced_dm
 from qmlkit.kernels.matrix import QuantumKernel, closest_psd_matrix, is_psd, target_alignment
 
@@ -40,7 +41,7 @@ def _require_sklearn(what: str) -> Any:
     return svm
 
 
-class _KernelEstimator:
+class _KernelEstimator(SklearnCompatible):
     """Shared plumbing: fill the Gram matrix, hand it to a precomputed-kernel solver."""
 
     _svm: Any
@@ -56,6 +57,18 @@ class _KernelEstimator:
         seed: int | None = None,
         **solver_kwargs: Any,
     ) -> None:
+        # Every constructor argument is stored under its own name, unchanged. That is
+        # scikit-learn's one requirement for `clone`, and `clone` is what Pipeline,
+        # GridSearchCV and cross_val_score are built on -- so this is what lets a
+        # quantum estimator sit inside an ordinary scikit-learn workflow.
+        self.feature_map = feature_map
+        self.estimator = estimator
+        self.shots = shots
+        self.backend = backend
+        self.bandwidth = bandwidth
+        self.seed = seed
+        self.repair_psd = repair_psd
+        self.solver_kwargs = solver_kwargs
         self.kernel = QuantumKernel(
             feature_map,
             estimator=estimator,
@@ -64,19 +77,7 @@ class _KernelEstimator:
             bandwidth=bandwidth,
             seed=seed,
         )
-        self.repair_psd = repair_psd
-        self.solver_kwargs = solver_kwargs
         self.X_train_: npt.NDArray[Any] | None = None
-
-    @property
-    def feature_map(self) -> FeatureMap:
-        """The embedding this estimator is built on.
-
-        A kernel method *is* its feature map, so it has to be reachable by the same
-        name here as on :class:`QuantumKernel` — otherwise "swap the embedding" means
-        something different depending on which object you are holding.
-        """
-        return self.kernel.feature_map
 
     def _gram(self, X: npt.NDArray[Any], Y: npt.NDArray[Any] | None = None) -> npt.NDArray[Any]:
         K = self.kernel(X, Y)
@@ -109,6 +110,8 @@ class _KernelEstimator:
 
 
 class QSVC(_KernelEstimator):
+    _estimator_type = "classifier"
+
     """Quantum-kernel support vector classifier.
 
     clf = QSVC(qk.ZZFeatureMap(2)).fit(X, y)
@@ -117,6 +120,7 @@ class QSVC(_KernelEstimator):
 
     def __init__(self, feature_map: FeatureMap, C: float = 1.0, **kwargs: Any) -> None:
         super().__init__(feature_map, **kwargs)
+        self.C = C  # stored under its own name, so get_params/clone can see it
         svm = _require_sklearn("QSVC")
         self._svm = svm.SVC(kernel="precomputed", C=C, **self.solver_kwargs)
 
@@ -127,10 +131,14 @@ class QSVC(_KernelEstimator):
 class QSVR(_KernelEstimator):
     """Quantum-kernel support vector regressor."""
 
+    _estimator_type = "regressor"
+
     def __init__(
         self, feature_map: FeatureMap, C: float = 1.0, epsilon: float = 0.1, **kwargs: Any
     ) -> None:
         super().__init__(feature_map, **kwargs)
+        self.C = C
+        self.epsilon = epsilon
         svm = _require_sklearn("QSVR")
         self._svm = svm.SVR(kernel="precomputed", C=C, epsilon=epsilon, **self.solver_kwargs)
 
