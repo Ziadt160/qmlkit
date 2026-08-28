@@ -187,9 +187,12 @@ behind an environment marker and resolves cleanly to nothing on newer Pythons.
 qk.backend_report()
 # qmlkit backends:
 #   [ok]      cirq
+#   [ok]      cirq-density
 #   [ok]      numpy
 #   [ok]      qiskit
+#   [ok]      qiskit-aer
 #   [missing] spinqit  -> pip install 'qmlkit[spinqit]'
+#   [ok]      torch
 
 qk.expectation(spec, qk.Z(0), backend="qiskit")   # per call
 qk.set_default_backend("spinqit")                  # for the session
@@ -207,6 +210,50 @@ qk.get_backend("qiskit").to_qiskit(spec).draw()
 qk.get_backend("cirq").to_cirq(spec)
 qk.get_backend("spinqit").to_spinqit(spec)
 ```
+
+### Noise, when you ask for it by name
+
+Two backends evolve a density matrix instead of a state, so a circuit can be run on a
+simulator that makes mistakes:
+
+```python
+import cirq
+backend = qk.get_backend("cirq-density", noise=cirq.depolarize(0.01))
+qk.expectation(spec, qk.Z(0), backend=backend)
+```
+
+`qiskit-aer` does the same with a `qiskit_aer.noise.NoiseModel`, including one lifted
+off real hardware with `NoiseModel.from_backend(...)`. Aer is a separate distribution
+from Qiskit: `pip install 'qmlkit[aer]'`.
+
+**Noise never picks a simulator for you.** `get_backend(noise=...)` without naming a
+mixed-state backend raises and lists the ones that would work. A noisy run costs more,
+refuses two of the gradient methods, and answers a different question — so which
+simulator produced a number stays written down in the code that produced it.
+
+**Two error sources, kept separate.** `shots=None` still means shot-free: the density
+matrix is evolved exactly, so the answer is exact *given the noise model*. Decoherence
+and sampling error both pull a number around, and studying one with the other layered
+on top means never knowing which you are looking at. Ask for `shots=N` when you want
+both — that is what a device gives you.
+
+**What is refused, and why.** There is no statevector, so `adjoint` and `backprop`
+decline: they would have differentiated a *noiseless* circuit and returned a
+machine-precision gradient to someone asking about a noisy one. `parameter-shift` and
+`grad_batch` work, because a shift rule never inspects a state.
+
+With no noise model these backends reproduce the pure-state ones to machine precision
+— the case that makes the noisy numbers trustworthy, and one the tests assert across
+circuits, observables and both SDKs. Depolarizing noise is checked against the closed
+form `cos(θ)(1 − 4p/3)`, not only against itself.
+
+What noise does to trainability is the number worth knowing before the experiment. On
+a 3-qubit, 3-layer ansatz the gradient *direction* survives — correlation above 0.99
+with the noiseless one at `p = 0.05` — while the norm falls to 0.36 of it, and to 0.14
+at `p = 0.1`. [The noise guide](https://ziadt160.github.io/qmlkit/guides/noise/) has
+the table, the traps, and the boundary: error mitigation belongs to
+[Mitiq](https://mitiq.readthedocs.io) and error correction to
+[Stim](https://github.com/quantumlib/Stim).
 
 ### And circuits come back in
 

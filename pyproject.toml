@@ -37,6 +37,9 @@ spinqit = [
 ]
 qiskit = ["qiskit>=1.0"]
 cirq = ["cirq-core>=1.3"]
+# Aer is a separate distribution from Qiskit, and the only way to get a
+# Qiskit noise model. Installing [qiskit] does not bring it in.
+aer = ["qiskit-aer>=0.14", "qiskit>=1.0"]
 sklearn = ["scikit-learn>=1.0"]
 viz = ["matplotlib>=3.5"]
 dev = [
@@ -68,6 +71,7 @@ markers = [
   "spinqit: needs SpinQit (Python 3.8-3.10 only)",
   "qiskit: needs Qiskit",
   "cirq: needs Cirq",
+  "noisy: needs a mixed-state simulator (cirq or qiskit-aer)",
   "torch: needs PyTorch",
   "pennylane: cross-validation against PennyLane",
 ]
@@ -125,5 +129,5 @@ warn_return_any = false
 # Optional SDKs ship no type stubs (or stubs we do not want to depend on). Silencing
 # just these keeps `mypy --strict` meaningful for everything we actually own.
 [[tool.mypy.overrides]]
-module = ["spinqit.*", "qiskit.*", "cirq.*", "torch.*", "pennylane.*"]
+module = ["spinqit.*", "qiskit.*", "qiskit_aer.*", "cirq.*", "torch.*", "pennylane.*"]
 ignore_missing_imports = true

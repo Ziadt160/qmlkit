@@ -23,6 +23,7 @@ from qmlkit.core.observables import (
     Observable,
     PauliString,
     basis_rotation,
+    diagonal_eigenvalues,
     expectation_from_counts,
     expectation_from_statevector,
     expectation_from_statevectors,
@@ -98,9 +99,7 @@ class Backend:
         )
         return states
 
-    def statevector_batch(
-        self, spec: CircuitSpec, thetas: npt.NDArray[Any]
-    ) -> npt.NDArray[Any]:
+    def statevector_batch(self, spec: CircuitSpec, thetas: npt.NDArray[Any]) -> npt.NDArray[Any]:
         """States for one circuit at many logical parameter vectors."""
         values = np.atleast_2d(np.asarray(thetas, dtype=float))
         return self.statevector_batch_slots(spec, spec.bind_slots_batch(values))
@@ -121,15 +120,17 @@ class Backend:
         rows = np.atleast_2d(np.asarray(slot_angles, dtype=float))
         if shots is not None:
             return np.array(
-                [
-                    self.expectation(spec.with_slot_angles(row), obs, shots, seed)
-                    for row in rows
-                ],
+                [self.expectation(spec.with_slot_angles(row), obs, shots, seed) for row in rows],
                 dtype=float,
             )
         if not self.supports_exact:
-            raise ValueError(
-                f"the {self.name!r} backend has no exact mode; pass shots=N to sample"
+            raise ValueError(f"the {self.name!r} backend has no exact mode; pass shots=N to sample")
+        if not self.supports_statevector:
+            # exact, but with no state to stack: fall back to one exact evaluation per
+            # row. Slower, and still the path a batched parameter-shift gradient needs.
+            return np.array(
+                [self.expectation(spec.with_slot_angles(row), obs) for row in rows],
+                dtype=float,
             )
         out = np.empty(rows.shape[0], dtype=float)
         for start in range(0, rows.shape[0], self.max_batch_rows):
@@ -150,9 +151,7 @@ class Backend:
     ) -> npt.NDArray[Any]:
         """``<O>`` for one circuit at many logical parameter vectors."""
         values = np.atleast_2d(np.asarray(thetas, dtype=float))
-        return self.expectation_over_slots(
-            spec, spec.bind_slots_batch(values), obs, shots, seed
-        )
+        return self.expectation_over_slots(spec, spec.bind_slots_batch(values), obs, shots, seed)
 
     # ------------------------------------------------------------- semantics --
     def expectation(
@@ -176,21 +175,31 @@ class Backend:
                 raise ValueError(
                     f"the {self.name!r} backend has no exact mode; pass shots=N to sample"
                 )
-            return expectation_from_statevector(obs, self.statevector(spec), spec.n_qubits)
+            if self.supports_statevector:
+                return expectation_from_statevector(obs, self.statevector(spec), spec.n_qubits)
+            # Exact probabilities without a statevector - a density-matrix simulator,
+            # say. The basis rotation and the grouping are the ones the sampled path
+            # uses; only the estimator differs, so "exact" and "sampled" cannot drift
+            # apart in their measurement semantics.
+            return sum(self._exact_group(spec, group) for group in group_qubit_wise_commuting(obs))
         return sum(
             self._sampled_group(spec, group, shots, seed)
             for group in group_qubit_wise_commuting(obs)
         )
 
-    def _sampled_group(
-        self, spec: CircuitSpec, group: list[PauliString], shots: int, seed: int | None
-    ) -> float:
-        """One circuit for a whole group of mutually qubit-wise-commuting terms."""
-        # identity terms carry no measurement at all
+    def _group_circuit(
+        self, spec: CircuitSpec, group: list[PauliString]
+    ) -> tuple[float, list[PauliString], CircuitSpec | None]:
+        """The one circuit a qubit-wise-commuting group is measured with.
+
+        Returns the constant contributed by identity terms, the terms that still need
+        measuring, and the basis-rotated circuit - or ``None`` when the group is all
+        identity and no circuit is needed at all.
+        """
         value = sum(float(t.coeff.real) for t in group if not t.paulis)
         measured = [t for t in group if t.paulis]
         if not measured:
-            return value
+            return value, measured, None
 
         # Qubit-wise commuting means every term in the group agrees on the Pauli it
         # wants on any qubit they share, so one rotation diagonalises all of them.
@@ -208,10 +217,32 @@ class Backend:
             ops=spec.ops + tuple(Op(g, q) for g, q in rotation),
             n_params=0,
         )
+        return value, measured, rotated
+
+    def _sampled_group(
+        self, spec: CircuitSpec, group: list[PauliString], shots: int, seed: int | None
+    ) -> float:
+        """One circuit for a whole group of mutually qubit-wise-commuting terms."""
+        value, measured, rotated = self._group_circuit(spec, group)
+        if rotated is None:
+            return value
         counts = self.counts(rotated, shots, seed)
         return value + sum(
             expectation_from_counts(term, counts, spec.n_qubits) for term in measured
         )
+
+    def _exact_group(self, spec: CircuitSpec, group: list[PauliString]) -> float:
+        """The same group, estimated from exact probabilities instead of counts."""
+        value, measured, rotated = self._group_circuit(spec, group)
+        if rotated is None:
+            return value
+        probs = np.asarray(self.probabilities(rotated), dtype=float)
+        for term in measured:
+            # after the rotation every measured qubit is read in the Z basis, so the
+            # eigenvalue depends on the term's support and not on which Pauli it named
+            zs = PauliString(tuple((q, "Z") for q, p in term.paulis if p != "I"), 1.0)
+            value += float(term.coeff.real) * float(probs @ diagonal_eigenvalues(zs, spec.n_qubits))
+        return value
 
     # ------------------------------------------------------------- utilities --
     @staticmethod

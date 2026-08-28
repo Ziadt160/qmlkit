@@ -22,6 +22,7 @@ from qmlkit.utils.errors import unknown
 
 __all__ = [
     "register_backend",
+    "NOISY_BACKENDS",
     "get_backend",
     "list_backends",
     "available_backends",
@@ -67,6 +68,29 @@ register_backend("spinqit", _lazy("spinqit_backend", "SpinQitBackend"), "spinqit
 register_backend("qiskit", _lazy("qiskit_backend", "QiskitBackend"), "qiskit", "qiskit")
 register_backend("cirq", _lazy("cirq_backend", "CirqBackend"), "cirq", "cirq")
 register_backend("torch", _lazy("torch_backend", "TorchBackend"), "torch", "torch")
+register_backend(
+    "cirq-density", _lazy("cirq_density_backend", "CirqDensityBackend"), "cirq", "cirq"
+)
+register_backend("qiskit-aer", _lazy("qiskit_aer_backend", "QiskitAerBackend"), "qiskit_aer", "aer")
+
+#: The backends that accept a ``noise`` argument. Noise never selects a simulator for
+#: you: a mixed-state run costs more, refuses the state-based gradients, and answers a
+#: different question, so the backend that produced a number is always written down in
+#: the code that produced it.
+NOISY_BACKENDS: tuple[str, ...] = ("cirq-density", "qiskit-aer")
+
+
+def _noise_needs_a_named_backend(requested: str | None) -> ValueError:
+    installed = [n for n in NOISY_BACKENDS if is_available(n)]
+    choices = ", ".join(f"{n!r}" for n in NOISY_BACKENDS)
+    here = ", ".join(f"{n!r}" for n in installed) if installed else "none of them"
+    what = "the default backend" if requested is None else f"the {requested!r} backend"
+    return ValueError(
+        f"noise was given, but {what} evolves a pure state and cannot carry it.\n"
+        f"Name a mixed-state backend explicitly: {choices}.\n"
+        f"Importable in this interpreter right now: {here}.\n"
+        '    qk.get_backend("cirq-density", noise=cirq.depolarize(0.01))'
+    )
 
 
 # --------------------------------------------------------------- availability
@@ -112,6 +136,8 @@ def get_backend(backend: str | Backend | None = None, **kwargs: object) -> Backe
     if isinstance(backend, Backend):
         return backend
     if backend is None:
+        if "noise" in kwargs:
+            raise _noise_needs_a_named_backend(None)
         return default_backend()
     try:
         factory, requires, extra = _REGISTRY[backend]
@@ -130,7 +156,12 @@ def get_backend(backend: str | Backend | None = None, **kwargs: object) -> Backe
             f"    {hint}\n"
             f"Available now: {', '.join(available_backends())}"
         )
-    return factory(**kwargs)
+    try:
+        return factory(**kwargs)
+    except TypeError as exc:
+        if "noise" in kwargs and backend not in NOISY_BACKENDS:
+            raise _noise_needs_a_named_backend(backend) from exc
+        raise
 
 
 def default_backend() -> Backend:

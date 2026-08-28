@@ -4,6 +4,38 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added - mixed-state backends
+
+Two backends that evolve a density matrix and take a noise model: **`cirq-density`**
+(`cirq.DensityMatrixSimulator`) and **`qiskit-aer`**
+(`AerSimulator(method="density_matrix")`, behind the new `aer` extra, since Aer is a
+separate distribution from Qiskit). `NoisyBackend` supplies `density_matrix()` and
+`purity()`; everything above the primitive - basis rotation, qubit-wise-commuting
+groups, sampling, expectations - is the base class's, unchanged.
+
+Three decisions worth recording:
+
+- **Noise never selects a backend.** `get_backend(noise=...)` without a named
+  mixed-state backend raises and names the ones that would work. A mixed-state run
+  costs more, refuses two gradient methods and answers a different question, so which
+  simulator produced a number stays visible in the code that produced it.
+- **`supports_exact` stays true while `supports_statevector` goes false**, and those
+  are not the same flag. A density matrix gives a shot-free expectation - exact
+  *given the noise model* - which keeps decoherence and shot noise separable.
+  `adjoint` and `backprop` refuse; `parameter-shift` and `grad_batch` work, because a
+  shift rule never inspects a state.
+- **With no noise model these backends reproduce the pure-state ones to machine
+  precision**, asserted across circuits, observables and both SDKs. Depolarizing
+  noise is checked against the closed form `cos(theta)(1 - 4p/3)` rather than only
+  against itself.
+
+`Backend.expectation` gained an exact path for backends that have probabilities but
+no statevector, sharing `_group_circuit` with the sampled path so the two cannot
+drift apart. `docs/guides/noise.md` has the measured gradient decay, the traps, and
+the boundary: error mitigation belongs to Mitiq and error correction to Stim.
+
 ## [0.1.0] - 2026-08-28
 
 First release.
