@@ -8,6 +8,25 @@ All notable changes to this project are documented here. The format follows
 
 First release.
 
+### Fixed — `backprop` computed on a simulator when asked for a device
+
+`method="backprop"` accepted a `backend` argument and never used it. Pointed at a
+backend with no statevector, it returned a machine-precision gradient computed on the
+torch simulator — to a caller who had asked for one from hardware. That is precisely
+the plausible-wrong-number failure this library exists to refuse, and it was in the
+library.
+
+It now refuses, the same way `adjoint` does, and names `parameter-shift` as the
+measurement-only route. On a statevector backend it is unchanged. The docstring also
+now says plainly that backprop always evaluates on the torch simulator whichever
+statevector backend is selected — the number agrees, but the device is not honoured.
+
+Found by testing the claim that a backend implementing one method inherits the whole
+library. It does: a device supplying only `counts` gets sampled expectations,
+qubit-wise-commuting grouping, batched expectations, batched parameter-shift gradients
+and quantum kernels, all within shot noise of exact. Three of the four methods that
+cannot work already refused. This was the fourth.
+
 ### Added — `qk.search`, a grid search that skips what cannot work
 
     best = qk.search(X, y, ansatz=["hardware_efficient", "strongly_entangling"],

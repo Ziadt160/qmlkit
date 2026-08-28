@@ -449,3 +449,51 @@ def test_iterating_every_method_never_raises_an_uncaught_import_error(monkeypatc
         except BackendNotAvailable:
             continue
     assert ran >= 4, "the methods that need no extra must still all run"
+
+
+def test_backprop_refuses_a_backend_with_no_statevector():
+    """It always evaluates on the torch simulator, so on a device it must refuse.
+
+    Silently returning a machine-precision gradient computed on a simulator, to a
+    caller who asked for one from hardware, is the plausible-wrong-number failure this
+    library exists to catch — and it was doing exactly that.
+    """
+    pytest.importorskip("torch")
+    import numpy as np
+
+    import qmlkit as qk
+
+    class Device(qk.Backend):
+        name = "backprop_probe_device"
+        supports_statevector = False
+        supports_exact = False
+
+        def counts(self, spec, shots, seed=None):
+            self._check_bound(spec)
+            probs = np.abs(qk.get_backend("numpy").statevector(spec)) ** 2
+            rng = np.random.default_rng(0)
+            return {
+                format(i, f"0{spec.n_qubits}b"): int(c)
+                for i, c in enumerate(rng.multinomial(shots, probs / probs.sum()))
+                if c
+            }
+
+    ansatz = qk.hardware_efficient(3, 2)
+    spec, theta = ansatz.build(), ansatz.init(seed=0)
+    with pytest.raises(ValueError, match="parameter-shift"):
+        qk.grad(spec, theta, qk.Z(0), method="backprop", backend=Device())
+
+
+def test_backprop_still_works_on_a_statevector_backend():
+    pytest.importorskip("torch")
+    import numpy as np
+
+    import qmlkit as qk
+
+    ansatz = qk.hardware_efficient(3, 2)
+    spec, theta = ansatz.build(), ansatz.init(seed=0)
+    np.testing.assert_allclose(
+        qk.grad(spec, theta, qk.Z(0), method="backprop", backend="numpy"),
+        qk.grad(spec, theta, qk.Z(0), method="adjoint"),
+        atol=1e-12,
+    )

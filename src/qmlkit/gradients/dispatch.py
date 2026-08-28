@@ -161,8 +161,26 @@ def _hadamard(spec, theta, obs, *, backend=None, shots=None, seed=None, **kw):  
 
 @register_gradient("backprop")
 def _backprop(spec, theta, obs, *, backend=None, shots=None, **kw):  # type: ignore[no-untyped-def]
-    """Differentiate the torch statevector simulator directly."""
+    """Differentiate the torch statevector simulator directly.
+
+    This method needs an autograd-traced statevector, so it always evaluates on the
+    torch simulator whichever statevector backend is selected — the number is the same
+    because they agree, but the *device* is not honoured. On a backend that has no
+    statevector at all that difference stops being cosmetic: returning a machine-precision
+    gradient computed on a simulator, to a caller who asked for one from hardware, is
+    exactly the plausible-wrong-number failure this library exists to refuse. So it is
+    refused, the same way ``adjoint`` is.
+    """
     from qmlkit.core.backends.base import BackendNotAvailable
+    from qmlkit.core.backends.registry import get_backend
+
+    device = get_backend(backend)
+    if not device.supports_statevector:
+        raise ValueError(
+            f"the {device.name!r} backend has no statevector, so it cannot differentiate "
+            'by backprop; use method="parameter-shift", which is measurement-only and '
+            "batches into one submission"
+        )
 
     try:
         import torch
