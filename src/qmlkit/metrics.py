@@ -26,6 +26,7 @@ import numpy as np
 import numpy.typing as npt
 
 from qmlkit.ansatz.library import Ansatz
+from qmlkit.core.backends.registry import require_statevector
 from qmlkit.core.execute import BackendLike, statevector
 from qmlkit.core.observables import Observable, Z
 from qmlkit.info import purity
@@ -65,6 +66,7 @@ def fidelity_samples(
     backend: BackendLike = None,
 ) -> npt.NDArray[Any]:
     """Fidelities between pairs of states from independently sampled parameters."""
+    require_statevector(backend, "fidelity_samples")
     rng = np.random.default_rng(seed)
     out = np.empty(n_samples, dtype=float)
     for i in range(n_samples):
@@ -86,6 +88,9 @@ def expressibility(
     Note the direction — it is a divergence *from* Haar, so a low number means the
     ansatz reaches as much of state space as a random circuit would.
     """
+    # named here as well as in fidelity_samples, so the refusal names the function
+    # the caller actually invoked
+    require_statevector(backend, "expressibility")
     fids = fidelity_samples(ansatz, n_samples, seed, backend)
     edges = np.linspace(0.0, 1.0, n_bins + 1)
     observed, _ = np.histogram(fids, bins=edges)
@@ -119,6 +124,7 @@ def entangling_capability(
     backend: BackendLike = None,
 ) -> float:
     """Mean Meyer–Wallach ``Q`` over randomly sampled parameters."""
+    require_statevector(backend, "entangling_capability")
     rng = np.random.default_rng(seed)
     vals = [
         meyer_wallach(

@@ -174,6 +174,27 @@ print(report.subject)
 That notice is not a finding, so `if qk.diagnose(model):` keeps meaning "something is
 wrong".
 
+**Some measures do not exist on a mixed state, and say so.** Expressibility,
+Meyer-Wallach entangling capability and the Fubini-Study metric tensor are defined
+between *state vectors*. Asking for one on a density-matrix backend is refused by
+name rather than approximated:
+
+```python
+# docs: requires cirq
+try:
+    qk.metrics.entangling_capability(qk.hardware_efficient(2, 1), n_samples=4,
+                                     backend=noisy)
+except ValueError as exc:
+    print(str(exc)[:96])
+# entangling_capability is defined on a pure state, and the 'cirq-density' backend ...
+```
+
+Note the difference from `diagnose()`, which substitutes the reference instead. That
+is not an inconsistency: `diagnose()` was asked to check a *model*, and whether a
+parameter is dead is a property of the ansatz. Here you named a backend and asked for
+a measure on it, so the honest answer is that the measure is not defined there. To ask
+what the noise did to a particular circuit, use `purity()`.
+
 **Cirq applies a bare channel after every moment.** `cirq.depolarize(p)` passed as a
 noise model becomes a `ConstantQubitNoiseModel` — every qubit, every moment,
 including idle ones. That is a reasonable first model and a poor imitation of a real

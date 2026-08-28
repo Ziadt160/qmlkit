@@ -88,6 +88,15 @@ questions about the *ansatz* rather than the device, so they now run on the exac
 reference and the report's subject line names the substitution. Answering them from
 probabilities instead would have called a phase-only parameter dead.
 
+Five measures that are defined only on a *pure state* now refuse by name instead of
+dying inside `statevector()`: `expressibility`, `entangling_capability`,
+`fidelity_samples`, `metric_tensor` and `qng_step`. One shared
+`require_statevector(backend, measure)` names the measure and the backend, and points
+at `purity()` for the question a mixed state can answer. They refuse rather than
+substituting the reference, which is the opposite of what `diagnose()` does and
+deliberately so: there the question is about the ansatz, here the caller named a
+backend and asked for a measure on it.
+
 `FLAT_GRADIENTS` no longer claims "gradients are exact here" on a backend carrying a
 noise model. The flag to ask is **`supports_statevector`, not `supports_exact`** -
 the latter is deliberately true on a mixed-state backend, where it means shot-free

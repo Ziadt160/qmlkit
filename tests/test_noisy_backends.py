@@ -334,3 +334,70 @@ def test_flat_gradients_does_not_claim_exactness_under_noise():
     assert flat, "expected a flat-gradient finding on a deep ansatz under 10% depolarizing"
     assert "Gradients are exact here" not in flat[0].message
     assert "carries a noise model" in flat[0].message
+
+
+# --------------------------------------------------------------------------- #
+# Measures that only exist on a pure state
+#
+# These used to die with a NotImplementedError raised inside statevector(), several
+# frames below anything the caller wrote. The measure is genuinely undefined on a
+# mixed state, so the fix is to say which measure and which backend - not to
+# substitute the reference, which is right only where the question is about the
+# ansatz rather than the device (see diagnose()).
+# --------------------------------------------------------------------------- #
+PURE_STATE_ONLY = [
+    (
+        "expressibility",
+        lambda ansatz, be: qk.metrics.expressibility(ansatz, n_samples=4, backend=be),
+    ),
+    (
+        "entangling_capability",
+        lambda ansatz, be: qk.metrics.entangling_capability(ansatz, n_samples=4, backend=be),
+    ),
+    (
+        "fidelity_samples",
+        lambda ansatz, be: qk.metrics.fidelity_samples(ansatz, n_samples=4, backend=be),
+    ),
+    (
+        "the Fubini-Study metric tensor",
+        lambda ansatz, be: qk.optim.metric_tensor(
+            ansatz.build(), np.linspace(0.1, 1.0, ansatz.n_params), backend=be
+        ),
+    ),
+    (
+        "the Fubini-Study metric tensor",
+        lambda ansatz, be: qk.optim.qng_step(
+            ansatz.build(), np.linspace(0.1, 1.0, ansatz.n_params), qk.Z(0), backend=be
+        ),
+    ),
+]
+
+
+@pytest.mark.parametrize("backend_name", BACKENDS)
+@pytest.mark.parametrize("measure,call", PURE_STATE_ONLY, ids=[m for m, _ in PURE_STATE_ONLY])
+def test_pure_state_measures_refuse_by_name(backend_name, measure, call):
+    ansatz = qk.hardware_efficient(3, 1)
+    backend = qk.get_backend(backend_name)
+    with pytest.raises(ValueError, match="defined on a pure state") as excinfo:
+        call(ansatz, backend)
+    message = str(excinfo.value)
+    assert measure in message
+    assert backend_name in message
+
+
+@pytest.mark.parametrize("measure,call", PURE_STATE_ONLY, ids=[m for m, _ in PURE_STATE_ONLY])
+def test_pure_state_measures_still_work_on_a_statevector_backend(measure, call):
+    """The refusal must not be a blanket one."""
+    value = call(qk.hardware_efficient(3, 1), qk.get_backend("numpy"))
+    assert np.all(np.isfinite(np.asarray(value, dtype=float)))
+
+
+def test_the_refusal_points_at_what_a_noisy_backend_can_answer():
+    """Refusing without an alternative is only half an answer."""
+    if not is_available("cirq-density"):
+        pytest.skip("cirq is not installed")
+    with pytest.raises(ValueError) as excinfo:
+        qk.metrics.entangling_capability(
+            qk.hardware_efficient(2, 1), n_samples=4, backend=qk.get_backend("cirq-density")
+        )
+    assert "purity()" in str(excinfo.value)

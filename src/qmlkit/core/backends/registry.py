@@ -22,6 +22,7 @@ from qmlkit.utils.errors import unknown
 
 __all__ = [
     "register_backend",
+    "require_statevector",
     "NOISY_BACKENDS",
     "get_backend",
     "list_backends",
@@ -162,6 +163,31 @@ def get_backend(backend: str | Backend | None = None, **kwargs: object) -> Backe
         if "noise" in kwargs and backend not in NOISY_BACKENDS:
             raise _noise_needs_a_named_backend(backend) from exc
         raise
+
+
+def require_statevector(backend: str | Backend | None, measure: str) -> Backend:
+    """Resolve a backend for a quantity that only exists on a pure state.
+
+    Expressibility, Meyer-Wallach entanglement and the Fubini-Study metric are defined
+    between *state vectors*. Handed a density-matrix backend they used to raise
+    ``NotImplementedError`` from inside ``statevector()``, several frames below
+    anything the caller wrote. Naming the measure and the backend turns that into an
+    answer.
+
+    This refuses rather than substituting the reference. Where the question is about
+    the ansatz rather than the device - :func:`~qmlkit.diagnostics.diagnose` - the
+    substitution is the right move and the report says so. Here the caller named a
+    backend and asked for a measure on it.
+    """
+    device = get_backend(backend)
+    if not device.supports_statevector:
+        raise ValueError(
+            f"{measure} is defined on a pure state, and the {device.name!r} backend "
+            "evolves a density matrix. Run it on a statevector backend to ask about the "
+            "ansatz itself; to ask what the noise did to a particular circuit, use that "
+            "backend's purity() or density_matrix()."
+        )
+    return device
 
 
 def default_backend() -> Backend:

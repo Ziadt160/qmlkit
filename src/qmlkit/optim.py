@@ -22,6 +22,7 @@ import numpy as np
 import numpy.typing as npt
 from numpy.typing import ArrayLike
 
+from qmlkit.core.backends.registry import require_statevector
 from qmlkit.core.execute import BackendLike, expval
 from qmlkit.core.ir import CircuitSpec
 from qmlkit.core.observables import Observable, Z
@@ -213,6 +214,7 @@ def metric_tensor(
     from qmlkit.core.execute import statevector
     from qmlkit.gradients.adjoint import supports_adjoint
 
+    require_statevector(backend, "the Fubini-Study metric tensor")
     arr = np.asarray(theta, dtype=float).ravel()
     p = arr.size
 
