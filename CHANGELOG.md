@@ -8,6 +8,40 @@ All notable changes to this project are documented here. The format follows
 
 First release.
 
+### Fixed — `diagnose` now reads the circuit the caller actually runs
+
+`diagnose(model)` analysed the model's *ansatz standing alone*, starting from `|0>`.
+Which weights are dead depends on the state the ansatz is handed, so for a model with a
+feature map in front it named the wrong ones: `strongly_entangling(4, 2)` was reported
+as having weights `[0, 3, 6, 9]` dead — its leading `Rz` on each wire, which is a global
+phase on `|0>` and alive the moment anything encodes data before it. The report was
+correct about a circuit the caller was not running.
+
+The probe now composes the model's own feature map in front and redraws its angles at
+every probe, so a weight is called dead only if no input makes it matter. A bare
+`Ansatz` is unchanged and now says `(from |0>)` so the setting is explicit.
+
+### Added — `UNMEASURABLE_WEIGHTS`
+
+Chasing the above turned up a second, sharper failure that nothing was checking: a
+weight can change the state and still be unable to change the *number the model reads
+out*. `diagnose` now reports those when the model's observables are known.
+
+It fires on `hardware_efficient`, this library's own default ansatz. Every layer ends
+in `rz`, which commutes with the `cx` entanglers and with any Z-basis observable — so
+**the final `rz` layer cannot move a `Z` expectation at all**. On the default 4-qubit,
+2-layer `VQC` that is 4 of 16 weights: a quarter of the parameters carried by the
+optimiser every step, invisible to the readout, and invisible in a loss curve.
+
+Verified independently before shipping the check — two gradient methods, four
+observables, five random initialisations, all agreeing to `1e-17` — and it is a
+property of the *readout*, not a defect in the ansatz: measuring `X` instead makes
+every one of those weights live, which is what the new test asserts.
+
+`hardware_efficient` is deliberately left as it is. Changing the rotation order would
+alter every existing model's behaviour and break the PennyLane template mapping; the
+honest fix is that the tool now tells you, and the fix text names both remedies.
+
 ### Added — batched gradients, and the backward pass that was 99% of training
 
 Batched execution reached the forward pass only. Measured on a 4-qubit `VQC` at

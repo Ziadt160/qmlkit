@@ -33,7 +33,7 @@ saying what is wrong, and a ``fix`` naming the edit that resolves it.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -43,7 +43,9 @@ import numpy.typing as npt
 from qmlkit.ansatz.blocks import Block, EncodingLayer, RotationLayer
 from qmlkit.ansatz.library import Ansatz
 from qmlkit.core.execute import BackendLike, statevector
+from qmlkit.core.ir import CircuitSpec
 from qmlkit.core.observables import Observable, Z
+from qmlkit.encoding.feature_maps import FeatureMap
 from qmlkit.info import state_fidelity
 from qmlkit.kernels.matrix import is_psd, kernel_spread, min_eigenvalue, shots_to_resolve
 from qmlkit.metrics import entangling_capability, gradient_variance
@@ -156,7 +158,12 @@ def _walk(block: Block, times: int = 1) -> Iterator[tuple[Block, int]]:
 # the checks
 # --------------------------------------------------------------------------- #
 def _dead_parameters(
-    ansatz: Ansatz, *, probes: int, seed: int | None, backend: BackendLike
+    ansatz: Ansatz,
+    *,
+    probes: int,
+    seed: int | None,
+    backend: BackendLike,
+    prefix: CircuitSpec | None = None,
 ) -> npt.NDArray[Any]:
     """Indices whose value cannot change the state, so cannot change any result.
 
@@ -164,25 +171,76 @@ def _dead_parameters(
     ignores global phase, which is the right blindness — a parameter that only
     moves the global phase is unobservable, and so is genuinely dead.
 
+    ``prefix`` is the circuit that runs *before* the ansatz — a model's feature map.
+    Passing it matters more than it looks: which weights are dead depends on the state
+    the ansatz is handed. ``strongly_entangling``'s leading ``Rz`` on each wire is dead
+    from ``|0>`` and alive the moment anything encodes data in front of it, so
+    diagnosing the bare ansatz would report weights as unusable that the caller's
+    actual model uses. The prefix's own angles are redrawn at every probe, so a weight
+    is called dead only if no input makes it matter.
+
     A parameter proven live is never probed again, so a healthy circuit costs one
     round of ``n_params`` statevectors rather than ``probes`` rounds of them.
     """
     rng = np.random.default_rng(seed)
-    spec = ansatz.build()
     n = ansatz.n_params
+    offset = 0
+    spec = ansatz.build()
+    if prefix is not None:
+        offset = prefix.n_params
+        spec = prefix.compose(spec, param_offset=offset)
     alive = np.zeros(n, dtype=bool)
     for _ in range(probes):
-        theta = rng.uniform(-np.pi, np.pi, n)
+        theta = rng.uniform(-np.pi, np.pi, offset + n)
         base = statevector(spec, theta, backend=backend)
         for i in np.flatnonzero(~alive):
             shifted = theta.copy()
-            shifted[i] += _PROBE_SHIFT
+            shifted[offset + i] += _PROBE_SHIFT
             moved = statevector(spec, shifted, backend=backend)
             if abs(1.0 - state_fidelity(base, moved)) > _EXACT:
                 alive[i] = True
         if alive.all():
             break
     return np.flatnonzero(~alive)
+
+
+def _unmeasurable_parameters(
+    ansatz: Ansatz,
+    observables: Sequence[Observable],
+    *,
+    probes: int,
+    seed: int | None,
+    backend: BackendLike,
+    prefix: CircuitSpec | None = None,
+) -> npt.NDArray[Any]:
+    """Weights that move the state but cannot move any of *these* observables.
+
+    A trailing ``Rz`` before a ``Z`` measurement is the standard case: it genuinely
+    changes the state, so :func:`_dead_parameters` calls it alive, and it cannot change
+    the number the model reads out. That is invisible in a loss curve and costs a
+    parameter's worth of optimiser work every step.
+
+    Only checked when the caller's own observables are known, because "unmeasurable" is
+    a statement about the readout rather than about the circuit.
+    """
+    from qmlkit.gradients.dispatch import grad
+
+    rng = np.random.default_rng(seed)
+    n = ansatz.n_params
+    offset = 0
+    spec = ansatz.build()
+    if prefix is not None:
+        offset = prefix.n_params
+        spec = prefix.compose(spec, param_offset=offset)
+    matters = np.zeros(n, dtype=bool)
+    for _ in range(probes):
+        theta = rng.uniform(-np.pi, np.pi, offset + n)
+        for obs in observables:
+            gradient = np.abs(np.asarray(grad(spec, theta, obs, backend=backend), dtype=float))
+            matters |= gradient[offset:] > _EXACT
+        if matters.all():
+            break
+    return np.flatnonzero(~matters)
 
 
 def _encoding_collapses(ansatz: Ansatz) -> tuple[int, str] | None:
@@ -216,6 +274,8 @@ def _diagnose_ansatz(
     probes: int,
     seed: int | None,
     backend: BackendLike,
+    prefix: CircuitSpec | None = None,
+    observables: Sequence[Observable] = (),
 ) -> list[Finding]:
     found: list[Finding] = []
 
@@ -246,7 +306,10 @@ def _diagnose_ansatz(
             )
         )
 
-    dead = _dead_parameters(ansatz, probes=probes, seed=seed, backend=backend)
+    dead = _dead_parameters(
+        ansatz, probes=probes, seed=seed, backend=backend, prefix=prefix
+    )
+    setting = "with the model's own encoding in front" if prefix is not None else "from |0>"
     dead_inputs = [int(i) for i in dead if i < ansatz.n_inputs]
     dead_weights = [int(i) - ansatz.n_inputs for i in dead if i >= ansatz.n_inputs]
 
@@ -269,13 +332,38 @@ def _diagnose_ansatz(
                 "DEAD_WEIGHTS",
                 "warning",
                 f"{len(dead_weights)} of {ansatz.n_weights} weights cannot change the state "
-                f"(indices {dead_weights[:8]}{'...' if len(dead_weights) > 8 else ''}). They "
-                "are optimised over and cannot affect any result.",
+                f"({setting}) at any probe (indices "
+                f"{dead_weights[:8]}{'...' if len(dead_weights) > 8 else ''}). They are "
+                "optimised over and cannot affect any result.",
                 fix="Usually a rotation whose generator already fixes the state it acts on "
                 "(Rz on |0>), or a layer past the last gate that reaches a measured wire.",
                 value=float(len(dead_weights)),
             )
         )
+
+    if observables and not dead_weights:
+        unmeasurable = [
+            int(i) - ansatz.n_inputs
+            for i in _unmeasurable_parameters(
+                ansatz, observables, probes=probes, seed=seed, backend=backend, prefix=prefix
+            )
+            if i >= ansatz.n_inputs
+        ]
+        if unmeasurable:
+            found.append(
+                Finding(
+                    "UNMEASURABLE_WEIGHTS",
+                    "warning",
+                    f"{len(unmeasurable)} of {ansatz.n_weights} weights change the state but "
+                    f"cannot change any of this model's {len(observables)} observable(s) "
+                    f"(indices {unmeasurable[:8]}{'...' if len(unmeasurable) > 8 else ''}). "
+                    "The optimiser carries them every step and the readout never sees them.",
+                    fix="Usually a rotation after the last gate that can reach a measured "
+                    "wire -- a trailing Rz before a Z measurement is the standard case. "
+                    "Drop the final rotation layer, or measure an observable it can move.",
+                    value=float(len(unmeasurable)),
+                )
+            )
 
     if ansatz.n_qubits > 1:
         q = entangling_capability(
@@ -423,6 +511,35 @@ def _find_ansatz(subject: object) -> Ansatz | None:
     return None
 
 
+def _find_feature_map(subject: object) -> FeatureMap | None:
+    """The feature map a model puts in front of its ansatz, if it has one.
+
+    What runs before the ansatz decides which of its weights are dead, so a model's
+    own encoding has to be part of the diagnosis rather than assumed away.
+    """
+    if isinstance(subject, Ansatz):
+        return None
+    direct = getattr(subject, "feature_map", None)
+    if isinstance(direct, FeatureMap):
+        return direct
+    children = getattr(subject, "modules", None)
+    if callable(children):
+        for module in children():
+            held = getattr(module, "feature_map", None)
+            if isinstance(held, FeatureMap):
+                return held
+    return None
+
+
+def _find_observables(subject: object) -> list[Observable]:
+    """The observables a model actually reads out, if it says."""
+    for holder in (subject, *(getattr(subject, "modules", lambda: [])())):
+        found = getattr(holder, "observables", None)
+        if found:
+            return list(found)
+    return []
+
+
 def diagnose(
     subject: object,
     *,
@@ -495,8 +612,17 @@ def diagnose(
             "anything holding one (QuantumLayer, VQC, VQRegressor, or an nn.Sequential "
             "containing one), or a Gram matrix as a square array."
         )
+    feature_map = _find_feature_map(subject)
+    prefix = feature_map.build_parametric(offset=0) if feature_map is not None else None
     findings = _diagnose_ansatz(
-        ansatz, obs=obs, n_samples=n_samples, probes=probes, seed=seed, backend=backend
+        ansatz,
+        obs=obs,
+        n_samples=n_samples,
+        probes=probes,
+        seed=seed,
+        backend=backend,
+        prefix=prefix,
+        observables=_find_observables(subject),
     )
     label = f"{type(subject).__name__} ({ansatz.name})" if subject is not ansatz else ansatz.name
     return Report(f"{label} on {ansatz.n_qubits} qubits", _sorted(findings))

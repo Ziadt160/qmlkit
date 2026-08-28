@@ -390,3 +390,71 @@ def test_a_report_behaves_like_the_sequence_it_is() -> None:
     assert len(report) == len(report.codes) == len(list(report))
     assert report[0] is report.findings[0]
     assert set(report.errors) | set(report.warnings) <= set(report.findings)
+
+
+# --------------------------------------------------------------------------- #
+# diagnose reads the circuit the caller actually runs, not the ansatz alone
+# --------------------------------------------------------------------------- #
+def test_dead_weights_are_judged_against_the_models_own_encoding():
+    """Which weights are dead depends on the state the ansatz is handed.
+
+    ``strongly_entangling`` leads each wire with an ``Rz``, which is a global phase on
+    ``|0>`` and therefore dead — but alive the moment anything encodes data in front of
+    it. Diagnosing the bare ansatz and reporting that for a *model* would name weights
+    as unusable that the caller's model uses.
+    """
+    torch = pytest.importorskip("torch")  # noqa: F841
+    import qmlkit as qk
+
+    ansatz = qk.strongly_entangling(4, 2)
+    bare = qk.diagnose(ansatz)
+    assert "DEAD_WEIGHTS" in bare.codes
+    assert "from |0>" in str(bare)
+
+    model = qk.VQC(n_features=4, n_classes=2, n_qubits=4, ansatz=ansatz, seed=0)
+    assert "DEAD_WEIGHTS" not in qk.diagnose(model).codes
+
+
+def test_weights_the_readout_cannot_see_are_reported():
+    """A trailing Rz before a Z measurement moves the state and not the number."""
+    torch = pytest.importorskip("torch")  # noqa: F841
+    import qmlkit as qk
+
+    model = qk.VQC(
+        n_features=4, n_classes=2, n_qubits=4, ansatz=qk.strongly_entangling(4, 2), seed=0
+    )
+    report = qk.diagnose(model)
+    assert "UNMEASURABLE_WEIGHTS" in report.codes
+    finding = next(f for f in report if f.code == "UNMEASURABLE_WEIGHTS")
+    # the last Rz of each wire in the final layer: 24 weights, rz-ry-rz per qubit
+    assert finding.value == 4.0
+    assert "trailing Rz" in finding.fix
+
+
+def test_unmeasurable_is_a_property_of_the_readout_not_the_circuit():
+    """The same ansatz, flagged or clean depending only on what is measured.
+
+    ``hardware_efficient`` ends each layer with ``rz``, which commutes with the ``cx``
+    entanglers *and* with any Z-basis observable — so its final ``rz`` layer cannot move
+    a ``Z`` expectation at all. A quarter of the default model's weights are in that
+    layer. Measure ``X`` instead and every one of them comes alive, which is what makes
+    this a statement about the readout rather than a defect in the ansatz.
+    """
+    torch = pytest.importorskip("torch")  # noqa: F841
+    import qmlkit as qk
+
+    kwargs = dict(n_features=4, n_classes=2, n_qubits=4, n_layers=2, seed=0)
+    with_z = qk.diagnose(qk.VQC(observables=[qk.Z(i) for i in range(4)], **kwargs))
+    assert "UNMEASURABLE_WEIGHTS" in with_z.codes
+    assert next(f for f in with_z if f.code == "UNMEASURABLE_WEIGHTS").value == 4.0
+
+    with_x = qk.diagnose(qk.VQC(observables=[qk.X(i) for i in range(4)], **kwargs))
+    assert "UNMEASURABLE_WEIGHTS" not in with_x.codes
+
+
+def test_a_bare_ansatz_is_never_asked_about_a_readout_it_does_not_have():
+    """`UNMEASURABLE_WEIGHTS` is a claim about a model's observables, so an Ansatz
+    on its own -- which has none -- must not produce it."""
+    import qmlkit as qk
+
+    assert "UNMEASURABLE_WEIGHTS" not in qk.diagnose(qk.strongly_entangling(4, 2)).codes
