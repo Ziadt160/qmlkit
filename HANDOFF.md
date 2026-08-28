@@ -32,7 +32,10 @@ lecture repo — it maps lectures to library features and belongs with the lectu
 
 ## Status
 
-**1202 tests, 0 failures.** ruff + `mypy --strict` clean. **94% coverage**, combined in
+**1279 tests on Python 3.14, 867 on SpinQit's 3.10, 0 failures in either.** ruff clean
+and `ruff format --check` clean; `mypy --strict` clean over **the whole package** - the
+config listed six paths until 2026-08-28 and now lists `src/qmlkit`, so "mypy clean" and
+"the package type-checks" finally mean the same thing. **94% coverage**, combined in
 CI across every job — the number CI actually computes, not a local estimate. Two of the
 twelve coverage files still fail to map (macOS and Windows record different absolute
 roots), so the figure is carried by the `full` job, which installs every extra and runs
@@ -167,6 +170,14 @@ that submits a *list* and polls, plus async. Those two are the items in
 ### 4. Smaller, worth doing
 
 - A benchmark suite with published reference numbers — what makes a library citable
+- **Noise**: `cirq-density` and `qiskit-aer` evolve a density matrix (see
+  `docs/guides/noise.md`). Neither differentiates *through* the channel - parameter-shift
+  only - which is the one place PennyLane's `default.mixed` is ahead. The `diagnose()`
+  thresholds are still calibrated on exact gradients and will over-fire under shot noise
+- **A mitigation verdict**, not a mitigation implementation: whether mitigation improved
+  an estimate or only traded bias for variance, on identical seeds with the shot cost
+  stated. That is `qk.baseline`'s shape pointed at a new question. The implementations
+  belong to Mitiq and QEC belongs to Stim
 - `QLSTMCell` gate-level circuits and `QGAN` generator/discriminator still take their
   defaults less flexibly than the convention above wants
 - Hardware: batched submission and async jobs are the two gaps that would change the
