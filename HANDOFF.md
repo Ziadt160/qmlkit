@@ -144,23 +144,25 @@ tag is deliberately not pushed yet.
 
 ### 2. The seven lecture notebooks — and the first real users
 
-Phase 7's stated acceptance test, and now the highest-value item after PyPI. Every
-lecture rewritten to `import qmlkit as qk`, every snippet still running, the notebooks
-getting *shorter*. Your students are the first people who will use this without having
-written it, which is the only way to find out whether the API survives contact and
-whether the thresholds in `qmlkit.diagnostics` and `qmlkit.evaluate` are calibrated.
+Phase 7's stated acceptance test, and the highest-value item after PyPI. Every lecture
+rewritten to `import qmlkit as qk`, every snippet still running, the notebooks getting
+*shorter*. Your students are the first people who will use this without having written
+it, and they are the only thing that can calibrate the judgement calls now baked in:
+the thresholds in `qmlkit.diagnostics` (`_FLAT`, `_CONCENTRATED`), the imbalance cutoff
+in `qmlkit.imbalance`, the fold-spread verdict rule in `baselines` and `search`, and the
+prune levels in `qmlkit.search`. Every one of those is one person's judgement until
+somebody else runs it.
 
-**Done since this file was last updated:** circuit import (`from_qasm`, `from_qiskit`,
-`from_pennylane`), the evaluation layer (`evaluate`, `imbalance`, `baselines`, `budget`,
-`provenance`), batched execution, and an honest re-run of the PennyLane benchmark
-against `lightning.qubit` and `adjoint_metric_tensor`.
+**Resist adding features before that happens.** The library is 190+ exports maintained
+by one author, and the bottleneck stopped being capability several releases ago.
 
 ### 3. Batched submission on a real device
 
-`Backend.statevector_batch`/`expectation_over` now exist, so the protocol change is
-made; what remains is a backend that submits a *list* and polls a job. Async is the
-other half, and together they are the two items in `examples/toward_hardware.py` that
-would change the `Backend` protocol.
+`Backend.expectation_over_slots` is now the single call a provider would turn into a
+job, and `param_shift_grad_batch` routes a whole batch's gradient through it without
+ever inspecting a state — so the protocol change is made. What remains is a backend
+that submits a *list* and polls, plus async. Those two are the items in
+`examples/toward_hardware.py` that would still change the `Backend` protocol.
 
 ### 4. Smaller, worth doing
 

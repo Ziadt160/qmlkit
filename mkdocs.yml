@@ -132,6 +132,7 @@ nav:
       - Ansatz: reference/ansatz.md
       - Kernels: reference/kernels.md
       - PyTorch: reference/nn.md
+      - Algorithms: reference/algorithms.md
       - Analysis: reference/analysis.md
       - Evaluation: reference/evaluation.md
   - About:

@@ -153,3 +153,96 @@ print("agrees with numpy:", np.allclose(
 If you add a real backend, the thing to run is `tests/test_cross_backend.py` — it
 parametrises over every installed backend automatically, so yours is covered the
 moment it is registered.
+
+### A device, which cannot hand you a state
+
+A real QPU has no statevector and no shot-free expectation. It can run a circuit and
+report bitstrings, and that is *also* one method:
+
+```python
+import numpy as np
+import qmlkit as qk
+from qmlkit.core.backends.base import Backend
+
+class Device(Backend):
+    """Everything a QPU is, and nothing it is not."""
+
+    name = "example_device"
+    supports_statevector = False        # no amplitudes
+    supports_exact = False              # no shot-free expectation
+
+    def counts(self, spec, shots, seed=None):
+        self._check_bound(spec)
+        # a real provider would submit the circuit here
+        probabilities = np.abs(qk.get_backend("numpy").statevector(spec)) ** 2
+        rng = np.random.default_rng(0 if seed is None else seed)
+        drawn = rng.multinomial(shots, probabilities / probabilities.sum())
+        return {format(i, f"0{spec.n_qubits}b"): int(n) for i, n in enumerate(drawn) if n}
+
+device = Device()
+ansatz = qk.hardware_efficient(3, 2)
+spec, theta = ansatz.build(), ansatz.init(seed=0)
+observable = qk.Z(0) + 0.5 * qk.ZZ(0, 2)
+print(f"sampled expectation {qk.expectation(spec, observable, theta, shots=4096, backend=device):+.3f}")
+```
+
+### What that one method gets you
+
+Everything above it, derived once in the base class:
+
+```python
+thetas = np.random.default_rng(0).uniform(-np.pi, np.pi, (5, ansatz.n_params))
+
+values = qk.expectation_over(spec, thetas, observable, shots=4096, backend=device)
+print(f"batched expectations {values.shape}")
+
+gradients = qk.grad_batch(spec, thetas, observable,
+                          method="parameter-shift", shots=4096, backend=device)
+print(f"batched gradients    {gradients.shape}")
+
+kernel = qk.QuantumKernel(qk.AngleFeatureMap(3), shots=4096, backend=device, seed=0)
+print(f"Gram matrix          {kernel(np.random.default_rng(1).uniform(0, np.pi, (4, 3))).shape}")
+```
+
+Qubit-wise-commuting grouping comes with it, so a four-term observable diagonal in `Z`
+costs one circuit rather than four — on a device, where circuit count is the binding
+constraint, that is the difference between a feasible run and an infeasible one.
+
+`param_shift_grad_batch` matters most here. A shift rule only ever needs the circuit
+*run* at shifted angles, so a whole batch's gradient is one set of evaluations with no
+state inspection anywhere — which on hardware is a single job submission instead of
+`batch x 2P` blocking calls.
+
+### And what it refuses
+
+```python
+for method in ("adjoint", "backprop"):
+    try:
+        qk.grad(spec, theta, observable, method=method, backend=device)
+    except ValueError as error:
+        print(f"{method}: {str(error)[:70]}...")
+```
+
+Both need the statevector, so both refuse and name `parameter-shift` instead. So does
+exact mode:
+
+```python
+try:
+    qk.expectation(spec, observable, theta, backend=device)
+except ValueError as error:
+    print(error)
+```
+
+That is the half of "backend-agnostic" that matters. Anything can *run* everywhere; the
+useful property is that what cannot work is refused by name rather than silently
+computed on a simulator and handed back looking perfect. `backprop` was doing exactly
+that until it was caught by writing this section.
+
+### What is still missing for real hardware
+
+The 0.x line ships no device backend, and the protocol supporting one is a different
+claim from having one. `examples/toward_hardware.py` runs a mock QPU end to end and
+states the four gaps in the order they would bite: **batched submission** (now largely
+in place — `expectation_over_slots` is the call a provider would turn into a job),
+**transpilation and routing**, **error mitigation**, and **asynchronous jobs**. The
+last is the one that would still change the `Backend` protocol.

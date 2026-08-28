@@ -357,6 +357,8 @@ def from_integrals(
         to fit a molecule onto a machine you actually have — ``2 * len(active_space)``
         qubits instead of ``2 * n_orbitals``.
 
+    Notes
+    -----
     This is the general entry point: it never asks where the integrals came from.
     """
     h = np.asarray(one_body, dtype=float)

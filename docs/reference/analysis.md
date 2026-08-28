@@ -34,6 +34,12 @@ Measuring an ansatz rather than asserting things about it: expressibility, entan
 
 ::: qmlkit.generative
 
+## `qmlkit.shadows`
+
+Classical shadows: many observables from few measurements.
+
+::: qmlkit.shadows
+
 ## `qmlkit.utils.shots`
 
 ::: qmlkit.utils.shots

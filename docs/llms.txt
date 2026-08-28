@@ -83,6 +83,7 @@ What is worth knowing before writing any of it:
 - [Ansatz](https://ziadt160.github.io/qmlkit/reference/ansatz/): A block vocabulary, the templates written in it, and re-uploading as a composition.
 - [Kernels](https://ziadt160.github.io/qmlkit/reference/kernels/): Three overlap estimators, Gram matrices that stay positive semi-definite, and the models on top.
 - [PyTorch](https://ziadt160.github.io/qmlkit/reference/nn/): Circuits as nn.Modules, with gradients flowing to the inputs as well as the weights.
+- [Algorithms](https://ziadt160.github.io/qmlkit/reference/algorithms/): Variational algorithms built on the same IR, ansatz vocabulary and gradients as everything else — so an ansatz you registered, a gate you defined, or a backend you wrote works in all of them without any of them knowing about it.
 - [Analysis](https://ziadt160.github.io/qmlkit/reference/analysis/): Measuring an ansatz rather than asserting things about it: expressibility, entanglement, spectra, geometry.
 - [Evaluation](https://ziadt160.github.io/qmlkit/reference/evaluation/): Scoring predictions, handling skewed classes, comparing against classical baselines, costing a run before it starts, and recording what produced a number.
 

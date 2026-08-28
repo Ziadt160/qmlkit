@@ -10,6 +10,7 @@ Generated from the docstrings in the source, so it cannot drift from the code.
 | [Ansatz](ansatz.md) | The block vocabulary, the template zoo, re-uploading |
 | [Kernels](kernels.md) | Overlap estimators, Gram matrices, `QSVC`/`QSVR` |
 | [PyTorch](nn.md) | `QuantumLayer`, `VQC`, structured architectures |
+| [Algorithms](algorithms.md) | VQE, QAOA, ADAPT, chemistry, autoencoders, clustering, RL |
 | [Analysis](analysis.md) | Metrics, Fourier spectra, quantum information, optimisers |
 | [Evaluation](evaluation.md) | Scores, class imbalance, classical baselines, budget, provenance |
 
