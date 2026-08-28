@@ -114,6 +114,8 @@ nav:
       - 3. Regression: studies/03-regression.md
       - 4. Chemistry - H2 ground state: studies/04-chemistry.md
       - 5. Clustering and generative: studies/05-beyond-classification.md
+      - 6. Clinical decisions: studies/06-clinical.md
+      - 7. Images and structure: studies/07-images-and-structure.md
   - Guides:
       - guides/index.md
       - The parameter-shift rule: guides/parameter-shift.md

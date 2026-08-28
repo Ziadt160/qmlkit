@@ -61,6 +61,8 @@ What is worth knowing before writing any of it:
 - [3. Regression](https://ziadt160.github.io/qmlkit/studies/03-regression/): Classification hides a bad model behind accuracy. Regression hides one behind r2, which is scaled by the variance of whatever you happened to sample — so the same model scores differently on a narrow test set and a wide one, and neither number is wrong.
 - [4. Chemistry - H2 ground state](https://ziadt160.github.io/qmlkit/studies/04-chemistry/): Chemistry is the one place quantum computing has a target it can be scored against exactly: diagonalise the Hamiltonian and compare.
 - [5. Clustering and generative](https://ziadt160.github.io/qmlkit/studies/05-beyond-classification/): Accuracy needs labels and a decision. Two large parts of machine learning have neither, and they fail in ways a classification metric cannot describe: a clustering that is beautifully separated and answers the wrong question, and a generative model that assigns zero probability to something that actually happens.
+- [6. Clinical decisions](https://ziadt160.github.io/qmlkit/studies/06-clinical/): Credit risk in study 1 was about a skewed dataset. This one is about something else that no amount of balancing fixes: a false negative and a false positive are not equivalent mistakes, and no single-number metric knows that.
+- [7. Images and structure](https://ziadt160.github.io/qmlkit/studies/07-images-and-structure/): Every other study on this page flattens its data and hands it to a general-purpose ansatz.
 
 ## Guides
 

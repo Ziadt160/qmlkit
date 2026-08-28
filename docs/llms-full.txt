@@ -2034,6 +2034,8 @@ prints rather than the one the author would have preferred.
 | [3. Regression](03-regression.md) | A smooth non-linear target | Why `r2` and `rmse` disagree, and what re-uploading buys |
 | [4. Chemistry: H₂ ground state](04-chemistry.md) | VQE to chemical accuracy | An ansatz that converges confidently to the wrong energy |
 | [5. Clustering and generative models](05-beyond-classification.md) | Unsupervised, and a Born machine | The metrics that exist because accuracy does not apply |
+| [6. Clinical decisions](06-clinical.md) | 569 breast-cancer biopsies, 30 features | When a false negative is not the same error as a false positive |
+| [7. Images and structure](07-images-and-structure.md) | Handwritten digits, a QCNN | Putting the structure of the data into the circuit |
 
 Every code block on these pages runs in CI (`tests/test_docs.py`), so the numbers are
 produced by the code beside them and cannot drift from it.
@@ -2049,10 +2051,16 @@ whether a result means anything:
 4. **What does the metric actually say?** — `evaluate`, with its notes
 5. **Is the number right, and reproducible?** — `selfcheck` and `fingerprint`
 
-The heavier versions live in `examples/` — [`credit_risk.py`](https://github.com/Ziadt160/qmlkit/blob/main/examples/credit_risk.py)
-is the full twelve-step version of study 1 on the real Kaggle table, and
-[`experiments.py`](https://github.com/Ziadt160/qmlkit/blob/main/examples/experiments.py)
-runs H₂, MNIST and breast cancer at full size.
+The heavier versions live in `examples/`, and every study here has one:
+
+| Study | Full-size version |
+|---|---|
+| 1 | [`credit_risk.py`](https://github.com/Ziadt160/qmlkit/blob/main/examples/credit_risk.py) — twelve steps on the real 32,581-row Kaggle table |
+| 4 | [`experiments.py`](https://github.com/Ziadt160/qmlkit/blob/main/examples/experiments.py) experiment 1 — H₂ across a range of bond lengths, checked against dense diagonalisation at each |
+| 6 | `experiments.py` experiment 3 — all 30 clinical features, compared across qubit counts |
+| 7 | `experiments.py` experiment 2 — real MNIST at 784 pixels and eight qubits, with three convolution filters compared |
+
+`experiments.py` takes about twenty minutes; the QCNN is most of it.
 
 
 ==============================================================================
@@ -2636,6 +2644,283 @@ a lookup table solves exactly.
 Which is the point of measuring it against the uniform baseline rather than against
 zero. `total_variation = 0.49` sounds like a result; `0.49 against a 0.625 floor`
 is one.
+
+
+==============================================================================
+# Case studies / 6. Clinical decisions    (source: docs/studies/06-clinical.md)
+==============================================================================
+
+# Study 6 — Clinical data, where the two errors are not the same error
+
+Credit risk in [study 1](01-imbalanced-classification.md) was about a skewed dataset.
+This one is about something else that no amount of balancing fixes: **a false negative
+and a false positive are not equivalent mistakes**, and no single-number metric knows
+that.
+
+Telling a woman with a malignant tumour that she is fine is not the same kind of error
+as calling her back for a second scan. Accuracy scores them identically. So does
+balanced accuracy, and so does F1.
+
+## The data
+
+```python
+# docs: requires sklearn
+import numpy as np
+from sklearn.datasets import load_breast_cancer
+
+import qmlkit as qk
+
+data = load_breast_cancer()
+X, y = data.data, data.target          # 0 = malignant, 1 = benign
+print(f"{X.shape[0]} samples, {X.shape[1]} clinical features")
+print(f"classes {list(data.target_names)}, malignant rate {(y == 0).mean():.3f}")
+```
+
+At 37% malignant this is only mildly imbalanced — `imbalance_report` says as much, and
+correctly does not recommend the remedies study 1 needed:
+
+```python
+# docs: requires sklearn
+report = qk.imbalance.imbalance_report(y)
+print(report if report else "nothing to report: the classes are close enough to even")
+```
+
+That is the point of the report being falsy when it finds nothing. The skew is not the
+problem here; the **asymmetry of the costs** is, and no diagnostic can infer that from
+the labels. It comes from the domain.
+
+## Train it
+
+```python
+# docs: requires torch
+# docs: requires sklearn
+import torch
+
+train, test = qk.imbalance.stratified_split(y, test_size=0.3, seed=0)
+pipeline = qk.FeaturePipeline(n_qubits=4).fit(X[train])
+Xtr, Xte = pipeline.transform(X[train]), pipeline.transform(X[test])
+print(f"30 features -> 4 angles, {pipeline.explained_variance_:.0%} of the variance")
+
+torch.manual_seed(0)
+model = qk.VQC(n_features=4, n_classes=2, n_qubits=4, n_layers=3, seed=0)
+model.fit(Xtr, y[train], epochs=25, lr=0.08, batch_size=256)
+
+scores = qk.evaluate.classification(y[test], model.predict(Xte))
+print(f"accuracy {scores['accuracy']:.3f}   balanced {scores['balanced_accuracy']:.3f}")
+```
+
+Around 0.93 either way. A good-looking result, and on its own it does not tell you
+whether the model is safe to use.
+
+## The number that actually matters
+
+```python
+# docs: requires torch
+# docs: requires sklearn
+per_class = scores.extras["per_class"]
+malignant = per_class["0"]
+print(f"malignant recall {malignant['recall']:.3f} "
+      f"on {malignant['support']} malignant cases")
+print(f"malignant precision {malignant['precision']:.3f}")
+print("\nconfusion matrix (rows = truth, columns = prediction):")
+print(scores.extras["confusion_matrix"])
+```
+
+The confusion matrix is where the model stops being a score. The top-right entry —
+malignant cases predicted benign — is roughly **five patients** out of sixty-four.
+Accuracy 0.93 and *five missed cancers* are the same model.
+
+`qk.evaluate.classification` hands back `per_class`, `support` and the confusion matrix
+alongside the summary metrics for exactly this reason. The summary is what you report;
+the breakdown is what you decide on.
+
+## Moving the operating point
+
+Nothing above is fixed. The model outputs probabilities, and the threshold is a policy
+choice rather than a modelling one:
+
+```python
+# docs: requires torch
+# docs: requires sklearn
+probabilities = model.predict_proba(Xte)[:, 0]          # P(malignant)
+print(f"{'threshold':>10}{'malignant recall':>19}{'false alarms':>15}")
+for threshold in (0.5, 0.35, 0.2):
+    predicted = np.where(probabilities > threshold, 0, 1)
+    s = qk.evaluate.classification(y[test], predicted)
+    recall = s.extras["per_class"]["0"]["recall"]
+    false_alarms = int(((predicted == 0) & (y[test] == 1)).sum())
+    print(f"{threshold:>10.2f}{recall:>19.3f}{false_alarms:>15}")
+```
+
+Lowering the threshold catches more cancers and calls back more healthy patients.
+There is no setting that does both, and the library will not pick for you — that is a
+clinical decision with a cost ratio attached, and a library that chose silently would
+be making it on your behalf.
+
+`average_precision` is the summary to quote when the threshold is not fixed, because it
+integrates over all of them:
+
+```python
+# docs: requires torch
+# docs: requires sklearn
+full = qk.evaluate.classification(y[test], model.predict(Xte), model.predict_proba(Xte))
+print(f"average_precision {full['average_precision']:.3f}   roc_auc {full['roc_auc']:.3f}")
+```
+
+## The verdict
+
+```python
+# docs: requires torch
+# docs: requires sklearn
+Xq = qk.FeaturePipeline(n_qubits=4).fit(X).transform(X)
+table = qk.baseline(Xq, y, cv=3, seed=0,
+                    include=["majority", "logistic", "random-forest"])
+print(table.verdict)
+```
+
+A logistic regression on the same four components is hard to beat here, which is the
+expected outcome and worth stating. The study's contribution is not the model. It is
+that **the metric was chosen from the decision the model feeds**, not from the shape of
+the data — and that the library gives you the confusion matrix and the threshold sweep
+without being asked twice.
+
+The full-size version, on all 30 features with a per-qubit comparison, is experiment 3
+in [`examples/experiments.py`](https://github.com/Ziadt160/qmlkit/blob/main/examples/experiments.py).
+
+
+==============================================================================
+# Case studies / 7. Images and structure    (source: docs/studies/07-images-and-structure.md)
+==============================================================================
+
+# Study 7 — Image data, and putting the structure in the circuit
+
+Every other study on this page flattens its data and hands it to a general-purpose
+ansatz. Images are the case where that is obviously wasteful: neighbouring pixels are
+related, and a circuit that treats all wires as interchangeable has to learn that from
+scratch with parameters it did not need to spend.
+
+A quantum convolutional network builds the assumption in — a two-qubit filter slid
+across the register, then a pooling layer halving the width, repeated until one wire
+carries the answer.
+
+## The data
+
+```python
+# docs: requires sklearn
+import numpy as np
+from sklearn.datasets import load_digits
+
+import qmlkit as qk
+
+digits = load_digits()
+keep = (digits.target == 0) | (digits.target == 1)
+X, y = digits.data[keep], digits.target[keep]
+print(f"{X.shape[0]} images, {X.shape[1]} pixels (8x8), classes 0 and 1")
+
+train, test = qk.imbalance.stratified_split(y, test_size=0.3, seed=0)
+pipeline = qk.FeaturePipeline(n_qubits=4).fit(X[train])
+Xtr, Xte = pipeline.transform(X[train]), pipeline.transform(X[test])
+print(f"64 pixels -> 4 angles, {pipeline.explained_variance_:.0%} of the variance")
+```
+
+The full-size version uses real MNIST at 784 pixels and eight qubits — experiment 2 in
+[`examples/experiments.py`](https://github.com/Ziadt160/qmlkit/blob/main/examples/experiments.py).
+It needs a download, so this page uses the bundled 8×8 digits instead.
+
+## The architecture
+
+`QCNNLayer` is a torch module, so it composes with ordinary layers:
+
+```python
+# docs: requires torch
+# docs: requires sklearn
+import torch
+from torch import nn
+
+from qmlkit.nn.advanced import QCNNLayer
+
+torch.manual_seed(0)
+layer = QCNNLayer(4, filter="su4", tie_weights=True, init_seed=0).double()
+model = nn.Sequential(layer, nn.Linear(1, 2).double())
+print(f"{sum(p.numel() for p in model.parameters())} parameters in total")
+```
+
+**`tie_weights=True` is the convolution.** One filter block is reused at every position
+rather than learning an independent block per pair, which is what makes it a
+convolution and not just a sparse ansatz. It is also the case the gradient code has to
+get right: one logical parameter drives several gates, so the derivative is the sum
+over occurrences, each shifted on its own. Shifting them together computes something
+else entirely.
+
+```python
+# docs: requires torch
+# docs: requires sklearn
+spec = layer.ansatz.build() if hasattr(layer, "ansatz") else None
+print("weight tying means one parameter, several gates — see the parameter-shift guide")
+```
+
+## The filter is a choice, and it is measurable
+
+```python
+print(qk.list_conv_filters())
+```
+
+Four are registered, and `register_conv_filter` adds your own. They are shared with
+`mps_ansatz` and `tree_tensor_network`, since all three slide the same two-qubit block.
+
+A name that is not one of them is refused with the right one rather than accepted:
+
+```python
+try:
+    QCNNLayer(4, filter="ry_cz")
+except Exception as error:
+    print(error)
+```
+
+## Train it
+
+```python
+# docs: requires torch
+# docs: requires sklearn
+inputs = torch.tensor(Xtr[:150])
+targets = torch.tensor(y[train][:150], dtype=torch.long)
+optimiser = torch.optim.Adam(model.parameters(), lr=0.15)
+criterion = nn.CrossEntropyLoss()
+
+for _ in range(12):
+    optimiser.zero_grad()
+    criterion(model(inputs), targets).backward()
+    optimiser.step()
+
+with torch.no_grad():
+    predicted = model(torch.tensor(Xte)).argmax(1).numpy()
+scores = qk.evaluate.classification(y[test], predicted)
+print(f"balanced accuracy {scores['balanced_accuracy']:.3f} "
+      f"on {scores.n_samples} held-out images")
+```
+
+Around 0.93 from roughly thirty parameters — the parameter count is the interesting
+number, not the accuracy. A dense ansatz on four qubits with comparable depth carries
+several times as many, and 0 vs 1 is a problem a linear model solves perfectly:
+
+```python
+# docs: requires sklearn
+table = qk.baseline(np.vstack([Xtr, Xte]), np.concatenate([y[train], y[test]]),
+                    cv=3, seed=0, include=["majority", "logistic"])
+print(table)
+```
+
+## What this study is actually for
+
+Not the accuracy. It is that **structure in the data can be structure in the circuit**,
+and that the library makes that a one-line choice — `filter=`, `tie_weights=` — rather
+than a rewrite. The same block vocabulary builds `mps_ansatz` and
+`tree_tensor_network`, and `qk.compare_ansatze` will score them side by side on
+expressibility, entanglement and gradient variance before any of them is trained.
+
+The honest caveat is the one every study here shares: MNIST 0 vs 1 is separable by a
+linear model, so nothing below is evidence of advantage. It is evidence that the
+architecture can be expressed, trained, and measured without leaving the library.
 
 
 ==============================================================================

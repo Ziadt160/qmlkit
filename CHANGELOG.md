@@ -8,7 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 First release.
 
-### Added — five worked case studies
+### Added — seven worked case studies
 
 `docs/studies/` — whole problems from raw data to a defensible number, on a different
 axis from the tutorials: those show how each piece works, these show a problem being
@@ -26,6 +26,17 @@ decided.
    `-1.137306` exactly. Nothing raises in either case.
 5. **Clustering and generative models** — the metrics that exist because accuracy does
    not apply, including why total variation is the primary and KL is not.
+6. **Clinical decisions** — breast-cancer biopsies, where a false negative and a false
+   positive are not the same error and no single-number metric knows it. Accuracy 0.93
+   and five missed cancers are the same model; the confusion matrix and a threshold
+   sweep are what you decide on.
+7. **Images and structure** — a QCNN on handwritten digits: weight tying is what makes
+   it a convolution rather than a sparse ansatz, and the filter is a registry choice
+   that `compare_ansatze` scores before anything is trained.
+
+Studies 6 and 7 are the documented forms of experiments 3 and 2 in
+`examples/experiments.py`, which predate the credit-risk work and had no home in the
+documentation. The index now maps every study to its full-size example.
 
 Every code block runs in CI like the rest of the documentation, so the numbers are
 produced by the code beside them. Most of the studies end with the quantum model
