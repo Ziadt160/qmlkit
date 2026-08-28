@@ -2593,6 +2593,53 @@ whether the quantum kernel reaches a geometry the classical one cannot. A large
 geometric difference with no accuracy gain is a real finding; a small one says the
 classical kernel was always going to be enough.
 
+## Sweeping everything tunable
+
+`qk.search` takes any axis as a list and leaves the rest at its default:
+
+```python
+# docs: requires torch
+import qmlkit as qk
+
+X, y = qk.datasets.make_moons(n_samples=60, seed=0)
+result = qk.search(X, y, n_layers=[1, 2], lr=[0.05, 0.15], epochs=8, cv=2, verbose=False)
+print(result.verdict)
+```
+
+Ansätze and feature maps are named through the registries, so anything you registered
+with `register_ansatz` or `register_feature_map` joins the grid with no special
+handling. `qk.AXES` lists every axis; a name outside it is an error with a suggestion,
+because a typo'd axis is a sweep that silently varies nothing.
+
+### It skips what the diagnostics already condemn
+
+This is the part a grid search cannot normally do. Before fitting anything, each
+assembled model goes through [`qk.diagnose`](#is-the-number-right-and-can-anyone-reproduce-it),
+and configurations that are already broken are reported with their reason instead of
+costing a full fit and then sitting in the table looking merely unlucky:
+
+```python
+# docs: requires torch
+import numpy as np
+
+rng = np.random.default_rng(0)
+Xw = rng.uniform(0, np.pi, (60, 4))
+yw = (Xw[:, 0] + Xw[:, 1] > np.pi).astype(int)
+plan = qk.search(Xw, yw, ansatz=["hardware_efficient", "basic_entangler"],
+                 n_layers=[2, 3], cv=2, dry_run=True, prune="untrainable")
+print(len(plan.pruned), "of", len(plan.rows), "skipped before fitting")
+```
+
+Pruning is by finding *code*, not severity — `DEAD_WEIGHTS` is a warning meaning
+"wasteful" while `FLAT_GRADIENTS` is a warning meaning "cannot learn". `prune="error"`
+is the default and skips only what cannot work at all; `"untrainable"` adds flat
+gradients; `"warning"` is aggressive enough to empty a grid, since
+`hardware_efficient` carries an `UNMEASURABLE_WEIGHTS` finding by construction. Every
+configuration is diagnosed either way, and its findings print beside its score.
+
+`dry_run=True` builds and prunes the grid without fitting anything, so a sweep that
+would take a week is something you learn in a second.
+
 ## Before the run: what it will cost
 
 `qk.plan` computes the circuit budget from the ansatz, the training set size and
@@ -3143,6 +3190,8 @@ The guide is [Evaluating a quantum model honestly](../guides/evaluation.md).
 
 ## `qmlkit.imbalance`
 
+## `qmlkit.search`
+
 ## `qmlkit.baselines`
 
 ## `qmlkit.budget`
@@ -3373,6 +3422,8 @@ If you find something that broke without a deprecation, that is a bug — please
 # API reference    (generated from the package)
 ==============================================================================
 
+AXES
+    dict() -> new empty dictionary
 class AngleFeatureMap(n_features: 'int', rotation: 'str' = 'ry', entangle: 'bool' = True, entanglement: 'str' = 'chain', reps: 'int' = 1) -> 'None'
     One rotation per feature, optionally followed by an entangling layer.
 class AngleScaler(lo: 'float' = 0.0, hi: 'float' = 6.283185307179586, data_min: 'npt.NDArray[Any] | None' = None, data_max: 'npt.NDArray[Any] | None' = None) -> None
@@ -3467,6 +3518,10 @@ class RotationLayer(gates: 'str | Sequence[str]' = ('ry',), wires: 'Sequence[int
     One trainable rotation per gate per active wire.
 class SPSASchedule(a: 'float' = 0.2, c: 'float' = 0.1, A: 'float | None' = None, alpha: 'float' = 0.602, gamma: 'float' = 0.101, n_iterations: 'int' = 100) -> 'None'
     Spall's decay schedules for the step size and the perturbation size.
+class SearchResult(task: 'str', metric: 'str', n_samples: 'int', n_folds: 'int', varied: 'tuple[str, ...]', rows: 'tuple[SearchRow, ...]' = (), notes: 'tuple[str, ...]' = (), extras: 'dict[str, Any]' = <factory>) -> None
+    Every configuration on identical folds, best first.
+class SearchRow(config: 'dict[str, Any]', mean: 'float' = nan, std: 'float' = nan, fold_scores: 'tuple[float, ...]' = (), pruned: 'str' = '', seconds: 'float' = 0.0, findings: 'tuple[str, ...]' = (), fitted: 'bool' = True) -> None
+    One configuration's outcome: a score, or the reason it was never fitted.
 class ShiftRule(shifts: 'tuple[float, ...]', coeffs: 'tuple[float, ...]', unshifted_coeff: 'float' = 0.0) -> None
     ``f'(theta) = sum_i coeffs[i] * f(theta + shifts[i])`` (+ an unshifted term).
 class SklearnCompatible()
@@ -3629,6 +3684,7 @@ def list_backends() -> 'tuple[str, ...]'
 def list_baselines(task: 'str | None' = None) -> 'tuple[str, ...]'
     Registered baseline names, optionally filtered to one task.
 def list_conv_filters() -> 'tuple[str, ...]'
+def list_feature_maps() -> 'tuple[str, ...]'
 def list_gates() -> 'tuple[str, ...]'
 def list_gradient_methods() -> 'tuple[str, ...]'
 def list_importers() -> 'tuple[str, ...]'
@@ -3689,6 +3745,8 @@ def register_baseline(name: 'str', task: 'str', factory: 'Callable[[], Any]', re
     Add a baseline, so it appears in every table for that task from now on.
 def register_conv_filter(name: 'str', fn: 'ConvFilter', n_params: 'int') -> 'None'
     Make a two-qubit filter reachable by name from :func:`conv_block`.
+def register_feature_map(name: 'str', factory: 'Callable[..., FeatureMap]') -> 'None'
+    Make a feature map reachable by name, here and in every later search.
 def register_gate(gate: 'GateDef') -> 'GateDef'
     Add a gate to the registry. Re-registering the same name is an error.
 def register_gradient(name: 'str', fn: 'GradFn | None' = None) -> 'Callable[[GradFn], GradFn] | GradFn'
@@ -3705,6 +3763,8 @@ def rule_for_gate(gate: 'str') -> 'ShiftRule'
     Look the rule up from the gate's declared generator frequencies.
 def run_counts(spec: 'CircuitSpec', shots: 'int' = 8192, theta: 'ArrayLike | None' = None, backend: 'BackendLike' = None, seed: 'int | None' = None) -> 'dict[str, int]'
     Sample the computational basis. Keys are ``n_qubits``-wide bitstrings.
+def search(X: 'Any', y: 'Any', task: 'str' = 'auto', cv: 'int' = 3, metric: 'str | None' = None, seed: 'int | None' = 0, prune: 'str | Sequence[str]' = 'error', max_configs: 'int | None' = None, dry_run: 'bool' = False, verbose: 'bool' = True, **axes: 'Any') -> 'SearchResult'
+    Sweep every tunable axis, skipping the configurations that cannot work.
 def selfcheck(spec: 'CircuitSpec', theta: 'ArrayLike', obs: 'Observable', backend: 'Any' = None, cross_backend: 'bool' = True) -> 'Any'
     Compute this circuit's value and gradient every available way, and compare.
 def set_default_backend(backend: 'str | Backend', **kwargs: 'object') -> 'Backend'

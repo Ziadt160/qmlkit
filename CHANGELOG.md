@@ -8,6 +8,48 @@ All notable changes to this project are documented here. The format follows
 
 First release.
 
+### Added — `qk.search`, a grid search that skips what cannot work
+
+    best = qk.search(X, y, ansatz=["hardware_efficient", "strongly_entangling"],
+                     n_layers=[2, 3], lr=[0.05, 0.15], class_weight=["balanced"])
+
+Every axis takes a list; anything left out keeps its default. Ansätze and feature maps
+are named through the registries, so a custom one registered with `register_ansatz` or
+the new `register_feature_map` joins the grid without any special handling.
+
+**Before fitting anything it runs `diagnose` on each assembled model** and skips the
+ones already condemned, reporting the reason instead of ranking them last. On the moons
+grid that removes a `basic_entangler` configuration whose `d<Z0>/dtheta_0` is exactly
+zero — a full fit, and a row in the results table that would otherwise have looked
+merely unlucky.
+
+Pruning is by finding **code**, not severity, because severity is the wrong axis here:
+`DEAD_WEIGHTS` and `UNMEASURABLE_WEIGHTS` are warnings that mean *wasteful* and
+`FLAT_GRADIENTS` is a warning that means *cannot learn*. `prune="error"` (default) skips
+only what cannot work at all, `"untrainable"` adds flat gradients, `"warning"` is
+aggressive enough to empty a grid — `hardware_efficient` carries an
+`UNMEASURABLE_WEIGHTS` finding by construction — and an explicit list of codes works
+too. Every configuration is diagnosed either way and its findings print beside its
+score, because a point that scores well *and* carries `DEAD_WEIGHTS` is worth seeing as
+exactly that.
+
+The rest follows the library's existing habits: identical folds for every
+configuration, the imbalance-aware metric for the task, and a verdict that refuses to
+call a winner when the lead is inside the fold spread. `dry_run=True` builds and prunes
+the grid without fitting anything. `n_qubits` defaults to one per feature rather than a
+fixed number, since a feature pipeline can drop columns but cannot invent them, and a
+typo'd axis name is an error with a suggestion rather than a sweep that silently varies
+nothing.
+
+### Fixed — the flat-gradient probe read a different circuit from the dead-weight probe
+
+Making `diagnose` prefix-aware left `gradient_variance` probing the *bare* ansatz while
+the dead-weight check used the composed one. It then picked weight 0 — live with an
+encoding in front, dead from `|0>` — and reported a barren plateau that was really a
+dead parameter. `strongly_entangling` inside a `VQC` was wrongly flagged
+`FLAT_GRADIENTS`; it now reports only the `UNMEASURABLE_WEIGHTS` it actually has. Both
+probes now read the same circuit.
+
 ### Fixed — `diagnose` now reads the circuit the caller actually runs
 
 `diagnose(model)` analysed the model's *ansatz standing alone*, starting from `|0>`.

@@ -13,6 +13,10 @@ The guide is [Evaluating a quantum model honestly](../guides/evaluation.md).
 
 ::: qmlkit.imbalance
 
+## `qmlkit.search`
+
+::: qmlkit.search
+
 ## `qmlkit.baselines`
 
 ::: qmlkit.baselines

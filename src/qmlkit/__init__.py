@@ -203,6 +203,14 @@ from qmlkit.optim import (
     rotosolve_step,
 )
 from qmlkit.provenance import Fingerprint, fingerprint, selfcheck
+from qmlkit.search import (
+    AXES,
+    SearchResult,
+    SearchRow,
+    list_feature_maps,
+    register_feature_map,
+    search,
+)
 from qmlkit.utils.shots import (
     p0_from_z,
     shots_for_precision,
@@ -304,6 +312,13 @@ __all__ = [
     "register_baseline",
     "list_baselines",
     "get_baseline",
+    # search
+    "search",
+    "SearchResult",
+    "SearchRow",
+    "AXES",
+    "register_feature_map",
+    "list_feature_maps",
     # interop
     "from_qasm",
     "from_qiskit",

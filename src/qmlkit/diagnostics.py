@@ -266,6 +266,45 @@ def _encoding_collapses(ansatz: Ansatz) -> tuple[int, str] | None:
     return (uploads, encoding) if rotations and rotations <= {encoding} else None
 
 
+def _weight_gradient_variance(
+    ansatz: Ansatz,
+    obs: Observable | None,
+    *,
+    param_index: int,
+    n_samples: int,
+    seed: int | None,
+    backend: BackendLike,
+    prefix: CircuitSpec | None = None,
+) -> float:
+    """Variance of one weight's gradient, over the circuit the model actually runs.
+
+    :func:`~qmlkit.metrics.gradient_variance` probes the ansatz alone, which is right
+    for a bare ansatz and wrong for a model: a weight can be dead from ``|0>`` and live
+    once data is encoded in front of it, and probing the wrong one turns a dead
+    parameter into a reported barren plateau.
+    """
+    if prefix is None:
+        return gradient_variance(
+            ansatz, obs, n_samples=n_samples, param_index=param_index, seed=seed,
+            backend=backend,
+        )
+
+    from qmlkit.gradients.dispatch import grad
+
+    observable = Z(0) if obs is None else obs
+    rng = np.random.default_rng(seed)
+    offset = prefix.n_params
+    spec = prefix.compose(ansatz.build(), param_offset=offset)
+    values = [
+        float(
+            grad(spec, rng.uniform(-np.pi, np.pi, offset + ansatz.n_params), observable,
+                 backend=backend)[offset + param_index]
+        )
+        for _ in range(n_samples)
+    ]
+    return float(np.var(values))
+
+
 def _diagnose_ansatz(
     ansatz: Ansatz,
     *,
@@ -387,13 +426,18 @@ def _diagnose_ansatz(
         i for i in range(ansatz.n_inputs, ansatz.n_params) if i not in set(dead.tolist())
     ]
     if live_weights:
-        var = gradient_variance(
+        # The variance must be measured on the *same* circuit the dead check used.
+        # Probing the bare ansatz while `dead` was computed with an encoding in front
+        # picks a weight that is live in one circuit and dead in the other, and then
+        # reports a barren plateau that is really just a dead parameter.
+        var = _weight_gradient_variance(
             ansatz,
             obs,
-            n_samples=max(20, n_samples),
             param_index=live_weights[0],
+            n_samples=max(20, n_samples),
             seed=seed,
             backend=backend,
+            prefix=prefix,
         )
         if 0.0 < var < _FLAT:
             budget = shots_for_precision(float(np.sqrt(var)))

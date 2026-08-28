@@ -128,6 +128,53 @@ whether the quantum kernel reaches a geometry the classical one cannot. A large
 geometric difference with no accuracy gain is a real finding; a small one says the
 classical kernel was always going to be enough.
 
+## Sweeping everything tunable
+
+`qk.search` takes any axis as a list and leaves the rest at its default:
+
+```python
+# docs: requires torch
+import qmlkit as qk
+
+X, y = qk.datasets.make_moons(n_samples=60, seed=0)
+result = qk.search(X, y, n_layers=[1, 2], lr=[0.05, 0.15], epochs=8, cv=2, verbose=False)
+print(result.verdict)
+```
+
+Ansätze and feature maps are named through the registries, so anything you registered
+with `register_ansatz` or `register_feature_map` joins the grid with no special
+handling. `qk.AXES` lists every axis; a name outside it is an error with a suggestion,
+because a typo'd axis is a sweep that silently varies nothing.
+
+### It skips what the diagnostics already condemn
+
+This is the part a grid search cannot normally do. Before fitting anything, each
+assembled model goes through [`qk.diagnose`](#is-the-number-right-and-can-anyone-reproduce-it),
+and configurations that are already broken are reported with their reason instead of
+costing a full fit and then sitting in the table looking merely unlucky:
+
+```python
+# docs: requires torch
+import numpy as np
+
+rng = np.random.default_rng(0)
+Xw = rng.uniform(0, np.pi, (60, 4))
+yw = (Xw[:, 0] + Xw[:, 1] > np.pi).astype(int)
+plan = qk.search(Xw, yw, ansatz=["hardware_efficient", "basic_entangler"],
+                 n_layers=[2, 3], cv=2, dry_run=True, prune="untrainable")
+print(len(plan.pruned), "of", len(plan.rows), "skipped before fitting")
+```
+
+Pruning is by finding *code*, not severity — `DEAD_WEIGHTS` is a warning meaning
+"wasteful" while `FLAT_GRADIENTS` is a warning meaning "cannot learn". `prune="error"`
+is the default and skips only what cannot work at all; `"untrainable"` adds flat
+gradients; `"warning"` is aggressive enough to empty a grid, since
+`hardware_efficient` carries an `UNMEASURABLE_WEIGHTS` finding by construction. Every
+configuration is diagnosed either way, and its findings print beside its score.
+
+`dry_run=True` builds and prunes the grid without fitting anything, so a sweep that
+would take a week is something you learn in a second.
+
 ## Before the run: what it will cost
 
 `qk.plan` computes the circuit budget from the ansatz, the training set size and
