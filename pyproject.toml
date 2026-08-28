@@ -45,7 +45,10 @@ viz = ["matplotlib>=3.5"]
 dev = [
   "pytest>=7",
   "pytest-cov>=4",
-  "ruff>=0.5",
+  # Pinned to a minor: `ruff format` changes its mind between releases, and CI runs
+  # `ruff format --check` as a gate. An unpinned range turned that gate red across 18
+  # untouched files without a commit going near them.
+  "ruff>=0.15,<0.16",
   "mypy>=1.8",
   "hypothesis>=6",
 ]
