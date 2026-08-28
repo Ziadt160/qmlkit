@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added - `from_cirq`
+
+The fourth importer, completing the set: `from_qasm`, `from_qiskit`, `from_pennylane`,
+`from_cirq`. Cirq is the one with no gate names to look up - `cirq.S`, `cirq.T` and
+`cirq.rz` are all a `ZPowGate` separated only by exponent and `global_shift` - so it
+classifies gates rather than reading a table, and `global_shift` is read rather than
+ignored because it is a global phase alone and a *relative* one inside a controlled
+block. `sympy` symbols become `ParamRef`s carrying their scale, so `cirq.rx(2 * t)`
+imports as `ParamRef(i, scale=2.0)` and binding reproduces `cirq.resolve_parameters`
+exactly. Nonlinear expressions and fractional two-qubit powers are refused, not
+approximated; `X**s` decomposes to `Rx` with the dropped-phase warning the `u3` family
+already uses. Cirq is big-endian like qmlkit, asserted on statevectors over random
+circuits rather than assumed, and every gate `to_cirq` emits is asserted to come back.
+
 ### Added - mixed-state backends
 
 Two backends that evolve a density matrix and take a noise model: **`cirq-density`**

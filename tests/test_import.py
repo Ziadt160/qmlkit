@@ -28,8 +28,8 @@ def _asymmetric(n_qubits: int = 3) -> qk.CircuitSpec:
     qc = qk.QCircuit(n_qubits)
     qc.h(0)
     qc.ry(1, 0.7)
-    qc.cx(0, 2)          # control and target on different ends
-    qc.crz(2, 1, 1.1)    # control > target, so a flip would be visible
+    qc.cx(0, 2)  # control and target on different ends
+    qc.crz(2, 1, 1.1)  # control > target, so a flip would be visible
     qc.rz(0, -0.4)
     qc.swap(0, 1)
     return qc.to_spec()
@@ -80,9 +80,7 @@ rz(0.3) q[0];
     # qmlkit is big-endian, Qiskit little-endian: the importer already flipped the
     # wires, so comparing amplitudes means undoing that on Qiskit's index instead
     n = 3
-    reordered = np.array(
-        [theirs[int(format(i, f"0{n}b")[::-1], 2)] for i in range(2**n)]
-    )
+    reordered = np.array([theirs[int(format(i, f"0{n}b")[::-1], 2)] for i in range(2**n)])
     assert np.allclose(ours, reordered, atol=1e-12)
 
 
@@ -152,7 +150,7 @@ def test_u3_matches_qiskit_up_to_a_global_phase():
     qiskit = pytest.importorskip("qiskit")
     from qiskit.quantum_info import Statevector
 
-    qasm = "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[1];\nu3(0.3,0.4,0.5) q[0];\n"
+    qasm = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[1];\nu3(0.3,0.4,0.5) q[0];\n'
     with pytest.warns(UserWarning):
         ours = _state(from_qasm(qasm))
     theirs = np.asarray(Statevector(qiskit.QuantumCircuit.from_qasm_str(qasm)))
@@ -218,7 +216,7 @@ def test_qiskit_unbound_parameters_become_paramrefs_in_qiskits_own_order():
     assert refs["rz"] == index["beta"]
 
     # and the parameters actually drive the circuit
-    value = qk.expectation(spec, qk.Z(1), [0.0, 0.0])   # qiskit qubit 0 -> qmlkit 1
+    value = qk.expectation(spec, qk.Z(1), [0.0, 0.0])  # qiskit qubit 0 -> qmlkit 1
     assert value == pytest.approx(1.0)
     assert qk.expectation(spec, qk.Z(1), [np.pi, 0.0]) == pytest.approx(-1.0)
 
@@ -339,3 +337,196 @@ def test_registering_an_importer_makes_it_reachable():
 def test_unknown_importer_suggests_a_real_one():
     with pytest.raises(KeyError, match="qasm"):
         qk.get_importer("qsam")
+
+
+# --------------------------------------------------------------------------- #
+# Cirq
+#
+# Cirq is the importer with no gate names to look up. `cirq.S`, `cirq.T` and
+# `cirq.rz` are all a ZPowGate, separated only by exponent and global_shift, so the
+# classification is where this one can go wrong rather than the table.
+# --------------------------------------------------------------------------- #
+@pytest.mark.cirq
+def test_cirq_round_trip_reproduces_the_statevector():
+    spec = _asymmetric()
+    import qmlkit as _qk
+
+    back = qk.from_cirq(_qk.get_backend("cirq").to_cirq(spec))
+    assert _state(back) == pytest.approx(_state(spec), abs=1e-12)
+
+
+@pytest.mark.cirq
+@pytest.mark.parametrize("n_qubits", [1, 2, 3, 4])
+def test_cirq_round_trip_over_random_circuits(n_qubits):
+    """Hand-picked cases confirm what the author already believed."""
+    rng = np.random.default_rng(n_qubits)
+    backend = qk.get_backend("cirq")
+    for _ in range(10):
+        ansatz = qk.hardware_efficient(n_qubits, int(rng.integers(1, 4)))
+        spec = ansatz.build(rng.uniform(-np.pi, np.pi, ansatz.n_params))
+        back = qk.from_cirq(backend.to_cirq(spec))
+        assert _state(back) == pytest.approx(_state(spec), abs=1e-12)
+
+
+@pytest.mark.cirq
+def test_cirq_every_gate_qmlkit_emits_comes_back():
+    """A gate qmlkit can write to Cirq but not read is a one-way door."""
+    import cirq
+
+    from qmlkit.core.backends.cirq_backend import _gate_factories
+
+    qubits = cirq.LineQubit.range(2)
+    for name, factory in _gate_factories().items():
+        gate = factory(0.7) if factory.__code__.co_argcount else factory()
+        op = gate.on(*qubits[: gate.num_qubits()])
+        assert qk.from_cirq(cirq.Circuit([op])).ops[0].gate == name
+
+
+@pytest.mark.cirq
+def test_cirq_agrees_with_cirqs_own_simulator_on_a_native_circuit():
+    """Not a round trip: a circuit Cirq users would write, including a Z power."""
+    import cirq
+
+    qubits = cirq.LineQubit.range(3)
+    circuit = cirq.Circuit(
+        [
+            cirq.H(qubits[0]),
+            cirq.CNOT(qubits[0], qubits[2]),
+            cirq.S(qubits[1]),
+            cirq.T(qubits[0]),
+            cirq.rz(0.4).on(qubits[2]),
+            cirq.Z(qubits[0]) ** 0.3,
+            cirq.SWAP(qubits[0], qubits[1]),
+        ]
+    )
+    theirs = cirq.Simulator(dtype=np.complex128).simulate(circuit, qubit_order=qubits)
+    mine = _state(qk.from_cirq(circuit))
+    assert mine == pytest.approx(np.asarray(theirs.final_state_vector), abs=1e-12)
+
+
+@pytest.mark.cirq
+def test_cirq_wire_order_matches_without_flipping():
+    """Cirq is big-endian like qmlkit. Asserted, because a flip still runs."""
+    import cirq
+
+    qubits = cirq.LineQubit.range(2)
+    # the identity is load-bearing: Cirq has no register, so a qubit no operation
+    # touches is simply not in the circuit
+    circuit = cirq.Circuit([cirq.X(qubits[0]), cirq.I(qubits[1])])  # |10>, not |01>
+    probabilities = np.abs(_state(qk.from_cirq(circuit))) ** 2
+    assert probabilities[0b10] == pytest.approx(1.0)
+
+
+@pytest.mark.cirq
+def test_cirq_untouched_qubits_are_not_in_the_register():
+    """Cirq has no declared register, so the width comes from what is acted on.
+
+    Worth pinning rather than discovering: a Qiskit circuit carries idle qubits and a
+    Cirq one does not, so the same logical circuit imports at different widths.
+    """
+    import cirq
+
+    circuit = cirq.Circuit([cirq.X(cirq.LineQubit(0))])
+    assert qk.from_cirq(circuit).n_qubits == 1
+    padded = cirq.Circuit([cirq.X(cirq.LineQubit(0)), cirq.I(cirq.LineQubit(1))])
+    assert qk.from_cirq(padded).n_qubits == 2
+
+
+@pytest.mark.cirq
+def test_cirq_qubits_are_numbered_by_cirqs_own_sort_order():
+    """A gap in the qubit line is closed up, the way Cirq's simulator closes it."""
+    import cirq
+
+    circuit = cirq.Circuit([cirq.X(cirq.LineQubit(5)), cirq.H(cirq.LineQubit(2))])
+    spec = qk.from_cirq(circuit)
+    assert spec.n_qubits == 2
+    # both ops share one moment, so their order is Cirq's; the mapping is what matters
+    assert dict((op.gate, op.qubits) for op in spec.ops) == {"h": (0,), "x": (1,)}
+
+
+@pytest.mark.cirq
+def test_cirq_symbols_become_paramrefs_carrying_their_scale():
+    """`cirq.rx(2 * t)` is exponent `2*t/pi`; ParamRef is scale * theta + offset."""
+    import cirq
+    import sympy
+
+    from qmlkit.core.ir import ParamRef
+
+    t, u = sympy.symbols("t u")
+    qubits = cirq.LineQubit.range(2)
+    circuit = cirq.Circuit(
+        [cirq.rx(t).on(qubits[0]), cirq.ry(2 * u).on(qubits[1]), cirq.CZ(*qubits)]
+    )
+    spec = qk.from_cirq(circuit)
+
+    assert spec.n_params == 2
+    assert not spec.is_bound
+    assert spec.ops[0].params == (ParamRef(0, scale=1.0),)
+    assert spec.ops[1].params == (ParamRef(1, scale=2.0),)
+
+    # sorted symbol names are t, u - and binding must reproduce Cirq's own resolution
+    theta = np.array([0.3, 0.5])
+    theirs = cirq.Simulator(dtype=np.complex128).simulate(
+        cirq.resolve_parameters(circuit, {"t": 0.3, "u": 0.5}), qubit_order=qubits
+    )
+    assert _state(spec.bind(theta)) == pytest.approx(
+        np.asarray(theirs.final_state_vector), abs=1e-12
+    )
+
+
+@pytest.mark.cirq
+def test_cirq_nonlinear_parameter_expressions_are_refused_clearly():
+    import cirq
+    import sympy
+
+    t = sympy.Symbol("t")
+    circuit = cirq.Circuit([cirq.rx(t**2).on(cirq.LineQubit(0))])
+    with pytest.raises(UnsupportedGate, match="nonlinear"):
+        qk.from_cirq(circuit)
+
+
+@pytest.mark.cirq
+def test_cirq_fractional_two_qubit_powers_are_refused_not_approximated():
+    import cirq
+
+    qubits = cirq.LineQubit.range(2)
+    with pytest.raises(UnsupportedGate, match="fractional power"):
+        qk.from_cirq(cirq.Circuit([cirq.CZ(*qubits) ** 0.5]))
+
+
+@pytest.mark.cirq
+def test_cirq_pauli_powers_warn_about_the_dropped_phase():
+    """`X**s` is `Rx(pi s)` up to a phase - unobservable alone, not in a controlled block."""
+    import cirq
+
+    circuit = cirq.Circuit([cirq.X(cirq.LineQubit(0)) ** 0.3])
+    with pytest.warns(UserWarning, match="overall phase"):
+        spec = qk.from_cirq(circuit)
+    assert spec.ops[0].gate == "rx"
+
+
+@pytest.mark.cirq
+def test_cirq_measurement_is_refused_with_the_reason():
+    import cirq
+
+    circuit = cirq.Circuit([cirq.measure(cirq.LineQubit(0), key="m")])
+    with pytest.raises(UnsupportedGate, match="mid-circuit measurement"):
+        qk.from_cirq(circuit)
+
+
+@pytest.mark.cirq
+def test_cirq_unknown_gate_says_what_to_do():
+    import cirq
+
+    qubits = cirq.LineQubit.range(3)
+    with pytest.raises(UnsupportedGate, match="register_gate"):
+        qk.from_cirq(cirq.Circuit([cirq.TOFFOLI(*qubits)]))
+
+
+@pytest.mark.cirq
+def test_cirq_is_reachable_through_the_importer_registry():
+    import cirq
+
+    assert "cirq" in qk.list_importers()
+    circuit = cirq.Circuit([cirq.H(cirq.LineQubit(0))])
+    assert qk.get_importer("cirq")(circuit).ops[0].gate == "h"

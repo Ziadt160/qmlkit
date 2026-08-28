@@ -264,12 +264,21 @@ One-way interop is the difference between a library someone *tries* and one some
 qk.from_qasm(text)          # OpenQASM 2.0 -- standard library only, no extras needed
 qk.from_qiskit(circuit)     # a QuantumCircuit, unbound Parameters included
 qk.from_pennylane(qnode)    # a tape, QNode or quantum function; templates decompose
+qk.from_cirq(circuit)       # a cirq.Circuit, sympy symbols included
 ```
 
 `from_qasm` takes no dependency on anything: Qiskit, Cirq, Braket, t|ket> and Q# all
-export QASM 2.0, so one stdlib parser reaches all of them. `from_qiskit` exists
-alongside it because QASM cannot carry an unbound `Parameter`, and qmlkit maps those
-onto `ParamRef` in Qiskit's own parameter order.
+export QASM 2.0, so one stdlib parser reaches all of them. The other three exist
+alongside it because QASM cannot carry a *free parameter*: `from_qiskit` maps unbound
+`Parameter`s onto `ParamRef` in Qiskit's own order, and `from_cirq` does the same for
+`sympy` symbols — `cirq.rx(2 * t)` arrives as `ParamRef(i, scale=2.0)`, since `ParamRef`
+carries `scale * theta + offset` and that is exactly the linear form Cirq produces.
+
+Cirq is the importer with nothing to look up: `cirq.S`, `cirq.T` and `cirq.rz` are all
+a `ZPowGate`, separated only by exponent and `global_shift`, so it classifies rather
+than reads a name. One asymmetry worth knowing: Cirq has no declared register, so a
+qubit no operation touches is not in the circuit — the same logical circuit imports
+two qubits wide from Qiskit and one from Cirq.
 
 Qubit order is where importers actually break, so it is what the tests check:
 `from_qiskit(to_qiskit(spec))` reproduces the **statevector** to `1e-12` across

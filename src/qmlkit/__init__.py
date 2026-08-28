@@ -156,6 +156,7 @@ from qmlkit.info import (
 )
 from qmlkit.interop import (
     UnsupportedGate,
+    from_cirq,
     from_pennylane,
     from_qasm,
     from_qiskit,
@@ -323,6 +324,7 @@ __all__ = [
     "from_qasm",
     "from_qiskit",
     "from_pennylane",
+    "from_cirq",
     "register_importer",
     "list_importers",
     "get_importer",

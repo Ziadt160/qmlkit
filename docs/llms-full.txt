@@ -3295,7 +3295,7 @@ print(type(qk.get_backend("qiskit").to_qiskit(qc.to_spec())).__name__)
 ## Reading circuits in
 
 The translations run both ways. `to_qiskit`/`to_cirq`/`to_spinqit` hand a circuit to
-another SDK; `from_qasm`/`from_qiskit`/`from_pennylane` bring one back.
+another SDK; `from_qasm`/`from_qiskit`/`from_pennylane`/`from_cirq` bring one back.
 
 ```python
 import qmlkit as qk
@@ -3328,15 +3328,51 @@ spec = qk.from_qiskit(qc)
 print(spec.n_params)
 ```
 
+`from_cirq` is the interesting one, because Cirq has no gate *names* to look up.
+`cirq.S`, `cirq.T` and `cirq.rz` are all a `ZPowGate`; what separates them is the
+exponent and the `global_shift`. So the importer classifies rather than reads a table,
+and it reads `global_shift` rather than ignoring it — `cirq.X` and `cirq.rx(pi)` differ
+by a global phase, which is unobservable alone and *relative* inside a controlled block.
+
+```python
+# docs: requires cirq
+import cirq
+import sympy
+
+t = sympy.Symbol("t")
+qubits = cirq.LineQubit.range(2)
+spec = qk.from_cirq(cirq.Circuit([cirq.rx(2 * t).on(qubits[0]), cirq.CZ(*qubits)]))
+print(spec.n_params, spec.ops[0].params[0])
+```
+
+`cirq.rx(2 * t)` carries the exponent `2*t/pi`; multiplied back by pi that is `2*t`,
+and `ParamRef` models exactly `scale * theta + offset`, so it survives as
+`ParamRef(0, scale=2.0)`. Symbols are indexed by sorted name, matching
+`sorted(cirq.parameter_names(circuit))`. Anything nonlinear is refused.
+
+One asymmetry to know about: Cirq has no declared register, so a qubit that no
+operation touches is not in the circuit at all. The same logical circuit imports two
+qubits wide from Qiskit and one from Cirq.
+
+```python
+# docs: requires cirq
+print(qk.from_cirq(cirq.Circuit([cirq.X(cirq.LineQubit(0))])).n_qubits)          # 1
+print(qk.from_cirq(cirq.Circuit([cirq.X(cirq.LineQubit(0)),
+                                 cirq.I(cirq.LineQubit(1))])).n_qubits)          # 2
+```
+
 ### The convention that matters
 
 Importing is where qubit order goes wrong quietly. Qiskit and QASM are little-endian,
 so their qubit `j` becomes qmlkit's `n-1-j` — the exact inverse of what `to_qiskit`
-does on the way out. PennyLane is big-endian like qmlkit, so its wires pass through.
+does on the way out. PennyLane and Cirq are big-endian like qmlkit, so their wires
+pass through.
 
 Neither claim is taken on trust. `tests/test_import.py` asserts the *statevector*
 after `from_qiskit(to_qiskit(spec))` over randomly generated circuits at `1e-12`, and
-checks the PennyLane importer against PennyLane's own simulator. A circuit whose gates
+checks the PennyLane and Cirq importers against those libraries' own simulators. It
+also asserts that every gate `to_cirq` emits comes back through `from_cirq`, since a
+gate qmlkit can write but not read is a one-way door. A circuit whose gates
 are symmetric across the register cannot tell a correct mapping from a reversed one,
 so the test zoo is deliberately asymmetric.
 
@@ -4904,6 +4940,8 @@ def four_term_rule() -> 'ShiftRule'
     Controlled rotations: generator eigenvalues {0, 0, +-1/2} => frequencies {1/2, 1}.
 fourier
     What function does this model actually represent?
+def from_cirq(circuit: 'Any') -> 'CircuitSpec'
+    Convert a ``cirq.Circuit``, bound or carrying ``sympy`` symbols.
 def from_pennylane(source: 'Any', *args: 'Any', **kwargs: 'Any') -> 'CircuitSpec'
     Convert a PennyLane tape, QNode or quantum function.
 def from_qasm(text: 'str', little_endian: 'bool' = True) -> 'CircuitSpec'

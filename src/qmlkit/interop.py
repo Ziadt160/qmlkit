@@ -16,6 +16,10 @@ Three entry points, in order of how much they carry:
     QASM cannot represent.
 :func:`from_pennylane`
     A tape or a QNode, for the migration this library is most often compared against.
+:func:`from_cirq`
+    A ``cirq.Circuit``, including ``sympy`` symbols, which QASM cannot represent
+    either. Cirq identifies gates by class and exponent rather than by name, so this
+    one classifies rather than looks up.
 
 **Qubit order is the thing to get right.** qmlkit is big-endian: qubit 0 is the most
 significant bit of a basis state. Qiskit and OpenQASM are little-endian, so importing
@@ -46,6 +50,7 @@ __all__ = [
     "from_qasm",
     "from_qiskit",
     "from_pennylane",
+    "from_cirq",
     "register_importer",
     "list_importers",
     "get_importer",
@@ -111,6 +116,33 @@ _PENNYLANE_GATES = {
     "CRX": "crx",
     "CRY": "cry",
     "CRZ": "crz",
+}
+
+#: Cirq has no per-gate name string: ``cirq.S`` and ``cirq.T`` are both a ``ZPowGate``
+#: at different exponents, and ``cirq.rz`` is a third one separated only by its
+#: ``global_shift``. So the classifier derives a canonical label first, and this table
+#: maps that label the way the other importers map a name.
+_CIRQ_GATES = {
+    "I": "i",
+    "X": "x",
+    "Y": "y",
+    "Z": "z",
+    "H": "h",
+    "S": "s",
+    "Sdg": "sdg",
+    "T": "t",
+    "Tdg": "tdg",
+    "Rx": "rx",
+    "Ry": "ry",
+    "Rz": "rz",
+    "Phase": "phase",
+    "CNOT": "cx",
+    "CY": "cy",
+    "CZ": "cz",
+    "SWAP": "swap",
+    "CRx": "crx",
+    "CRy": "cry",
+    "CRz": "crz",
 }
 
 #: Gates that are silently dropped rather than refused: they change nothing qmlkit
@@ -194,8 +226,7 @@ class _Importer:
         """Source qubit index to qmlkit's, honouring the endianness convention."""
         if not 0 <= index < self.n_qubits:
             raise ValueError(
-                f"{self.source} refers to qubit {index}, outside the "
-                f"{self.n_qubits}-qubit register"
+                f"{self.source} refers to qubit {index}, outside the {self.n_qubits}-qubit register"
             )
         return self.n_qubits - 1 - index if self.flip else index
 
@@ -224,8 +255,9 @@ class _Importer:
                 else " Register it with qk.register_gate(), or transpile the circuit to "
                 f"the supported basis first: {', '.join(sorted(self.table))}."
             )
-            raise UnsupportedGate(f"{self.source} uses gate {name!r}, which qmlkit has no "
-                                  f"mapping for.{hint}")
+            raise UnsupportedGate(
+                f"{self.source} uses gate {name!r}, which qmlkit has no mapping for.{hint}"
+            )
         self.ops.append(Op(self.table[name], wires, tuple(params)))
 
     def _decompose_u(self, name: str, wires: tuple[int, ...], params: Sequence[Any]) -> None:
@@ -293,6 +325,8 @@ def _split_instruction(line: str) -> tuple[str, str, str] | None:
         else:
             raise ValueError(f"unbalanced parentheses in the QASM line: {line.strip()!r}")
     return name, args, rest
+
+
 _ARG = re.compile(r"(\w+)\s*\[\s*(\d+)\s*\]")
 
 
@@ -448,9 +482,7 @@ def from_pennylane(source: Any, *args: Any, **kwargs: Any) -> CircuitSpec:
     try:
         import pennylane as qml
     except ImportError as exc:  # pragma: no cover - depends on the environment
-        raise ImportError(
-            "from_pennylane needs PennyLane:\n    pip install pennylane"
-        ) from exc
+        raise ImportError("from_pennylane needs PennyLane:\n    pip install pennylane") from exc
 
     tape = _as_tape(source, qml, args, kwargs)
     wires = list(tape.wires)
@@ -542,10 +574,186 @@ def _as_tape(source: Any, qml: Any, args: tuple[Any, ...], kwargs: dict[str, Any
 # --------------------------------------------------------------------------- #
 # registry
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Cirq
+# --------------------------------------------------------------------------- #
+#: Exponents that name themselves. A ``ZPowGate`` is S, T, Z or their inverses at
+#: these values and a general phase gate everywhere else.
+_ZPOW_NAMES = {1.0: "Z", 0.5: "S", -0.5: "Sdg", 0.25: "T", -0.25: "Tdg"}
+
+#: ``global_shift`` is what separates a rotation from a power of a Pauli. ``cirq.rx(t)``
+#: is ``XPowGate(exponent=t/pi, global_shift=-0.5)`` and ``cirq.X`` is the same class at
+#: shift 0. They differ by a global phase, which is unobservable alone and *relative*
+#: inside a controlled block - so the shift is read rather than ignored.
+_ROTATION_SHIFT = -0.5
+
+
+def _exact(value: Any) -> float | None:
+    """The exponent as a float, or ``None`` when it is symbolic."""
+    return float(value) if isinstance(value, (int, float)) else None
+
+
+def _cirq_angle(exponent: Any, index_of: dict[str, int]) -> Any:
+    """A Cirq exponent as a qmlkit angle: ``theta = exponent * pi``.
+
+    A symbolic exponent stays symbolic. ``ParamRef`` carries ``scale * theta + offset``,
+    which is exactly the linear form Cirq produces: ``cirq.rx(2 * t)`` arrives as the
+    exponent ``2*t/pi`` and comes back out as ``ParamRef(i, scale=2.0)``. Anything
+    nonlinear is refused rather than approximated.
+    """
+    if isinstance(exponent, (int, float)):
+        return float(exponent) * math.pi
+
+    import sympy
+
+    expr = sympy.expand(exponent * sympy.pi)
+    symbols = sorted(expr.free_symbols, key=str)
+    if len(symbols) != 1:
+        raise UnsupportedGate(
+            f"the Cirq circuit has the parameter expression {exponent!r}, over "
+            f"{len(symbols)} symbols. qmlkit's ParamRef carries scale * theta + offset "
+            "for one parameter - bind the rest with cirq.resolve_parameters() first."
+        )
+    symbol = symbols[0]
+    polynomial = sympy.Poly(expr, symbol)
+    if polynomial.degree() != 1:
+        raise UnsupportedGate(
+            f"the Cirq circuit has the nonlinear parameter expression {exponent!r}. "
+            "qmlkit's ParamRef is linear in one parameter - bind it with "
+            "cirq.resolve_parameters() first."
+        )
+    return ParamRef(
+        index_of[symbol.name],
+        scale=float(polynomial.coeff_monomial(symbol)),
+        offset=float(polynomial.coeff_monomial(1)),
+    )
+
+
+def _require_unit_exponent(gate: Any, label: str) -> None:
+    if _exact(getattr(gate, "exponent", 1.0)) != 1.0:
+        raise UnsupportedGate(
+            f"the Cirq circuit uses {label}**{gate.exponent}, a fractional power qmlkit "
+            f"has no gate for. Only {label} itself is supported."
+        )
+
+
+def _pauli_power(
+    gate: Any, shift: float, pauli: str, rotation: str, index_of: dict[str, int]
+) -> tuple[str, list[Any]]:
+    """``X``/``Y`` and their powers, which are rotations up to a global phase."""
+    if shift == _ROTATION_SHIFT:
+        return rotation, [_cirq_angle(gate.exponent, index_of)]
+    if _exact(gate.exponent) == 1.0:
+        return pauli, []
+    # X**s == e^{i pi s / 2} Rx(pi s): the same operator up to a phase that is
+    # unobservable alone and observable inside a controlled block. The same trade the
+    # u3 decomposition makes, warned about the same way.
+    warnings.warn(f"cirq {pauli}**{gate.exponent} was {_GLOBAL_PHASE_NOTE}", stacklevel=4)
+    return rotation, [_cirq_angle(gate.exponent, index_of)]
+
+
+def _classify_cirq(gate: Any, index_of: dict[str, int], cirq: Any) -> tuple[str, list[Any]]:
+    """One Cirq gate as a canonical label plus qmlkit angles."""
+    if isinstance(gate, cirq.MeasurementGate):
+        return "measure", []
+
+    if isinstance(gate, cirq.ControlledGate):
+        if gate.num_controls() != 1:
+            raise UnsupportedGate(
+                f"the Cirq circuit has a gate with {gate.num_controls()} controls. "
+                "qmlkit's 0.x gate set has singly-controlled gates only."
+            )
+        label, params = _classify_cirq(gate.sub_gate, index_of, cirq)
+        controlled = {"X": "CNOT", "Y": "CY", "Z": "CZ", "Rx": "CRx", "Ry": "CRy", "Rz": "CRz"}
+        if label not in controlled:
+            raise UnsupportedGate(
+                f"the Cirq circuit controls a {label!r} gate, which qmlkit has no "
+                f"controlled form of. Available: {', '.join(sorted(controlled))}."
+            )
+        return controlled[label], params
+
+    # two-qubit gates that are their own class
+    for cls, label in (
+        (cirq.CXPowGate, "CNOT"),
+        (cirq.CZPowGate, "CZ"),
+        (cirq.SwapPowGate, "SWAP"),
+        (getattr(cirq, "CYPowGate", None), "CY"),
+    ):
+        if cls is not None and isinstance(gate, cls):
+            _require_unit_exponent(gate, label)
+            return label, []
+
+    if isinstance(gate, cirq.HPowGate):
+        _require_unit_exponent(gate, "H")
+        return "H", []
+
+    shift = float(getattr(gate, "global_shift", 0.0))
+    if isinstance(gate, cirq.ZPowGate):
+        if shift == _ROTATION_SHIFT:
+            return "Rz", [_cirq_angle(gate.exponent, index_of)]
+        exponent = _exact(gate.exponent)
+        named = None if exponent is None else _ZPOW_NAMES.get(exponent)
+        if named is not None:
+            return named, []
+        # Z**s == diag(1, e^{i pi s}), which is qmlkit's phase gate exactly - no phase
+        # is dropped here, unlike the X and Y powers above
+        return "Phase", [_cirq_angle(gate.exponent, index_of)]
+    if isinstance(gate, cirq.XPowGate):
+        return _pauli_power(gate, shift, "X", "Rx", index_of)
+    if isinstance(gate, cirq.YPowGate):
+        return _pauli_power(gate, shift, "Y", "Ry", index_of)
+
+    raise UnsupportedGate(
+        f"the Cirq circuit uses {gate!r} ({type(gate).__name__}), which qmlkit has no "
+        "mapping for. Register it with qk.register_gate(), or decompose the circuit "
+        "into the supported basis first."
+    )
+
+
+def from_cirq(circuit: Any) -> CircuitSpec:
+    """Convert a ``cirq.Circuit``, bound or carrying ``sympy`` symbols.
+
+    Cirq orders qubits big-endian, the same as qmlkit, so indices pass through
+    unflipped - asserted against real statevectors in ``tests/test_import.py`` rather
+    than taken on trust. Qubits are numbered by Cirq's own sort order, the order its
+    simulator uses, so a circuit on ``LineQubit(0)`` and ``LineQubit(2)`` becomes a
+    two-qubit qmlkit circuit.
+
+    Symbolic exponents become :class:`~qmlkit.core.ir.ParamRef`\\ s indexed by sorted
+    symbol name, so ``theta`` lines up with ``sorted(cirq.parameter_names(circuit))``.
+    That is what :func:`from_qasm` cannot carry, and the reason this exists beside it.
+    """
+    try:
+        import cirq
+    except ImportError as exc:  # pragma: no cover - depends on the environment
+        raise ImportError(
+            "from_cirq needs Cirq, which is an optional extra:\n    pip install 'qmlkit[cirq]'"
+        ) from exc
+
+    qubits = sorted(circuit.all_qubits())
+    position = {q: i for i, q in enumerate(qubits)}
+    imp = _Importer(len(qubits), _CIRQ_GATES, "the Cirq circuit", flip=False)
+
+    index_of = {name: i for i, name in enumerate(sorted(cirq.parameter_names(circuit)))}
+    imp.n_params = len(index_of)
+
+    for op in circuit.all_operations():
+        wires = [position[q] for q in op.qubits]
+        # a multi-qubit IdentityGate is one op in Cirq and one gate per qubit here
+        if isinstance(op.gate, cirq.IdentityGate):
+            for wire in wires:
+                imp.add("I", [wire])
+            continue
+        label, params = _classify_cirq(op.gate, index_of, cirq)
+        imp.add(label, wires, params)
+    return imp.finish()
+
+
 _IMPORTERS: dict[str, Callable[..., CircuitSpec]] = {
     "qasm": from_qasm,
     "qiskit": from_qiskit,
     "pennylane": from_pennylane,
+    "cirq": from_cirq,
 }
 
 
