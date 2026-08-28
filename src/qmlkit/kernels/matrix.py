@@ -121,7 +121,7 @@ class QuantumKernel:
     def _estimate(self, x: npt.NDArray[Any], xp: npt.NDArray[Any]) -> float:
         from qmlkit.kernels.estimators import hadamard_test, swap_test_kernel
 
-        fns = {
+        fns: dict[str, Callable[..., float]] = {
             "inversion": fidelity_kernel,
             "swap": swap_test_kernel,
             "hadamard": lambda fm, a, b, **kw: hadamard_test(fm, a, b, **kw) ** 2,
@@ -129,9 +129,7 @@ class QuantumKernel:
         try:
             fn = fns[self.estimator]
         except KeyError:
-            raise unknown(
-                "estimator", self.estimator, ("inversion", "swap", "hadamard")
-            ) from None
+            raise unknown("estimator", self.estimator, ("inversion", "swap", "hadamard")) from None
         self._evaluations += 1
         return float(
             fn(
@@ -366,7 +364,9 @@ def shots_to_resolve(n_qubits: int) -> int:
     return int(4**n_qubits)
 
 
-def concentration_report(K: npt.NDArray[Any], n_qubits: int, shots: int | None = None) -> dict:
+def concentration_report(
+    K: npt.NDArray[Any], n_qubits: int, shots: int | None = None
+) -> dict[str, Any]:
     """Is this Gram matrix telling you anything, or has it concentrated?
 
     A concentrated kernel has near-identical off-diagonal entries: every pair of

@@ -13,7 +13,7 @@ import numpy as np
 import numpy.typing as npt
 
 from qmlkit.core.gates import get_gate
-from qmlkit.core.ir import CircuitSpec, ParamRef
+from qmlkit.core.ir import CircuitSpec, ParamLike, ParamRef
 
 __all__ = ["draw", "specs"]
 
@@ -28,7 +28,7 @@ _LABEL = {
 }
 
 
-def _cell(gate: str, params: Sequence[object]) -> str:
+def _cell(gate: str, params: Sequence[ParamLike]) -> str:
     name = {"sdg": "S†", "tdg": "T†", "phase": "P"}.get(gate, gate.upper())
     if not params:
         return name
@@ -72,11 +72,13 @@ def draw(spec: CircuitSpec, max_width: int = 160) -> str:
     wires = [f"q{q}: ".ljust(label_w) for q in range(n)]
     links = {(c, q) for c, top, bottom in spans for q in range(top, bottom + 1)}
 
-    for c, col in enumerate(columns):
+    # `cells`, not `col`: `col` is a column *index* in the packing loop above, and
+    # reusing the name for the column's contents is what made this look ill-typed
+    for c, cells in enumerate(columns):
         w = widths[c]
         for q in range(n):
-            if q in col:
-                wires[q] += "─" + col[q].center(w, "─") + "─"
+            if q in cells:
+                wires[q] += "─" + cells[q].center(w, "─") + "─"
             elif (c, q) in links:
                 wires[q] += "─" + "│".center(w, "─") + "─"
             else:
@@ -95,8 +97,9 @@ def specs(spec: CircuitSpec) -> dict[str, object]:
     out = dict(spec.resources())
     out["grad_circuits_parameter_shift"] = grad_circuit_cost(spec)
     out["grad_passes_adjoint"] = 1
-    out["n_occurrences"] = {i: len(spec.occurrences_of(i)) for i in range(spec.n_params)}
-    tied = {i: c for i, c in out["n_occurrences"].items() if c > 1}  # type: ignore[union-attr]
+    occurrences = {i: len(spec.occurrences_of(i)) for i in range(spec.n_params)}
+    out["n_occurrences"] = occurrences
+    tied = {i: c for i, c in occurrences.items() if c > 1}
     out["weight_tied_parameters"] = len(tied)
     return out
 

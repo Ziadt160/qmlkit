@@ -91,8 +91,13 @@ def test_max_configs_samples_reproducibly(moons):
 def test_untrainable_configurations_are_skipped_with_their_reason(wide):
     X, y = wide
     result = search(
-        X, y, ansatz=["hardware_efficient", "basic_entangler"], n_layers=[2, 3], cv=2,
-        dry_run=True, prune="untrainable",
+        X,
+        y,
+        ansatz=["hardware_efficient", "basic_entangler"],
+        n_layers=[2, 3],
+        cv=2,
+        dry_run=True,
+        prune="untrainable",
     )
     skipped = {(r.config["ansatz"], r.config["n_layers"]) for r in result.pruned}
     # d<Z0>/dtheta_0 is exactly zero for a 4-qubit, 3-layer CNOT ring
@@ -104,8 +109,13 @@ def test_untrainable_configurations_are_skipped_with_their_reason(wide):
 def test_prune_none_fits_everything(wide):
     X, y = wide
     result = search(
-        X, y, ansatz=["hardware_efficient", "basic_entangler"], n_layers=[2, 3], cv=2,
-        dry_run=True, prune="none",
+        X,
+        y,
+        ansatz=["hardware_efficient", "basic_entangler"],
+        n_layers=[2, 3],
+        cv=2,
+        dry_run=True,
+        prune="none",
     )
     assert not result.pruned
 
@@ -121,7 +131,11 @@ def test_every_row_carries_its_diagnosis_whether_or_not_it_was_pruned(moons):
 def test_prune_accepts_an_explicit_list_of_codes(wide):
     X, y = wide
     result = search(
-        X, y, ansatz=["hardware_efficient"], cv=2, dry_run=True,
+        X,
+        y,
+        ansatz=["hardware_efficient"],
+        cv=2,
+        dry_run=True,
         prune=["UNMEASURABLE_WEIGHTS"],
     )
     assert len(result.pruned) == 1
@@ -178,8 +192,13 @@ def test_every_configuration_is_scored_on_identical_folds(moons):
 def test_dry_run_fits_nothing_but_still_prunes(wide):
     X, y = wide
     result = search(
-        X, y, ansatz=["hardware_efficient", "basic_entangler"], n_layers=[2, 3], cv=2,
-        dry_run=True, prune="untrainable",
+        X,
+        y,
+        ansatz=["hardware_efficient", "basic_entangler"],
+        n_layers=[2, 3],
+        cv=2,
+        dry_run=True,
+        prune="untrainable",
     )
     assert not result.ran
     assert result.pruned  # pruning still happened
@@ -199,7 +218,11 @@ def test_the_printout_is_ascii(moons):
 # --------------------------------------------------------------------------- #
 def test_a_lead_inside_the_fold_spread_is_not_called_a_winner():
     result = SearchResult(
-        "classification", "balanced_accuracy", 60, 3, ("n_layers",),
+        "classification",
+        "balanced_accuracy",
+        60,
+        3,
+        ("n_layers",),
         (SearchRow({"n_layers": 2}, 0.81, 0.05), SearchRow({"n_layers": 1}, 0.80, 0.05)),
     )
     assert "has not separated them" in result.verdict
@@ -207,7 +230,11 @@ def test_a_lead_inside_the_fold_spread_is_not_called_a_winner():
 
 def test_a_lead_outside_the_fold_spread_is():
     result = SearchResult(
-        "classification", "balanced_accuracy", 60, 3, ("n_layers",),
+        "classification",
+        "balanced_accuracy",
+        60,
+        3,
+        ("n_layers",),
         (SearchRow({"n_layers": 2}, 0.95, 0.01), SearchRow({"n_layers": 1}, 0.70, 0.01)),
     )
     assert "wins at 0.950" in result.verdict
@@ -215,13 +242,21 @@ def test_a_lead_outside_the_fold_spread_is():
 
 def test_a_verdict_with_nothing_fitted_says_which_kind_of_nothing():
     everything_pruned = SearchResult(
-        "classification", "balanced_accuracy", 60, 3, ("n_layers",),
+        "classification",
+        "balanced_accuracy",
+        60,
+        3,
+        ("n_layers",),
         (SearchRow({"n_layers": 1}, pruned="FLAT_GRADIENTS", fitted=False),),
     )
     assert "pruned" in everything_pruned.verdict
 
     dry = SearchResult(
-        "classification", "balanced_accuracy", 60, 3, ("n_layers",),
+        "classification",
+        "balanced_accuracy",
+        60,
+        3,
+        ("n_layers",),
         (SearchRow({"n_layers": 1}, fitted=False),),
     )
     assert "would run" in dry.verdict

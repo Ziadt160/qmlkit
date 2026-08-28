@@ -126,9 +126,7 @@ def test_regression_matches_sklearn(seed):
     assert got["explained_variance"] == pytest.approx(
         m.explained_variance_score(y_true, y_pred), abs=1e-10
     )
-    assert got["mape"] == pytest.approx(
-        m.mean_absolute_percentage_error(y_true, y_pred), abs=1e-10
-    )
+    assert got["mape"] == pytest.approx(m.mean_absolute_percentage_error(y_true, y_pred), abs=1e-10)
 
 
 def test_mape_is_omitted_rather_than_infinite():

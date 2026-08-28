@@ -98,9 +98,7 @@ class Plan:
             )
         for seconds in (0.001, 0.5, 2.0):
             label = (
-                "1 ms/circuit (simulator)"
-                if seconds < 0.1
-                else f"{seconds:.1f} s/circuit queued"
+                "1 ms/circuit (simulator)" if seconds < 0.1 else f"{seconds:.1f} s/circuit queued"
             )
             lines.append(f"  at {label:<26} {self.hours(seconds):10.2f} hours")
         if self.reductions:

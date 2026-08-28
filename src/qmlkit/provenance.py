@@ -31,7 +31,7 @@ import platform
 import sys
 from dataclasses import dataclass, field
 from importlib import import_module
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -238,15 +238,10 @@ def selfcheck(
     if cross_backend:
         installed = [n for n in available_backends() if n != "numpy"]
         if installed:
-            # expectation() widens to a tuple only with return_std=True, which is off
-            reference_value = float(
-                cast(float, expectation(spec, obs, values, backend="numpy"))
-            )
+            reference_value = expectation(spec, obs, values, backend="numpy")
             for name in installed:
                 try:
-                    other = float(
-                        cast(float, expectation(spec, obs, values, backend=get_backend(name)))
-                    )
+                    other = expectation(spec, obs, values, backend=get_backend(name))
                 except Exception as exc:  # noqa: BLE001 - report, do not raise
                     findings.append(
                         Finding(

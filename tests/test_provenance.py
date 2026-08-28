@@ -117,9 +117,7 @@ def test_cross_backend_agreement_runs_over_every_installed_sdk():
 
 def test_cross_backend_can_be_skipped():
     ansatz = qk.hardware_efficient(2, 1)
-    report = selfcheck(
-        ansatz.build(), np.full(ansatz.n_params, 0.4), qk.Z(0), cross_backend=False
-    )
+    report = selfcheck(ansatz.build(), np.full(ansatz.n_params, 0.4), qk.Z(0), cross_backend=False)
     assert "selfcheck.backend-disagreement" not in report.codes
 
 

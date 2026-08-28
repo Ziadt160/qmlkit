@@ -216,9 +216,7 @@ def adjoint_grad_batch(
         if columns is not None and columns.shape[1] == 1:
             du = _batched_derivatives(op, columns)
             mu = _apply_batch(psi, du, op.qubits)
-            overlap = np.einsum(
-                "bi,bi->b", lam.reshape(batch, -1).conj(), mu.reshape(batch, -1)
-            )
+            overlap = np.einsum("bi,bi->b", lam.reshape(batch, -1).conj(), mu.reshape(batch, -1))
             ref = slots[first].ref
             grad[:, ref.index] += 2.0 * np.real(overlap) * ref.scale
         elif columns is not None and columns.shape[1] > 1:  # pragma: no cover
@@ -258,9 +256,7 @@ def grad_batch(
         from qmlkit.gradients.adjoint import supports_adjoint
 
         method = (
-            "adjoint"
-            if shots is None and supports_adjoint(spec, backend)
-            else "parameter-shift"
+            "adjoint" if shots is None and supports_adjoint(spec, backend) else "parameter-shift"
         )
     if method == "adjoint":
         if shots is not None:

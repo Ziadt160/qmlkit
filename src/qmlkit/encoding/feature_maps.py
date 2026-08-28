@@ -24,10 +24,16 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+from numpy.typing import ArrayLike
 
 from qmlkit.core.builder import QCircuit, entangler_pairs
-from qmlkit.core.ir import CircuitSpec, ParamRef
+from qmlkit.core.ir import CircuitSpec, ParamLike, ParamRef
 from qmlkit.utils.errors import unknown
+
+#: What ``_emit`` is handed: concrete angles from :meth:`FeatureMap.angles` (an array)
+#: or ``ParamRef``s from :meth:`FeatureMap.build_parametric` (a list). Both are indexed
+#: in angle order; neither is an instance of the other's type.
+AngleValues = Sequence[ParamLike] | npt.NDArray[Any]
 
 __all__ = [
     "FeatureMap",
@@ -117,12 +123,12 @@ class FeatureMap:
     n_features: int
     n_qubits: int
 
-    def build(self, x: Sequence[float]) -> CircuitSpec:
+    def build(self, x: ArrayLike) -> CircuitSpec:
         """The circuit for a concrete feature vector."""
         return self._emit(self.angles(x))
 
     # -- the three methods that make df/dx work through a nonlinear map --------
-    def angles(self, x: Sequence[float]) -> npt.NDArray[Any]:  # pragma: no cover - abstract
+    def angles(self, x: ArrayLike) -> npt.NDArray[Any]:  # pragma: no cover - abstract
         """The rotation angles this map derives from ``x``."""
         raise NotImplementedError
 
@@ -131,7 +137,7 @@ class FeatureMap:
         """How many distinct angles the map uses."""
         raise NotImplementedError
 
-    def _emit(self, angles: Sequence[object]) -> CircuitSpec:  # pragma: no cover - abstract
+    def _emit(self, angles: AngleValues) -> CircuitSpec:  # pragma: no cover - abstract
         """Build the circuit from angle values, which may be floats or ParamRefs."""
         raise NotImplementedError
 
@@ -144,7 +150,7 @@ class FeatureMap:
         """
         return self._emit([ParamRef(offset + i) for i in range(self.n_angles)])
 
-    def angle_jacobian(self, x: Sequence[float], eps: float = 1e-6) -> npt.NDArray[Any]:
+    def angle_jacobian(self, x: ArrayLike, eps: float = 1e-6) -> npt.NDArray[Any]:
         """``d(angle) / d(feature)``, shape ``(n_angles, n_features)``.
 
         The default differences the *classical* data map — no circuits involved, so
@@ -167,7 +173,7 @@ class FeatureMap:
     def __call__(self, x: Sequence[float]) -> CircuitSpec:
         return self.build(x)
 
-    def _validate(self, x: Sequence[float]) -> npt.NDArray[Any]:
+    def _validate(self, x: ArrayLike) -> npt.NDArray[Any]:
         arr = np.atleast_1d(np.asarray(x, dtype=float)).ravel()
         if arr.size != self.n_features:
             raise ValueError(
@@ -230,11 +236,11 @@ class PauliFeatureMap(FeatureMap):
         """One angle per term. Reps reuse the same angles, so they add depth only."""
         return len(self.terms)
 
-    def angles(self, x: Sequence[float]) -> npt.NDArray[Any]:
+    def angles(self, x: ArrayLike) -> npt.NDArray[Any]:
         arr = self._validate(x)
         return np.array([2.0 * self.data_map(arr, idx) for idx, _ in self.terms], dtype=float)
 
-    def angle_jacobian(self, x: Sequence[float], eps: float = 1e-6) -> npt.NDArray[Any]:
+    def angle_jacobian(self, x: ArrayLike, eps: float = 1e-6) -> npt.NDArray[Any]:
         """Closed form for the standard data map; falls back to differencing otherwise."""
         if self.data_map is not default_data_map:
             return super().angle_jacobian(x, eps)
@@ -252,7 +258,7 @@ class PauliFeatureMap(FeatureMap):
                     jac[row, i] = -2.0 * others
         return jac
 
-    def _emit(self, angles: Sequence[object]) -> CircuitSpec:
+    def _emit(self, angles: AngleValues) -> CircuitSpec:
         qc = QCircuit(self.n_qubits)
         for _ in range(self.reps):
             for i in range(self.n_qubits):
@@ -262,7 +268,7 @@ class PauliFeatureMap(FeatureMap):
         return qc.to_spec()
 
     def _append_term(
-        self, qc: QCircuit, angle: object, indices: tuple[int, ...], pauli: str
+        self, qc: QCircuit, angle: ParamLike, indices: tuple[int, ...], pauli: str
     ) -> None:
         letters = pauli if len(pauli) == len(indices) else pauli * len(indices)
         # rotate every qubit in the term into the Z basis
@@ -329,15 +335,15 @@ class AngleFeatureMap(FeatureMap):
     def n_angles(self) -> int:
         return self.n_features
 
-    def angles(self, x: Sequence[float]) -> npt.NDArray[Any]:
+    def angles(self, x: ArrayLike) -> npt.NDArray[Any]:
         return self._validate(x)
 
-    def angle_jacobian(self, x: Sequence[float], eps: float = 1e-6) -> npt.NDArray[Any]:
+    def angle_jacobian(self, x: ArrayLike, eps: float = 1e-6) -> npt.NDArray[Any]:
         """The map is the identity, so the Jacobian is too."""
         self._validate(x)
         return np.eye(self.n_features)
 
-    def _emit(self, angles: Sequence[object]) -> CircuitSpec:
+    def _emit(self, angles: AngleValues) -> CircuitSpec:
         qc = QCircuit(self.n_qubits)
         for _ in range(self.reps):
             for i in range(self.n_qubits):

@@ -224,7 +224,6 @@ class NumpyBackend(Backend):
             state = _apply(state, self._matrix(op), op.qubits)
         return state.reshape(-1)
 
-
     def statevector_batch_slots(
         self, spec: CircuitSpec, slot_angles: npt.NDArray[Any]
     ) -> npt.NDArray[Any]:

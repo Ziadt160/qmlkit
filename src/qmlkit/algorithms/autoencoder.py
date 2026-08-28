@@ -23,11 +23,12 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+from numpy.typing import ArrayLike
 
 from qmlkit.algorithms.vqe import OPTIMIZERS, Optimizer
 from qmlkit.ansatz.library import Ansatz, hardware_efficient
 from qmlkit.core.execute import BackendLike, expectation, statevector
-from qmlkit.core.ir import CircuitSpec
+from qmlkit.core.ir import CircuitSpec, bound_angle
 from qmlkit.core.observables import Observable, PauliString, PauliSum
 from qmlkit.info import purity, state_fidelity
 
@@ -98,7 +99,7 @@ class QuantumAutoencoder:
             terms.append(PauliString(tuple((w, "Z") for w in sorted(chosen)), scale))
         return PauliSum(tuple(terms))
 
-    def trash_fidelity(self, theta: Sequence[float], states: Sequence[CircuitSpec]) -> float:
+    def trash_fidelity(self, theta: ArrayLike, states: Sequence[CircuitSpec]) -> float:
         r"""Mean :math:`\langle 0|
         ho_\mathrm{trash}|0
         angle` — 1.0 is perfect compression.
@@ -118,7 +119,7 @@ class QuantumAutoencoder:
             total += float(expectation(encoded, projector, backend=self.backend))
         return total / len(states)
 
-    def trash_purity(self, theta: Sequence[float], states: Sequence[CircuitSpec]) -> float:
+    def trash_purity(self, theta: ArrayLike, states: Sequence[CircuitSpec]) -> float:
         """Mean purity of the discarded wires. Reported, but not what is optimised."""
         arr = np.asarray(theta, dtype=float)
         total = 0.0
@@ -158,7 +159,7 @@ class QuantumAutoencoder:
         )
 
     # ------------------------------------------------------------- validation --
-    def round_trip_fidelity(self, theta: Sequence[float], states: Sequence[CircuitSpec]) -> float:
+    def round_trip_fidelity(self, theta: ArrayLike, states: Sequence[CircuitSpec]) -> float:
         """Encode, reset the trash to ``|0>``, decode, and compare to the input.
 
         This is the quantity the compression *claims*, and it is deliberately not the
@@ -194,7 +195,7 @@ class QuantumAutoencoder:
 
         out = np.asarray(state, dtype=complex).reshape((2,) * self.n_qubits)
         for op in spec.ops:
-            angles = tuple(float(p) for p in op.params)
+            angles = tuple(bound_angle(p) for p in op.params)
             out = _apply(out, gate_matrix(op.gate, angles), op.qubits)
         return out.reshape(-1)
 

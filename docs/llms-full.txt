@@ -4876,7 +4876,7 @@ def available_backends() -> 'tuple[str, ...]'
     Only the backends whose SDK is actually importable right now.
 def backend_report() -> 'str'
     A human-readable summary of which backends this interpreter can run.
-def barren_plateau_scan(ansatz_factory: 'Callable[[int], Ansatz]', qubit_range: 'Sequence[int]', obs_factory: 'Callable[[int], Observable] | None' = None, n_samples: 'int' = 100, seed: 'int | None' = None, backend: 'BackendLike' = None) -> 'dict[str, list]'
+def barren_plateau_scan(ansatz_factory: 'Callable[[int], Ansatz]', qubit_range: 'Sequence[int]', obs_factory: 'Callable[[int], Observable] | None' = None, n_samples: 'int' = 100, seed: 'int | None' = None, backend: 'BackendLike' = None) -> 'dict[str, Any]'
     Gradient variance against qubit count.
 def baseline(X: 'Any', y: 'Any', model: 'Any' = None, task: 'str' = 'auto', cv: 'int' = 5, metric: 'str | None' = None, seed: 'int | None' = 0, include: 'Sequence[str] | None' = None, max_samples: 'int | None' = None, fit_kwargs: 'dict[str, Any] | None' = None) -> 'BaselineTable'
     Score every classical baseline — and optionally ``model`` — on shared folds.
@@ -4894,7 +4894,7 @@ def closest_psd_matrix(K: 'npt.NDArray[Any]', method: 'str' = 'threshold') -> 'n
     Nearest PSD matrix by the named method.
 def compare_ansatze(ansatze: 'Sequence[Ansatz]', n_samples: 'int' = 300, seed: 'int | None' = 0) -> 'list[dict[str, object]]'
     The same report across candidates — the table a paper would want.
-def concentration_report(K: 'npt.NDArray[Any]', n_qubits: 'int', shots: 'int | None' = None) -> 'dict'
+def concentration_report(K: 'npt.NDArray[Any]', n_qubits: 'int', shots: 'int | None' = None) -> 'dict[str, Any]'
     Is this Gram matrix telling you anything, or has it concentrated?
 def concurrence(state: 'CircuitSpec | npt.NDArray[Any]', backend: 'BackendLike' = None) -> 'float'
     Two-qubit concurrence — 0 for a product state, 1 for a Bell state.
@@ -5006,7 +5006,7 @@ def list_feature_maps() -> 'tuple[str, ...]'
 def list_gates() -> 'tuple[str, ...]'
 def list_gradient_methods() -> 'tuple[str, ...]'
 def list_importers() -> 'tuple[str, ...]'
-def metric_tensor(spec: 'CircuitSpec', theta: 'Sequence[float]', approx: 'str' = 'block-diag', backend: 'BackendLike' = None, eps: 'float' = 0.0001) -> 'npt.NDArray[Any]'
+def metric_tensor(spec: 'CircuitSpec', theta: 'ArrayLike', approx: 'str | None' = 'block-diag', backend: 'BackendLike' = None, eps: 'float' = 0.0001) -> 'npt.NDArray[Any]'
     Fubini–Study metric — the curvature of parameter space.
 metrics
     Does this ansatz stand a chance? — expressibility, entanglement, trainability.
@@ -5075,7 +5075,7 @@ def repeat(times: 'int', block: 'Block') -> 'Repeat'
     ``repeat(3, RotationLayer("ry"))`` — three layers, fresh weights each.
 def reupload(feature_map: 'object', n_layers: 'int' = 3, block: 'Block | None' = None, order: 'str' = 'SW', entangler: 'str | None' = 'cx', pattern: 'str' = 'chain', rotations: 'Sequence[str]' = ('rz', 'ry', 'rz'), share_weights: 'bool' = False, name: 'str' = 'reupload') -> 'Ansatz'
     Build a re-uploading ansatz from any feature map and any trainable block.
-def rotosolve_step(f: 'LossFn', theta: 'Sequence[float]', indices: 'Sequence[int] | None' = None) -> 'npt.NDArray[Any]'
+def rotosolve_step(f: 'LossFn', theta: 'ArrayLike', indices: 'Sequence[int] | None' = None) -> 'npt.NDArray[Any]'
     One sweep: set every coordinate to its exact optimum, in turn.
 def rule_for_gate(gate: 'str') -> 'ShiftRule'
     Look the rule up from the gate's declared generator frequencies.

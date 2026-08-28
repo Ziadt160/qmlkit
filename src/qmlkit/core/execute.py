@@ -9,7 +9,7 @@ not ask for is not a feature. Pass ``shots=N`` to model a real device.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Literal, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -68,6 +68,31 @@ def probabilities(
 ) -> npt.NDArray[Any]:
     """Exact outcome probabilities over the ``2**n`` basis states."""
     return get_backend(backend).probabilities(_prepare(spec, theta))
+
+
+@overload
+def expectation(
+    spec: CircuitSpec,
+    obs: Observable | None = ...,
+    theta: ArrayLike | None = ...,
+    shots: int | None = ...,
+    backend: BackendLike = ...,
+    seed: int | None = ...,
+    return_std: Literal[False] = ...,
+) -> float: ...
+
+
+@overload
+def expectation(
+    spec: CircuitSpec,
+    obs: Observable | None = ...,
+    theta: ArrayLike | None = ...,
+    shots: int | None = ...,
+    backend: BackendLike = ...,
+    seed: int | None = ...,
+    *,
+    return_std: Literal[True],
+) -> tuple[float, float]: ...
 
 
 def expectation(
@@ -146,8 +171,11 @@ def expectation_over(
         (4,)
     """
     return get_backend(backend).expectation_over(
-        spec, np.atleast_2d(np.asarray(thetas, dtype=float)), Z(0) if obs is None else obs,
-        shots, seed,
+        spec,
+        np.atleast_2d(np.asarray(thetas, dtype=float)),
+        Z(0) if obs is None else obs,
+        shots,
+        seed,
     )
 
 

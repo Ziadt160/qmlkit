@@ -26,7 +26,7 @@ import numpy as np
 
 from qmlkit.core.builder import QCircuit
 from qmlkit.core.execute import BackendLike, probabilities, run_counts
-from qmlkit.core.ir import CircuitSpec, Op
+from qmlkit.core.ir import CircuitSpec, Op, bound_angle
 from qmlkit.encoding.feature_maps import FeatureMap
 from qmlkit.utils.errors import unknown
 
@@ -198,7 +198,7 @@ def _controlled(op: Op, control: int) -> list[Op]:
         return _toffoli(control, op.qubits[0], op.qubits[1])
     if op.gate in ("s", "sdg", "t", "tdg", "phase"):
         angle = {"s": np.pi / 2, "sdg": -np.pi / 2, "t": np.pi / 4, "tdg": -np.pi / 4}
-        theta = angle[op.gate] if op.gate != "phase" else float(op.params[0])
+        theta = angle[op.gate] if op.gate != "phase" else bound_angle(op.params[0])
         return [Op("crz", (control, op.qubits[0]), (theta,)), Op("phase", (control,), (theta / 2,))]
     raise NotImplementedError(
         f"the Hadamard test has no controlled form for {op.gate!r}; use the inversion "

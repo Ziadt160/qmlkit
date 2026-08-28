@@ -6,6 +6,34 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed - `mypy` now covers the whole package
+
+`[tool.mypy] files` listed six paths; it now lists `src/qmlkit`. A partial check reads
+like a full one in CI, which is the worst of both - `kernels`, `nn`, `algorithms`,
+`encoding`, `evaluate`, `metrics` and the rest were never checked.
+
+Making the other 59 errors pass was mostly a matter of annotations that were wrong
+rather than missing, and three of them were worth the trip:
+
+- **`expectation()` is now overloaded.** It returns `float`, or `(float, float)` with
+  `return_std=True` - a *flag*, which is what `@overload` is for. Seven callers were
+  writing `float(value)` on a union mypy could not narrow, two of them behind a
+  `cast()` that is now gone. Every user's IDE was being told the same wrong thing.
+- **`ir.bound_angle()`**, one shared "this parameter must be bound by now" check.
+  Reading angles off a circuit was `float(p)` in four places, which on an unbound
+  circuit raises a `TypeError` about `__float__` that says nothing about circuits.
+  Two backends had already grown a private version of it.
+- **`nn.layer.Combined`**, a Protocol naming what `_is_combined` had been checking by
+  `hasattr`. Re-uploading is a pattern rather than a class, so there is no base to
+  test against - the four attributes that make a model combined are now written down,
+  and `_is_combined` is a `TypeGuard` that narrows to them.
+
+Signatures taking a parameter vector or a feature vector now say `ArrayLike` rather
+than `Sequence[float]`, which is what every caller was already passing.
+
+One real bug surfaced: `draw()` used the name `col` for both a column *index* and a
+column's *contents* in the same function. Renamed, and mypy was right.
+
 ### Added - `from_cirq`
 
 The fourth importer, completing the set: `from_qasm`, `from_qiskit`, `from_pennylane`,

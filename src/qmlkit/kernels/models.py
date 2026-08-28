@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+from numpy.typing import ArrayLike
 
 from qmlkit.core.execute import BackendLike
 from qmlkit.encoding.feature_maps import FeatureMap
@@ -226,7 +227,7 @@ class TrainableKernel:
         self.params_: npt.NDArray[Any] | None = None
         self.history_: list[float] = []
 
-    def alignment(self, params: Sequence[float], X: npt.NDArray[Any], y: npt.NDArray[Any]) -> float:
+    def alignment(self, params: ArrayLike, X: npt.NDArray[Any], y: npt.NDArray[Any]) -> float:
         kernel = QuantumKernel(self.factory(params), shots=self.shots, backend=self.backend)
         return target_alignment(kernel(X), y)
 

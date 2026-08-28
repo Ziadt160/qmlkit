@@ -21,6 +21,7 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+from numpy.typing import ArrayLike
 
 from qmlkit.ansatz.library import Ansatz, hardware_efficient
 from qmlkit.core.builder import entangler_pairs
@@ -124,14 +125,14 @@ class QCBM:
         self.history_: list[float] = []
 
     # ------------------------------------------------------------------------
-    def circuit(self, params: Sequence[float] | None = None) -> CircuitSpec:
+    def circuit(self, params: ArrayLike | None = None) -> CircuitSpec:
         return self.ansatz.build(self.params_ if params is None else params)
 
     def probabilities(self, params: Sequence[float] | None = None) -> npt.NDArray[Any]:
         return probabilities(self.circuit(params), backend=self.backend)
 
     def sample(
-        self, n_samples: int = 512, params: Sequence[float] | None = None, seed: int | None = None
+        self, n_samples: int = 512, params: ArrayLike | None = None, seed: int | None = None
     ) -> npt.NDArray[Any]:
         """Draw bitstrings as a ``(n_samples, n_qubits)`` array of 0/1."""
         counts = run_counts(self.circuit(params), shots=n_samples, backend=self.backend, seed=seed)
@@ -275,7 +276,11 @@ def partition_function(energies: npt.NDArray[Any], beta: float = 1.0) -> float:
     return float(np.exp(-beta * np.asarray(energies, dtype=float)).sum())
 
 
-def ising_energy(spins: Sequence[int], fields: npt.NDArray[Any], couplings: dict) -> float:
+def ising_energy(
+    spins: Sequence[int],
+    fields: npt.NDArray[Any],
+    couplings: dict[tuple[int, int], float],
+) -> float:
     """``-sum b_i s_i - sum w_ij s_i s_j`` for spins in ``{+1, -1}``."""
     s = np.asarray(spins, dtype=float)
     energy = -float(np.dot(np.asarray(fields, dtype=float), s))

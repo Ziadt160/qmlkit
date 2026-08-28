@@ -23,6 +23,7 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+from numpy.typing import ArrayLike
 
 from qmlkit.algorithms.hamiltonians import exact_ground_energy, max_cut_hamiltonian
 from qmlkit.algorithms.vqe import OPTIMIZERS, Optimizer
@@ -100,7 +101,7 @@ class QAOA:
                 "An empty edge list defines nothing to optimise."
             )
         if isinstance(problem, (list, tuple)) and isinstance(problem[0], tuple):
-            edges = [(int(a), int(b)) for a, b in problem]  # type: ignore[misc]
+            edges = [(int(a), int(b)) for a, b in problem]
             width = n_qubits or max(max(e) for e in edges) + 1
             self.cost: Observable = max_cut_hamiltonian(edges)
             self.edges: list[tuple[int, int]] | None = edges
@@ -142,7 +143,7 @@ class QAOA:
             shots=self.shots,
         )
 
-    def distribution(self, theta: Sequence[float]) -> npt.NDArray[Any]:
+    def distribution(self, theta: ArrayLike) -> npt.NDArray[Any]:
         """Outcome probabilities of the optimised state."""
         return probabilities(self._spec.bind(np.asarray(theta, dtype=float)), backend=self.backend)
 

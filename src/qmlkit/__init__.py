@@ -455,7 +455,7 @@ _TORCH_EXPORTS = (
 )
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> object:
     """Resolve the torch bridge lazily, and answer a wrong name with the right one.
 
     A missing attribute is where most first attempts at an unfamiliar library land,

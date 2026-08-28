@@ -406,15 +406,12 @@ class BaselineTable:
         # ASCII only: this prints to a Windows console as often as to a notebook
         split = "stratified" if self.task == "classification" else "shuffled"
         lines = [
-            f"{self.task}  |  {self.metric}  |  {self.n_folds}-fold {split}  "
-            f"|  n={self.n_samples}"
+            f"{self.task}  |  {self.metric}  |  {self.n_folds}-fold {split}  |  n={self.n_samples}"
         ]
         for row in sorted(self.rows, key=lambda r: (r.skipped != "", -r.mean)):
             mark = "*" if row.is_model else " "
             if row.ran:
-                lines.append(
-                    f" {mark} {row.name:<{width}}  {row.mean: .3f} +/- {row.std:.3f}"
-                )
+                lines.append(f" {mark} {row.name:<{width}}  {row.mean: .3f} +/- {row.std:.3f}")
             else:
                 lines.append(f" {mark} {row.name:<{width}}  skipped: {row.skipped}")
         lines.append(f"\n{self.verdict}")
@@ -446,8 +443,10 @@ def _fit_predict(estimator: Any, X_train: Array, y_train: Array, X_test: Array) 
 
 
 def _score(task: str, y_true: Array, y_pred: Array, metric: str) -> float:
-    scores = evaluate.classification(y_true, y_pred) if task == "classification" else (
-        evaluate.regression(y_true, y_pred)
+    scores = (
+        evaluate.classification(y_true, y_pred)
+        if task == "classification"
+        else (evaluate.regression(y_true, y_pred))
     )
     return float(scores[metric])
 
@@ -518,9 +517,7 @@ def baseline(
     else:
         order = rng.permutation(data.shape[0])
         chunks = np.array_split(order, cv)
-        folds = [
-            (np.setdiff1d(order, chunk), chunk) for chunk in chunks
-        ]
+        folds = [(np.setdiff1d(order, chunk), chunk) for chunk in chunks]
 
     specs = [s for s in _BASELINES.values() if s.task == resolved]
     if include is not None:
@@ -529,9 +526,7 @@ def baseline(
         if missing:
             from qmlkit.utils.errors import unknown
 
-            raise unknown(
-                f"{resolved} baseline", sorted(missing)[0], [s.name for s in specs]
-            )
+            raise unknown(f"{resolved} baseline", sorted(missing)[0], [s.name for s in specs])
         specs = [s for s in specs if s.name in wanted]
 
     rows: list[BaselineRow] = []
@@ -567,7 +562,8 @@ def baseline(
                     resolved,
                     target[test],
                     _fit_predict(
-                        model() if callable(model) and not hasattr(model, "fit")
+                        model()
+                        if callable(model) and not hasattr(model, "fit")
                         else copy.deepcopy(model),
                         data[train],
                         target[train],

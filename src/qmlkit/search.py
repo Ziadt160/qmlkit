@@ -401,7 +401,13 @@ def search(
         )
         rows.extend(SearchRow(c, findings=codes, fitted=False) for c, codes in runnable)
         return SearchResult(
-            resolved, metric, int(target.size), cv, varied, tuple(rows), tuple(notes),
+            resolved,
+            metric,
+            int(target.size),
+            cv,
+            varied,
+            tuple(rows),
+            tuple(notes),
             {"n_classes": n_classes},
         )
 
@@ -451,7 +457,13 @@ def search(
                 "class_weight=['balanced'] is worth putting on the grid"
             )
     return SearchResult(
-        resolved, metric, int(target.size), cv, varied, tuple(rows), tuple(notes),
+        resolved,
+        metric,
+        int(target.size),
+        cv,
+        varied,
+        tuple(rows),
+        tuple(notes),
         {"n_classes": n_classes, "folds": folds},
     )
 

@@ -53,9 +53,7 @@ def test_rbf_kernel_ridge_matches_sklearn_on_the_same_kernel(moons):
     onehot = np.eye(2)[y]
     ours = RBFKernelRidge(alpha=1.0).fit(X, y)
     theirs = kr.KernelRidge(alpha=1.0, kernel="rbf", gamma=ours.gamma_).fit(X, onehot)
-    np.testing.assert_allclose(
-        ours.predict(X), theirs.predict(X).argmax(axis=1), atol=0, rtol=0
-    )
+    np.testing.assert_allclose(ours.predict(X), theirs.predict(X).argmax(axis=1), atol=0, rtol=0)
 
 
 def test_rbf_gamma_follows_sklearns_scale_convention(moons):
@@ -103,9 +101,7 @@ def test_every_row_is_scored_on_identical_folds(moons):
     assert len(folds) == 3
     # a second call with the same seed reproduces the same partition exactly
     again = baseline(X, y, cv=3, seed=0)
-    for (train_a, test_a), (train_b, test_b) in zip(
-        folds, again.extras["folds"], strict=True
-    ):
+    for (train_a, test_a), (train_b, test_b) in zip(folds, again.extras["folds"], strict=True):
         np.testing.assert_array_equal(train_a, train_b)
         np.testing.assert_array_equal(test_a, test_b)
 
@@ -258,7 +254,7 @@ def test_unknown_names_suggest_a_real_one():
 
 def test_an_unavailable_extra_is_listed_as_skipped_not_dropped(monkeypatch, moons):
     """A table that quietly omits the strong baseline is the problem being solved."""
-    module = importlib.import_module('qmlkit.baselines')
+    module = importlib.import_module("qmlkit.baselines")
 
     monkeypatch.setattr(module, "_available", lambda requires: requires is None)
     X, y = moons

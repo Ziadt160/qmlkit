@@ -169,7 +169,7 @@ def barren_plateau_scan(
     n_samples: int = 100,
     seed: int | None = None,
     backend: BackendLike = None,
-) -> dict[str, list]:
+) -> dict[str, Any]:
     """Gradient variance against qubit count.
 
     ``obs_factory`` decides the **cost locality**, which matters at fixed shallow

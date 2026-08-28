@@ -20,6 +20,7 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+from numpy.typing import ArrayLike
 
 from qmlkit.core.execute import BackendLike, expval
 from qmlkit.core.ir import CircuitSpec
@@ -86,7 +87,7 @@ def supports_rotosolve(spec: CircuitSpec) -> bool:
 
 
 def rotosolve_step(
-    f: LossFn, theta: Sequence[float], indices: Sequence[int] | None = None
+    f: LossFn, theta: ArrayLike, indices: Sequence[int] | None = None
 ) -> npt.NDArray[Any]:
     """One sweep: set every coordinate to its exact optimum, in turn.
 
@@ -187,8 +188,8 @@ def _exact_derivative_states(
 
 def metric_tensor(
     spec: CircuitSpec,
-    theta: Sequence[float],
-    approx: str = "block-diag",
+    theta: ArrayLike,
+    approx: str | None = "block-diag",
     backend: BackendLike = None,
     eps: float = 1e-4,
 ) -> npt.NDArray[Any]:
@@ -253,7 +254,7 @@ def quantum_fisher_information(
 
 def qng_step(
     spec: CircuitSpec,
-    theta: Sequence[float],
+    theta: ArrayLike,
     obs: Observable | None = None,
     lr: float = 0.1,
     approx: str = "block-diag",

@@ -259,9 +259,7 @@ def _encoding_collapses(ansatz: Ansatz) -> tuple[int, str] | None:
     generators = {getattr(b.feature_map, "rotation", None) for b, _ in encodings}
     if len(generators) != 1 or None in generators:
         return None  # a multi-gate map (ZZ, Pauli) never fully commutes
-    rotations = {
-        g for b, _ in _walk(ansatz.block) if isinstance(b, RotationLayer) for g in b.gates
-    }
+    rotations = {g for b, _ in _walk(ansatz.block) if isinstance(b, RotationLayer) for g in b.gates}
     encoding = str(generators.pop())
     return (uploads, encoding) if rotations and rotations <= {encoding} else None
 
@@ -285,7 +283,11 @@ def _weight_gradient_variance(
     """
     if prefix is None:
         return gradient_variance(
-            ansatz, obs, n_samples=n_samples, param_index=param_index, seed=seed,
+            ansatz,
+            obs,
+            n_samples=n_samples,
+            param_index=param_index,
+            seed=seed,
             backend=backend,
         )
 
@@ -297,8 +299,12 @@ def _weight_gradient_variance(
     spec = prefix.compose(ansatz.build(), param_offset=offset)
     values = [
         float(
-            grad(spec, rng.uniform(-np.pi, np.pi, offset + ansatz.n_params), observable,
-                 backend=backend)[offset + param_index]
+            grad(
+                spec,
+                rng.uniform(-np.pi, np.pi, offset + ansatz.n_params),
+                observable,
+                backend=backend,
+            )[offset + param_index]
         )
         for _ in range(n_samples)
     ]
@@ -345,9 +351,7 @@ def _diagnose_ansatz(
             )
         )
 
-    dead = _dead_parameters(
-        ansatz, probes=probes, seed=seed, backend=backend, prefix=prefix
-    )
+    dead = _dead_parameters(ansatz, probes=probes, seed=seed, backend=backend, prefix=prefix)
     setting = "with the model's own encoding in front" if prefix is not None else "from |0>"
     dead_inputs = [int(i) for i in dead if i < ansatz.n_inputs]
     dead_weights = [int(i) - ansatz.n_inputs for i in dead if i >= ansatz.n_inputs]

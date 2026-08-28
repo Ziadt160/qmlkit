@@ -115,14 +115,9 @@ ignore = ["E741"]
 # stubs as 3.10 too, and NumPy's stubs now use PEP 695 `type` statements, which is a
 # syntax error before 3.12 — so the whole check aborts on any modern NumPy. The
 # 3.10-compatibility signal comes from CI running this on 3.10 instead.
-files = [
-  "src/qmlkit/core",
-  "src/qmlkit/gradients",
-  "src/qmlkit/ansatz",
-  "src/qmlkit/utils",
-  "src/qmlkit/_aliases.py",
-  "src/qmlkit/diagnostics.py",
-]
+# The whole package. It was six paths until the rest was made to pass; a partial
+# check reads like a full one in CI, which is the worst of both.
+files = ["src/qmlkit"]
 strict = true
 warn_return_any = false
 
@@ -135,6 +130,7 @@ module = [
   "qiskit_aer.*",
   "cirq.*",
   "sympy.*",
+  "sklearn.*",
   "torch.*",
   "pennylane.*",
 ]

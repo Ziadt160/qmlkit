@@ -74,7 +74,7 @@ def ising_hamiltonian(
     ``h`` grows, so a working VQE has to do real work.
     """
     graph = list(edges) if edges is not None else list(entangler_pairs(n_qubits, pattern))
-    terms = [("ZZ", (a, b), j) for a, b in graph]
+    terms: list[tuple[str, tuple[int, ...], float]] = [("ZZ", (a, b), j) for a, b in graph]
     terms += [("X", (q,), h) for q in range(n_qubits)]
     return pauli_hamiltonian(terms)
 

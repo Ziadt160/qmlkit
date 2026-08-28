@@ -301,9 +301,7 @@ def test_training_gradients_are_unchanged_by_batching():
             _Runner._BATCHABLE = original
 
     default = _Runner._BATCHABLE
-    for looped, batched in zip(
-        grads_with(frozenset()), grads_with(default), strict=True
-    ):
+    for looped, batched in zip(grads_with(frozenset()), grads_with(default), strict=True):
         torch.testing.assert_close(looped, batched, atol=1e-6, rtol=1e-5)
 
 

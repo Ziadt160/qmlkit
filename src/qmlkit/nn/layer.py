@@ -18,11 +18,12 @@ spent on the classical half.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Protocol, TypeGuard
 
 import numpy as np
 import numpy.typing as npt
 import torch
+from numpy.typing import ArrayLike
 from torch import nn
 
 from qmlkit.ansatz.library import Ansatz
@@ -64,7 +65,34 @@ class QuantumFunction(torch.autograd.Function):
         )
 
 
-def _is_combined(obj: object) -> bool:
+class Combined(Protocol):
+    """A model that carries its own encoding, interleaved with a trainable block.
+
+    Re-uploading is a *pattern*, not a class, so there is no base to test against -
+    what makes a model combined is that it both encodes data and holds weights. That
+    is four attributes, and this protocol is where they are written down. Anything
+    satisfying it can be handed to :class:`QuantumLayer` in place of a feature map.
+    """
+
+    n_inputs: int
+    n_weights: int
+    n_qubits: int
+
+    def angles(self, x: ArrayLike) -> npt.NDArray[Any]: ...
+
+    def angle_jacobian(self, x: ArrayLike, eps: float = ...) -> npt.NDArray[Any]: ...
+
+    def build(self) -> CircuitSpec: ...
+
+    def init(self, method: str = ..., seed: int | None = ...) -> npt.NDArray[Any]: ...
+
+
+#: The "leave this setting alone" sentinel for :meth:`QuantumLayer.configure`.
+#: ``None`` cannot serve, because ``shots=None`` is a meaningful value: exact mode.
+_UNCHANGED: Any = ...
+
+
+def _is_combined(obj: object) -> TypeGuard[Combined]:
     """True for a model that interleaves its own encoding (a re-uploading ansatz)."""
     return all(hasattr(obj, a) for a in ("n_inputs", "n_weights", "angles", "angle_jacobian"))
 
@@ -230,14 +258,16 @@ class QuantumLayer(nn.Module):
         init_seed: int | None = None,
     ) -> None:
         super().__init__()
-        combined = _is_combined(feature_map)
-        if combined and ansatz is not None:
-            raise ValueError(
-                "a re-uploading model already contains its trainable block; pass it "
-                "alone, without a separate ansatz"
-            )
         self.feature_map = feature_map
-        self.ansatz = feature_map if combined else ansatz
+        if _is_combined(feature_map):
+            if ansatz is not None:
+                raise ValueError(
+                    "a re-uploading model already contains its trainable block; pass it "
+                    "alone, without a separate ansatz"
+                )
+            self.ansatz: Ansatz | Combined | None = feature_map
+        else:
+            self.ansatz = ansatz
         n = feature_map.n_qubits
         self.observables = (
             list(observables) if observables is not None else [Z(i) for i in range(n)]
@@ -268,9 +298,11 @@ class QuantumLayer(nn.Module):
     def n_outputs(self) -> int:
         return len(self.observables)
 
-    def configure(self, shots: int | None = ..., grad_method: str | None = None) -> QuantumLayer:
+    def configure(
+        self, shots: int | None = _UNCHANGED, grad_method: str | None = None
+    ) -> QuantumLayer:
         """Switch to device-realism mode (or back) without rebuilding the layer."""
-        if shots is not ...:
+        if shots is not _UNCHANGED:
             self._runner.shots = shots
         if grad_method is not None:
             self._runner.grad_method = (
@@ -285,7 +317,9 @@ class QuantumLayer(nn.Module):
             x = x.unsqueeze(0)
         if x.shape[-1] != self.n_features:
             raise ValueError(f"QuantumLayer expects {self.n_features} features, got {x.shape[-1]}")
-        return QuantumFunction.apply(x, self.theta, self._runner)
+        return QuantumFunction.apply(  # type: ignore[no-untyped-call]
+            x, self.theta, self._runner
+        )
 
     def resources(self) -> dict[str, object]:
         """Circuit cost, and what a batch costs under each gradient method."""

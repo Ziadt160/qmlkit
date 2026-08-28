@@ -66,8 +66,7 @@ def class_counts(y: Any) -> dict[Any, int]:
     """``{label: count}``, in sorted label order."""
     labels, counts = np.unique(_labels(y), return_counts=True)
     return {
-        label: int(count)
-        for label, count in zip(labels.tolist(), counts.tolist(), strict=True)
+        label: int(count) for label, count in zip(labels.tolist(), counts.tolist(), strict=True)
     }
 
 
@@ -307,8 +306,7 @@ def imbalance_report(y: Any, n_folds: int = 5) -> Any:
                 "error",
                 f"class {smallest_label!r} has {smallest} sample(s), fewer than the "
                 f"{n_folds} folds asked for, so some folds cannot contain it",
-                f"n_folds<={smallest}, or a single stratified_split, or collect more of "
-                "that class",
+                f"n_folds<={smallest}, or a single stratified_split, or collect more of that class",
                 float(smallest),
             )
         )

@@ -23,7 +23,7 @@ import numpy as np
 
 from qmlkit.core.builder import QCircuit
 from qmlkit.core.execute import BackendLike, run_counts
-from qmlkit.core.ir import CircuitSpec
+from qmlkit.core.ir import CircuitSpec, bound_angle
 from qmlkit.core.observables import Observable, as_sum
 
 __all__ = ["ClassicalShadow", "shadow_shot_cost"]
@@ -65,7 +65,7 @@ class ClassicalShadow:
         for index in range(self.n_snapshots):
             builder = QCircuit(self.n_qubits)
             for op in self.spec.ops:
-                builder.apply(op.gate, op.qubits, *[float(p) for p in op.params])
+                builder.apply(op.gate, op.qubits, *[bound_angle(p) for p in op.params])
             for qubit in range(self.n_qubits):
                 basis = _BASES[self.bases[index, qubit]]
                 if basis == "X":

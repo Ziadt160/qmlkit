@@ -54,7 +54,7 @@ class SklearnCompatible:
         for name in names:
             value = getattr(self, name, None)
             out[name] = value
-            if deep and hasattr(value, "get_params"):
+            if deep and value is not None and hasattr(value, "get_params"):
                 for key, sub in value.get_params(deep=True).items():
                     out[f"{name}__{key}"] = sub
         return out
@@ -162,7 +162,8 @@ class FeaturePipeline(SklearnCompatible):
         if self.method == "pca" and data.shape[1] != self.n_qubits:
             self.reducer_ = PCAReducer(self.n_qubits).fit(data)
             data = self.reducer_.transform(data)
-            self.explained_variance_ = float(np.sum(self.reducer_.explained_variance_ratio_))
+            ratios = self.reducer_.explained_variance_ratio_
+            self.explained_variance_ = float(np.sum(ratios)) if ratios is not None else 0.0
         else:
             self.reducer_ = None
             data = data[:, : self.n_qubits]

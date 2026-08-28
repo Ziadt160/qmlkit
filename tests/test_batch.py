@@ -273,9 +273,7 @@ def test_a_single_row_still_returns_a_single_row():
     """Batching must not turn a 1-D input into a 2-D output."""
     torch = pytest.importorskip("torch")
 
-    layer = qk.QuantumLayer(
-        qk.AngleFeatureMap(3), qk.hardware_efficient(3, 1), [qk.Z(0), qk.Z(1)]
-    )
+    layer = qk.QuantumLayer(qk.AngleFeatureMap(3), qk.hardware_efficient(3, 1), [qk.Z(0), qk.Z(1)])
     one = layer(torch.zeros(3))
     many = layer(torch.zeros((4, 3)))
     # a 1-D input is treated as a batch of one, which is what the layer has always

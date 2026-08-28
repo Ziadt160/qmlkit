@@ -348,10 +348,9 @@ def test_unknown_importer_suggests_a_real_one():
 # --------------------------------------------------------------------------- #
 @pytest.mark.cirq
 def test_cirq_round_trip_reproduces_the_statevector():
+    pytest.importorskip("cirq")
     spec = _asymmetric()
-    import qmlkit as _qk
-
-    back = qk.from_cirq(_qk.get_backend("cirq").to_cirq(spec))
+    back = qk.from_cirq(qk.get_backend("cirq").to_cirq(spec))
     assert _state(back) == pytest.approx(_state(spec), abs=1e-12)
 
 
@@ -359,6 +358,7 @@ def test_cirq_round_trip_reproduces_the_statevector():
 @pytest.mark.parametrize("n_qubits", [1, 2, 3, 4])
 def test_cirq_round_trip_over_random_circuits(n_qubits):
     """Hand-picked cases confirm what the author already believed."""
+    pytest.importorskip("cirq")
     rng = np.random.default_rng(n_qubits)
     backend = qk.get_backend("cirq")
     for _ in range(10):
@@ -371,7 +371,7 @@ def test_cirq_round_trip_over_random_circuits(n_qubits):
 @pytest.mark.cirq
 def test_cirq_every_gate_qmlkit_emits_comes_back():
     """A gate qmlkit can write to Cirq but not read is a one-way door."""
-    import cirq
+    cirq = pytest.importorskip("cirq")
 
     from qmlkit.core.backends.cirq_backend import _gate_factories
 
@@ -385,7 +385,7 @@ def test_cirq_every_gate_qmlkit_emits_comes_back():
 @pytest.mark.cirq
 def test_cirq_agrees_with_cirqs_own_simulator_on_a_native_circuit():
     """Not a round trip: a circuit Cirq users would write, including a Z power."""
-    import cirq
+    cirq = pytest.importorskip("cirq")
 
     qubits = cirq.LineQubit.range(3)
     circuit = cirq.Circuit(
@@ -407,7 +407,7 @@ def test_cirq_agrees_with_cirqs_own_simulator_on_a_native_circuit():
 @pytest.mark.cirq
 def test_cirq_wire_order_matches_without_flipping():
     """Cirq is big-endian like qmlkit. Asserted, because a flip still runs."""
-    import cirq
+    cirq = pytest.importorskip("cirq")
 
     qubits = cirq.LineQubit.range(2)
     # the identity is load-bearing: Cirq has no register, so a qubit no operation
@@ -424,7 +424,7 @@ def test_cirq_untouched_qubits_are_not_in_the_register():
     Worth pinning rather than discovering: a Qiskit circuit carries idle qubits and a
     Cirq one does not, so the same logical circuit imports at different widths.
     """
-    import cirq
+    cirq = pytest.importorskip("cirq")
 
     circuit = cirq.Circuit([cirq.X(cirq.LineQubit(0))])
     assert qk.from_cirq(circuit).n_qubits == 1
@@ -435,7 +435,7 @@ def test_cirq_untouched_qubits_are_not_in_the_register():
 @pytest.mark.cirq
 def test_cirq_qubits_are_numbered_by_cirqs_own_sort_order():
     """A gap in the qubit line is closed up, the way Cirq's simulator closes it."""
-    import cirq
+    cirq = pytest.importorskip("cirq")
 
     circuit = cirq.Circuit([cirq.X(cirq.LineQubit(5)), cirq.H(cirq.LineQubit(2))])
     spec = qk.from_cirq(circuit)
@@ -447,8 +447,8 @@ def test_cirq_qubits_are_numbered_by_cirqs_own_sort_order():
 @pytest.mark.cirq
 def test_cirq_symbols_become_paramrefs_carrying_their_scale():
     """`cirq.rx(2 * t)` is exponent `2*t/pi`; ParamRef is scale * theta + offset."""
-    import cirq
-    import sympy
+    cirq = pytest.importorskip("cirq")
+    sympy = pytest.importorskip("sympy")
 
     from qmlkit.core.ir import ParamRef
 
@@ -476,8 +476,8 @@ def test_cirq_symbols_become_paramrefs_carrying_their_scale():
 
 @pytest.mark.cirq
 def test_cirq_nonlinear_parameter_expressions_are_refused_clearly():
-    import cirq
-    import sympy
+    cirq = pytest.importorskip("cirq")
+    sympy = pytest.importorskip("sympy")
 
     t = sympy.Symbol("t")
     circuit = cirq.Circuit([cirq.rx(t**2).on(cirq.LineQubit(0))])
@@ -487,7 +487,7 @@ def test_cirq_nonlinear_parameter_expressions_are_refused_clearly():
 
 @pytest.mark.cirq
 def test_cirq_fractional_two_qubit_powers_are_refused_not_approximated():
-    import cirq
+    cirq = pytest.importorskip("cirq")
 
     qubits = cirq.LineQubit.range(2)
     with pytest.raises(UnsupportedGate, match="fractional power"):
@@ -497,7 +497,7 @@ def test_cirq_fractional_two_qubit_powers_are_refused_not_approximated():
 @pytest.mark.cirq
 def test_cirq_pauli_powers_warn_about_the_dropped_phase():
     """`X**s` is `Rx(pi s)` up to a phase - unobservable alone, not in a controlled block."""
-    import cirq
+    cirq = pytest.importorskip("cirq")
 
     circuit = cirq.Circuit([cirq.X(cirq.LineQubit(0)) ** 0.3])
     with pytest.warns(UserWarning, match="overall phase"):
@@ -507,7 +507,7 @@ def test_cirq_pauli_powers_warn_about_the_dropped_phase():
 
 @pytest.mark.cirq
 def test_cirq_measurement_is_refused_with_the_reason():
-    import cirq
+    cirq = pytest.importorskip("cirq")
 
     circuit = cirq.Circuit([cirq.measure(cirq.LineQubit(0), key="m")])
     with pytest.raises(UnsupportedGate, match="mid-circuit measurement"):
@@ -516,7 +516,7 @@ def test_cirq_measurement_is_refused_with_the_reason():
 
 @pytest.mark.cirq
 def test_cirq_unknown_gate_says_what_to_do():
-    import cirq
+    cirq = pytest.importorskip("cirq")
 
     qubits = cirq.LineQubit.range(3)
     with pytest.raises(UnsupportedGate, match="register_gate"):
@@ -525,7 +525,7 @@ def test_cirq_unknown_gate_says_what_to_do():
 
 @pytest.mark.cirq
 def test_cirq_is_reachable_through_the_importer_registry():
-    import cirq
+    cirq = pytest.importorskip("cirq")
 
     assert "cirq" in qk.list_importers()
     circuit = cirq.Circuit([cirq.H(cirq.LineQubit(0))])

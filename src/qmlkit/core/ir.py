@@ -49,6 +49,20 @@ class ParamRef:
 ParamLike = float | int | ParamRef
 
 
+def bound_angle(param: ParamLike, context: str = "this circuit") -> float:
+    """A gate parameter as a number, refusing one that is still a reference.
+
+    Anything reading angles off a circuit - a drawer, a decomposition, a shadow -
+    needs the circuit bound. ``float(ParamRef(0))`` raises a ``TypeError`` about
+    ``__float__`` that says nothing about circuits, so this says it instead.
+    """
+    if isinstance(param, ParamRef):
+        raise ValueError(
+            f"{context} still has free parameters; call spec.bind(theta) before reading its angles"
+        )
+    return float(param)
+
+
 @dataclass(frozen=True)
 class Op:
     """One gate application."""

@@ -15,11 +15,15 @@ target's frequency is not in the spectrum, no amount of training will reach it.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+from numpy.typing import ArrayLike
+
+from qmlkit.core.execute import BackendLike
+from qmlkit.core.observables import Observable
 
 __all__ = [
     "fourier_coefficients",
@@ -97,11 +101,11 @@ def dominant_frequency(f: ScalarFn, degree: int = 8) -> int:
 
 
 def model_spectrum(
-    encoder: object,
-    theta: Sequence[float],
-    obs: object | None = None,
+    encoder: Any,
+    theta: ArrayLike,
+    obs: Observable | None = None,
     degree: int | None = None,
-    backend: object = None,
+    backend: BackendLike = None,
 ) -> dict[int, float]:
     """Spectrum of a one-feature re-uploading model, as a function of its input.
 
@@ -115,6 +119,6 @@ def model_spectrum(
     deg = degree if degree is not None else n_uploads + 2
 
     def f(x: float) -> float:
-        return expval(encoder.build([x]), obs, theta=theta, backend=backend)  # type: ignore[attr-defined]
+        return expval(encoder.build([x]), obs, theta=theta, backend=backend)
 
     return spectrum(f, deg)
