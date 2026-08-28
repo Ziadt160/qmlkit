@@ -29,3 +29,6 @@ Desktop.ini
 
 # Built documentation
 site/
+
+# the Kaggle credit-risk CSV: redistributable only from Kaggle, and 1.8 MB
+credit_risk_dataset.csv

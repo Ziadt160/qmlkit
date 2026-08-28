@@ -551,13 +551,23 @@ ruff check src tests
 mypy
 ```
 
-Three runnable examples, none of which quotes a number it did not compute:
+Runnable examples, none of which quotes a number it did not compute:
 
 ```bash
 python examples/quickstart.py            # every layer of the library, end to end
+python examples/credit_risk.py           # a real dataset, start to finish, with every
+                                         #   decision made by a diagnostic
+python examples/accelerate_pennylane.py  # borrow three inner loops, migrate nothing
 python examples/compare_pennylane.py     # readable cross-check against PennyLane
 python examples/benchmark_pennylane.py   # wall-clock, same work on both sides
 ```
+
+`credit_risk.py` is the one to read if you want to know what the library is *for*. It
+takes 32,581 loan applications, works through the skew, the classical bar, the circuit
+budget, an ansatz chosen from measured expressibility and gradient variance, and a
+kernel that is diagnosed rather than fitted — and it ends by reporting that the
+quantum model **lost**, on the same folds and the same inputs. A negative result you
+can defend is worth more than a positive one you cannot.
 
 The exhaustive version of the second one lives in the test suite, so it guards every
 future change rather than only today's:
