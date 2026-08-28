@@ -153,10 +153,26 @@ print(f"k(x, x) under noise: {float(np.atleast_2d(kernel(x, x))[0, 0]):.4f}")  #
 
 **The diagnostic thresholds were calibrated on exact gradients.** `qk.diagnose()`
 reports `FLAT_GRADIENTS` against a cutoff chosen for shot-free, noiseless runs. Under
-noise, gradients are genuinely smaller, so that finding fires more readily and
-carries less information than it does on an exact backend. Read it as "the gradient
-is small here", which is true, rather than "the ansatz is badly designed", which may
-not be.
+noise, gradients are genuinely smaller, so that finding fires more readily than on an
+exact backend — the deep ansatz below is clean at `p = 0` and flagged at `p = 0.1`.
+The finding says which of the two it is measuring, but it cannot separate them for
+you: read it as "the gradient is small here", which is true, rather than "the ansatz
+is badly designed", which may not be. Rerun on `numpy` to tell them apart.
+
+Two of `diagnose()`'s probes need a statevector — whether a parameter is dead, and
+whether the circuit entangles — and a mixed-state backend has none. Both are questions
+about the *ansatz* rather than the device, so they run on the exact reference, and the
+report's subject line says so rather than substituting quietly:
+
+```python
+# docs: requires cirq
+report = qk.diagnose(qk.hardware_efficient(3, 2), backend="cirq-density", n_samples=6)
+print(report.subject)
+# hardware_efficient on 3 qubits [structure checked on the numpy reference: ...]
+```
+
+That notice is not a finding, so `if qk.diagnose(model):` keeps meaning "something is
+wrong".
 
 **Cirq applies a bare channel after every moment.** `cirq.depolarize(p)` passed as a
 noise model becomes a `ConstantQubitNoiseModel` — every qubit, every moment,

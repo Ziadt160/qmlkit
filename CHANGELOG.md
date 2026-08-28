@@ -4,11 +4,13 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-08-28
 
-### Changed - `mypy` now covers the whole package
+First release.
 
-`[tool.mypy] files` listed six paths; it now lists `src/qmlkit`. A partial check reads
+### Added - `mypy` over the whole package
+
+`[tool.mypy] files` listed six paths during development; it lists `src/qmlkit`. A partial check reads
 like a full one in CI, which is the worst of both - `kernels`, `nn`, `algorithms`,
 `encoding`, `evaluate`, `metrics` and the rest were never checked.
 
@@ -78,9 +80,20 @@ no statevector, sharing `_group_circuit` with the sampled path so the two cannot
 drift apart. `docs/guides/noise.md` has the measured gradient decay, the traps, and
 the boundary: error mitigation belongs to Mitiq and error correction to Stim.
 
-## [0.1.0] - 2026-08-28
+`diagnose()` works on these backends, which it did not at first: `_dead_parameters`
+and `entangling_capability` compare *statevectors*, so it raised `NotImplementedError`
+from four frames down - the diagnostics being the thing that breaks is the worst
+version of that bug, since it is what the caller reached for to find out. They are
+questions about the *ansatz* rather than the device, so they now run on the exact
+reference and the report's subject line names the substitution. Answering them from
+probabilities instead would have called a phase-only parameter dead.
 
-First release.
+`FLAT_GRADIENTS` no longer claims "gradients are exact here" on a backend carrying a
+noise model. The flag to ask is **`supports_statevector`, not `supports_exact`** -
+the latter is deliberately true on a mixed-state backend, where it means shot-free
+rather than undisturbed. The threshold itself is unchanged and still calibrated on
+exact gradients, so the finding fires more readily under noise; the message now says
+which of the two it is measuring.
 
 ### Added — seven worked case studies
 

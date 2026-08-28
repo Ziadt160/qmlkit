@@ -42,6 +42,7 @@ import numpy.typing as npt
 
 from qmlkit.ansatz.blocks import Block, EncodingLayer, RotationLayer
 from qmlkit.ansatz.library import Ansatz
+from qmlkit.core.backends.registry import get_backend
 from qmlkit.core.execute import BackendLike, statevector
 from qmlkit.core.ir import CircuitSpec
 from qmlkit.core.observables import Observable, Z
@@ -70,6 +71,24 @@ _CONCENTRATED = 1e-3
 #: layers, whose measured variance runs from 3e-1 down to 5e-4: this fires on the
 #: deep-and-wide end and on global observables, and not on the rest.
 _FLAT = 1e-3
+
+
+def _structural_backend(backend: BackendLike) -> tuple[BackendLike, str | None]:
+    """The backend the *structure* probes run on, and whose it is not.
+
+    Dead parameters and entangling capability are compared between statevectors, and a
+    mixed-state backend has none. Answering them from probabilities instead would call
+    a phase-only parameter dead, so they run on the exact reference and the report
+    names the substitution. Both are properties of the ansatz, not of the device.
+
+    Returns the backend to use, and the name of the one that could not answer (or
+    ``None`` when nothing was substituted).
+    """
+    device = get_backend(backend)
+    if device.supports_statevector:
+        return backend, None
+    return "numpy", device.name
+
 
 _SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
 
@@ -323,6 +342,13 @@ def _diagnose_ansatz(
     observables: Sequence[Observable] = (),
 ) -> list[Finding]:
     found: list[Finding] = []
+    structural, _ = _structural_backend(backend)
+    # `supports_exact` is the wrong flag here and it is deliberately true on a
+    # mixed-state backend: it gives a shot-free number, exact *given the noise model*.
+    # What this probe needs to know is whether the variance it measured is the model's
+    # own trainability or that convolved with decoherence, and a pure state is what
+    # says so.
+    undisturbed = get_backend(backend).supports_statevector
 
     if ansatz.n_weights == 0:
         found.append(
@@ -351,7 +377,7 @@ def _diagnose_ansatz(
             )
         )
 
-    dead = _dead_parameters(ansatz, probes=probes, seed=seed, backend=backend, prefix=prefix)
+    dead = _dead_parameters(ansatz, probes=probes, seed=seed, backend=structural, prefix=prefix)
     setting = "with the model's own encoding in front" if prefix is not None else "from |0>"
     dead_inputs = [int(i) for i in dead if i < ansatz.n_inputs]
     dead_weights = [int(i) - ansatz.n_inputs for i in dead if i >= ansatz.n_inputs]
@@ -410,7 +436,7 @@ def _diagnose_ansatz(
 
     if ansatz.n_qubits > 1:
         q = entangling_capability(
-            ansatz, n_samples=max(20, n_samples // 4), seed=seed, backend=backend
+            ansatz, n_samples=max(20, n_samples // 4), seed=seed, backend=structural
         )
         if q < _EXACT:
             found.append(
@@ -452,8 +478,15 @@ def _diagnose_ansatz(
                     f"gradient variance {var:.2e} for weight {live_weights[0] - ansatz.n_inputs} "
                     f"at random initialisation (observable {obs or Z(0)}), so a typical entry is "
                     f"around {np.sqrt(var):.1e} and resolving one against shot noise would take "
-                    f"about {budget:,} shots. Gradients are exact here, so this is what the same "
-                    "model would cost on a sampling device, not a failure now.",
+                    f"about {budget:,} shots. "
+                    + (
+                        "Gradients are exact here, so this is what the same model would "
+                        "cost on a sampling device, not a failure now."
+                        if undisturbed
+                        else "This backend carries a noise model, so the variance is the "
+                        "model's trainability *and* the decoherence together -- rerun on "
+                        "an exact backend to separate them."
+                    ),
                     fix="Initialise near identity with ansatz.init('small'), reduce depth, or "
                     "measure a local observable. Whether it is a barren plateau rather than a "
                     "merely small gradient is a question about scaling: metrics.barren_plateau_"
@@ -673,7 +706,13 @@ def diagnose(
         observables=_find_observables(subject),
     )
     label = f"{type(subject).__name__} ({ansatz.name})" if subject is not ansatz else ansatz.name
-    return Report(f"{label} on {ansatz.n_qubits} qubits", _sorted(findings))
+    subject_line = f"{label} on {ansatz.n_qubits} qubits"
+    _, substituted = _structural_backend(backend)
+    if substituted is not None:
+        subject_line += (
+            f" [structure checked on the numpy reference: {substituted!r} has no statevector]"
+        )
+    return Report(subject_line, _sorted(findings))
 
 
 def _sorted(findings: list[Finding]) -> tuple[Finding, ...]:

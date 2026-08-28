@@ -264,3 +264,73 @@ def test_registered_and_reported(backend_name):
     assert backend_name in qk.list_backends()
     assert backend_name in qk.backend_report()
     assert qk.get_backend(backend_name).name == backend_name
+
+
+# --------------------------------------------------------------------------- #
+# diagnose() on a mixed-state backend
+#
+# The structure probes compare statevectors, which a density-matrix backend has
+# none of. Pointing diagnose() at one used to raise NotImplementedError from four
+# frames down - the diagnostics being the thing that breaks is the worst version
+# of this bug, because it is what the caller reached for to find out.
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("backend_name", ["cirq-density", "qiskit-aer"])
+def test_diagnose_runs_on_a_mixed_state_backend(backend_name):
+    if not is_available(backend_name):
+        pytest.skip(f"{backend_name} is not installed")
+    ansatz = qk.hardware_efficient(3, 2)
+    report = qk.diagnose(ansatz, backend=backend_name, seed=0, n_samples=6, probes=1)
+    assert report.codes == ()
+
+
+@pytest.mark.parametrize("backend_name", ["cirq-density", "qiskit-aer"])
+def test_diagnose_names_the_backend_that_could_not_answer(backend_name):
+    """Substituting the reference silently would be its own plausible-wrong-number."""
+    if not is_available(backend_name):
+        pytest.skip(f"{backend_name} is not installed")
+    report = qk.diagnose(qk.hardware_efficient(3, 2), backend=backend_name, seed=0, n_samples=6)
+    assert "numpy reference" in report.subject
+    assert backend_name in report.subject
+
+
+@pytest.mark.parametrize("backend_name", ["cirq-density", "qiskit-aer"])
+def test_a_notice_is_not_a_finding(backend_name):
+    """``if qk.diagnose(model):`` has to keep meaning "something is wrong"."""
+    if not is_available(backend_name):
+        pytest.skip(f"{backend_name} is not installed")
+    report = qk.diagnose(qk.hardware_efficient(3, 2), backend=backend_name, seed=0, n_samples=6)
+    assert not report
+    assert len(report) == 0
+
+
+def test_diagnose_still_finds_structure_through_a_mixed_state_backend():
+    """The substitution must not cost the findings it was made to preserve."""
+    if not is_available("cirq-density"):
+        pytest.skip("cirq is not installed")
+    fmap = qk.AngleFeatureMap(2, rotation="ry")
+    model = qk.Ansatz(2, qk.repeat(3, qk.EncodingLayer(fmap) + qk.RotationLayer("ry")), n_inputs=2)
+    on_reference = qk.diagnose(model, backend="numpy", seed=0, n_samples=6, probes=1)
+    on_noisy = qk.diagnose(model, backend="cirq-density", seed=0, n_samples=6, probes=1)
+    assert "ENCODING_COMMUTES" in on_reference.codes
+    assert "ENCODING_COMMUTES" in on_noisy.codes
+
+
+def test_flat_gradients_does_not_claim_exactness_under_noise():
+    """`supports_exact` is true on a mixed-state backend and is the wrong flag to ask.
+
+    It means "shot-free", not "undisturbed": the number is exact *given the noise
+    model*. What the finding is about to claim needs a pure state, and only
+    `supports_statevector` says that.
+    """
+    cirq = pytest.importorskip("cirq")
+    backend = qk.get_backend("cirq-density", noise=cirq.depolarize(0.1))
+    assert backend.supports_exact is True  # the flag that would have been asked
+
+    ansatz = qk.hardware_efficient(4, 5)
+    observable = qk.Z(0) * qk.Z(1) * qk.Z(2) * qk.Z(3)
+    report = qk.diagnose(ansatz, backend=backend, obs=observable, seed=0, n_samples=6, probes=1)
+
+    flat = [f for f in report if f.code == "FLAT_GRADIENTS"]
+    assert flat, "expected a flat-gradient finding on a deep ansatz under 10% depolarizing"
+    assert "Gradients are exact here" not in flat[0].message
+    assert "carries a noise model" in flat[0].message
