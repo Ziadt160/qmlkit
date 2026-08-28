@@ -12,7 +12,7 @@ others cannot.
 | **Cross-library parity** | 301 cases against PennyLane, and every metric in `qk.evaluate` against scikit-learn — both independently written implementations |
 | **Executable documentation** | Every snippet on this site runs in CI |
 
-Plus the ordinary suite: **1121 tests, 94% combined coverage** measured in CI,
+Plus the ordinary suite: **1202 tests, 94% combined coverage** measured in CI,
 `ruff` and `mypy --strict` clean.
 
 ## Parity with PennyLane
