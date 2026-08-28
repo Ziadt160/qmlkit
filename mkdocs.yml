@@ -107,6 +107,13 @@ nav:
       - 6. Quantum kernels: tutorials/06-quantum-kernels.md
       - 7. Re-uploading and Fourier: tutorials/07-reuploading.md
       - 8. Trainability: tutorials/08-trainability.md
+  - Case studies:
+      - studies/index.md
+      - 1. Imbalanced classification: studies/01-imbalanced-classification.md
+      - 2. Is a quantum kernel worth it?: studies/02-quantum-kernels.md
+      - 3. Regression: studies/03-regression.md
+      - 4. Chemistry - H2 ground state: studies/04-chemistry.md
+      - 5. Clustering and generative: studies/05-beyond-classification.md
   - Guides:
       - guides/index.md
       - The parameter-shift rule: guides/parameter-shift.md

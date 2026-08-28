@@ -8,6 +8,30 @@ All notable changes to this project are documented here. The format follows
 
 First release.
 
+### Added — five worked case studies
+
+`docs/studies/` — whole problems from raw data to a defensible number, on a different
+axis from the tutorials: those show how each piece works, these show a problem being
+decided.
+
+1. **Imbalanced classification** — the metric that lies, and the one keyword that fixes
+   the model. The compressed form of `examples/credit_risk.py`.
+2. **Is a quantum kernel worth it?** — concentration and geometric difference, both
+   answerable before the Gram matrix is fitted to anything, and the case where they
+   point opposite ways.
+3. **Regression** — why `r2`, `rmse` and `mae` disagree, and the Fourier-frequency
+   ceiling that no learning rate moves.
+4. **Chemistry, H2 ground state** — `hardware_efficient(4, 2)` converges confidently to
+   `-0.536 Ha`, 601 mHa out and worse than doing nothing, while `(4, 4)` reaches
+   `-1.137306` exactly. Nothing raises in either case.
+5. **Clustering and generative models** — the metrics that exist because accuracy does
+   not apply, including why total variation is the primary and KL is not.
+
+Every code block runs in CI like the rest of the documentation, so the numbers are
+produced by the code beside them. Most of the studies end with the quantum model
+losing, which is the point: a library that only publishes its wins teaches nothing
+about when to trust it.
+
 ### Fixed — `backprop` computed on a simulator when asked for a device
 
 `method="backprop"` accepted a `backend` argument and never used it. Pointed at a

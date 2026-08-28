@@ -53,6 +53,15 @@ What is worth knowing before writing any of it:
 - [7. Re-uploading and Fourier](https://ziadt160.github.io/qmlkit/tutorials/07-reuploading/): Encode the data once and a circuit is a fairly limited function of it.
 - [8. Trainability](https://ziadt160.github.io/qmlkit/tutorials/08-trainability/): A correct gradient is not the same as a useful one. Variational circuits have a failure mode where the gradient is exactly right and exponentially small — the barren plateau — and no optimiser recovers from it, because there is nothing to follow.
 
+## Case studies
+
+- [Case studies](https://ziadt160.github.io/qmlkit/studies/): The tutorials show how each piece works. These show a whole problem worked through, from the raw data to a number you could defend — and in most of them the number is that the quantum model lost.
+- [1. Imbalanced classification](https://ziadt160.github.io/qmlkit/studies/01-imbalanced-classification/): The full version of this runs on the Kaggle credit-risk table — 32,581 loan applications, 21.8% of which defaulted — in examples/creditrisk.py.
+- [2. Is a quantum kernel worth it?](https://ziadt160.github.io/qmlkit/studies/02-quantum-kernels/): A quantum kernel is the most appealing thing in this field: no training loop, no barren plateau, a Gram matrix you hand to any kernel method.
+- [3. Regression](https://ziadt160.github.io/qmlkit/studies/03-regression/): Classification hides a bad model behind accuracy. Regression hides one behind r2, which is scaled by the variance of whatever you happened to sample — so the same model scores differently on a narrow test set and a wide one, and neither number is wrong.
+- [4. Chemistry - H2 ground state](https://ziadt160.github.io/qmlkit/studies/04-chemistry/): Chemistry is the one place quantum computing has a target it can be scored against exactly: diagonalise the Hamiltonian and compare.
+- [5. Clustering and generative](https://ziadt160.github.io/qmlkit/studies/05-beyond-classification/): Accuracy needs labels and a decision. Two large parts of machine learning have neither, and they fail in ways a classification metric cannot describe: a clustering that is beautifully separated and answers the wrong question, and a generative model that assigns zero probability to something that actually happens.
+
 ## Guides
 
 - [Guides](https://ziadt160.github.io/qmlkit/guides/): The tutorials show you how. These explain why, and are meant to be read out of order when a particular question comes up.

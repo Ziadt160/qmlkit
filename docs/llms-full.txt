@@ -2014,6 +2014,631 @@ parameter-shift rule and on extending the library, and
 
 
 ==============================================================================
+# Case studies / Case studies    (source: docs/studies/index.md)
+==============================================================================
+
+# Case studies
+
+The tutorials show how each piece works. These show a whole problem worked through,
+from the raw data to a number you could defend — and in most of them the number is
+that the quantum model **lost**.
+
+That is deliberate. A library that only publishes its wins teaches you nothing about
+when to trust it, and every case study here ends with the verdict the library itself
+prints rather than the one the author would have preferred.
+
+| Study | Task | What it is really about |
+|---|---|---|
+| [1. Imbalanced classification](01-imbalanced-classification.md) | 32,581 loan applications, 21.8% default | The metric that lies, and the one keyword that fixes the model |
+| [2. Is a quantum kernel worth it?](02-quantum-kernels.md) | Kernel methods on small data | Two diagnostics that point opposite ways, answered before fitting |
+| [3. Regression](03-regression.md) | A smooth non-linear target | Why `r2` and `rmse` disagree, and what re-uploading buys |
+| [4. Chemistry: H₂ ground state](04-chemistry.md) | VQE to chemical accuracy | An ansatz that converges confidently to the wrong energy |
+| [5. Clustering and generative models](05-beyond-classification.md) | Unsupervised, and a Born machine | The metrics that exist because accuracy does not apply |
+
+Every code block on these pages runs in CI (`tests/test_docs.py`), so the numbers are
+produced by the code beside them and cannot drift from it.
+
+## The shape they all share
+
+Each study follows the same five questions, because they are the questions that decide
+whether a result means anything:
+
+1. **What will the data break?** — `imbalance_report`, and the split it implies
+2. **What is the bar?** — `baseline`, run *before* any quantum code
+3. **Is the model quietly broken?** — `diagnose`, before training rather than after
+4. **What does the metric actually say?** — `evaluate`, with its notes
+5. **Is the number right, and reproducible?** — `selfcheck` and `fingerprint`
+
+The heavier versions live in `examples/` — [`credit_risk.py`](https://github.com/Ziadt160/qmlkit/blob/main/examples/credit_risk.py)
+is the full twelve-step version of study 1 on the real Kaggle table, and
+[`experiments.py`](https://github.com/Ziadt160/qmlkit/blob/main/examples/experiments.py)
+runs H₂, MNIST and breast cancer at full size.
+
+
+==============================================================================
+# Case studies / 1. Imbalanced classification    (source: docs/studies/01-imbalanced-classification.md)
+==============================================================================
+
+# Study 1 — Imbalanced classification, and the metric that lies
+
+The full version of this runs on the
+[Kaggle credit-risk table](https://www.kaggle.com/datasets/laotse/credit-risk-dataset) —
+32,581 loan applications, 21.8% of which defaulted — in
+[`examples/credit_risk.py`](https://github.com/Ziadt160/qmlkit/blob/main/examples/credit_risk.py).
+This page is the same twelve steps compressed onto data the page can generate, so
+every number below is produced by the code beside it.
+
+## The data, and what its labels will break
+
+```python
+import numpy as np
+import qmlkit as qk
+
+rng = np.random.default_rng(0)
+X = rng.normal(size=(400, 4))
+score = 1.6 * X[:, 0] - 1.1 * X[:, 1] + 0.5 * X[:, 2] + 0.6 * rng.normal(size=400)
+y = (score > np.quantile(score, 0.78)).astype(int)   # 22% positive, like the real thing
+
+print(qk.imbalance.imbalance_report(y))
+```
+
+Two findings, and both name the call that fixes them. Everything this study does about
+the skew comes from that report and nowhere else:
+
+```python
+train, test = qk.imbalance.stratified_split(y, test_size=0.3, seed=0)
+print(f"{train.size} train / {test.size} test, {int(y[test].sum())} positives held out")
+```
+
+A random split of a 78/22 problem leaves the minority class thin or absent in test
+often enough to make a single test score meaningless. Stratified splitting removes
+that as a source of variance before it becomes one.
+
+## The bar, before any quantum code
+
+```python
+table = qk.baseline(X, y, cv=3, seed=0,
+                    include=["majority", "logistic", "random-forest", "rbf-kernel-ridge"])
+print(table)
+```
+
+Read the *failures* as well as the winner. On the real credit table, `svc-rbf` and
+`mlp` sit at the 0.500 floor because the raw columns span six orders of magnitude —
+the table diagnosed the preprocessing before any model was tuned.
+
+## The naive model, and the metric that admits it
+
+```python
+# docs: requires torch
+import torch
+
+pipeline = qk.FeaturePipeline(n_qubits=4).fit(X[train])
+Xtr, Xte = pipeline.transform(X[train]), pipeline.transform(X[test])
+
+torch.manual_seed(0)
+naive = qk.VQC(n_features=4, n_classes=2, n_qubits=4, n_layers=2, seed=0)
+naive.fit(Xtr, y[train], epochs=20, lr=0.08, batch_size=256)
+naive_scores = qk.evaluate.classification(y[test], naive.predict(Xte))
+print(naive_scores)
+```
+
+`Scores` returns every metric at once precisely so the disagreement between them stays
+visible, and prints a note when accuracy is overstating the model. `primary` is
+`balanced_accuracy` rather than `accuracy` here, chosen from the class distribution
+rather than by the author.
+
+## One keyword, taken from step one
+
+```python
+# docs: requires torch
+torch.manual_seed(0)
+weighted = qk.VQC(n_features=4, n_classes=2, n_qubits=4, n_layers=2,
+                  class_weight="balanced", seed=0)
+weighted.fit(Xtr, y[train], epochs=20, lr=0.08, batch_size=256)
+weighted_scores = qk.evaluate.classification(y[test], weighted.predict(Xte))
+
+for name, s in (("naive", naive_scores), ("class_weight='balanced'", weighted_scores)):
+    print(f"  {name:24} balanced_accuracy {s['balanced_accuracy']:.3f}"
+          f"  mcc {s['mcc']:+.3f}  accuracy {s['accuracy']:.3f}")
+```
+
+On the real table accuracy *falls* — 0.811 to 0.714 — while balanced accuracy rises
+0.692 to 0.730. The weighted model finds more of the defaults and pays in false
+alarms. MCC can move the other way, and the library hands back both rather than
+picking the one that flatters the change. Which trade you want is a lending decision,
+not a modelling one.
+
+## Is the circuit quietly broken?
+
+```python
+# docs: requires torch
+print(qk.diagnose(weighted))
+```
+
+`hardware_efficient` ends each layer in `rz`, which commutes with the `cx` entanglers
+*and* with any Z-basis observable — so a quarter of its weights cannot move the
+readout. The optimiser carries them every step and the loss curve never shows it.
+
+## The verdict
+
+```python
+# docs: requires torch
+def build():
+    torch.manual_seed(0)
+    model = qk.VQC(n_features=4, n_classes=2, n_qubits=4,
+                   class_weight="balanced", seed=0)
+    fit = model.fit
+    model.fit = lambda a, b: fit(a, b, epochs=15, lr=0.08, batch_size=256)
+    return model
+
+Xq = qk.FeaturePipeline(n_qubits=4).fit(X).transform(X)
+final = qk.baseline(Xq, y, model=build, cv=3, seed=0,
+                    include=["majority", "logistic", "random-forest"])
+print(final.verdict)
+```
+
+The classical rows are scored on the **same four principal components** the quantum
+model sees. Comparing a 4-component model against a 21-feature one would be a claim
+about the input rather than the model — the full example reports both bars and clears
+neither, and says so in as many words.
+
+A negative result you can defend is worth more than a positive one you cannot.
+
+
+==============================================================================
+# Case studies / 2. Is a quantum kernel worth it?    (source: docs/studies/02-quantum-kernels.md)
+==============================================================================
+
+# Study 2 — Is a quantum kernel worth trying at all?
+
+A quantum kernel is the most appealing thing in this field: no training loop, no
+barren plateau, a Gram matrix you hand to any kernel method. It is also the easiest
+place to spend a month on a matrix that could never have separated anything.
+
+Two numbers decide it, and both are available **before** the kernel is fitted to
+anything.
+
+## The data and the bar
+
+```python
+import numpy as np
+import qmlkit as qk
+
+X, y = qk.datasets.make_circles(n_samples=80, seed=0)
+table = qk.baseline(X, y, cv=3, seed=0,
+                    include=["majority", "rbf-kernel-ridge", "nearest-centroid"])
+print(table)
+```
+
+`rbf-kernel-ridge` is the row that matters. It is the *identical algorithm* to a
+quantum kernel method — a closed-form kernel ridge solve — differing only in which
+kernel fills the Gram matrix. Any gap between it and a quantum kernel is attributable
+to the kernel and to nothing else, which is what makes it the honest foil.
+
+## Question one: has the kernel concentrated?
+
+A fidelity kernel's off-diagonal entries shrink like `2^-n`. Once the spread is at
+that scale, every pair of inputs looks equally similar and no model built on the
+matrix can separate them — the Gram matrix still exists, the SVM still fits, and the
+accuracy is chance.
+
+```python
+feature_map = qk.ZZFeatureMap(2, reps=2)
+kernel = qk.QuantumKernel(feature_map)
+gram = kernel(X[:60])
+
+report = qk.concentration_report(gram, n_qubits=2)
+print(f"off-diagonal spread {report['off_diagonal_std']:.4f}")
+print(f"predicted at 2 qubits {report['predicted_spread']:.4f}")
+print(f"positive semi-definite: {report['is_psd']}")
+```
+
+At two qubits there is plenty of spread. The check earns its place as the width grows:
+`shots_to_resolve` says roughly `4^n` shots are needed to see a `2^-n` signal above
+sampling noise, so a 10-qubit fidelity kernel needs about a million shots *per entry*
+before the number means anything.
+
+## Question two: is the geometry even different?
+
+Concentration says the kernel can still distinguish things. It does not say it
+distinguishes anything the classical kernel could not. That is the geometric
+difference:
+
+```python
+classical = np.exp(-0.5 * ((X[:60, None, :] - X[None, :60, :]) ** 2).sum(-1))
+g = qk.geometric_difference(classical, gram)
+print(f"g(K_classical, K_quantum) = {g:.1f}")
+print("large -> a geometry the RBF kernel cannot reach" if g > 10
+      else "small -> the classical kernel already spans this")
+```
+
+Huang et al.'s statistic: large means the two kernels induce genuinely different
+geometries, so a separation is at least *possible*. Small means it is not, whatever
+the accuracy table later says.
+
+## Both at once
+
+`diagnose` takes a Gram matrix directly:
+
+```python
+print(qk.diagnose(gram, n_qubits=2))
+```
+
+## The verdict
+
+```python
+K_train = kernel(X[:60])
+svc = qk.QSVC(feature_map).fit(X[:60], y[:60])
+scores = qk.evaluate.classification(y[60:], svc.predict(X[60:]))
+print(f"QSVC balanced accuracy {scores['balanced_accuracy']:.3f}")
+print(f"best classical         {table.best_classical.mean:.3f}  ({table.best_classical.name})")
+print(f"circuits run: {kernel.n_evaluations:,}")
+```
+
+The two checks are worth running in that order because they can disagree, and the
+disagreement is the finding. On the credit-risk data in
+[`examples/credit_risk.py`](https://github.com/Ziadt160/qmlkit/blob/main/examples/credit_risk.py)
+they do exactly that: geometric difference **66.9** — a geometry the RBF kernel cannot
+reach — against a concentration report saying the spread is *already* at the `2^-n`
+scale at four qubits. The reachable geometry is being squeezed out as fast as it
+appears, and widening the register improves the first number while making the second
+worse.
+
+That tension is publishable, and it cost two function calls rather than a fortnight of
+fitting SVMs.
+
+
+==============================================================================
+# Case studies / 3. Regression    (source: docs/studies/03-regression.md)
+==============================================================================
+
+# Study 3 — Regression, and two metrics that disagree
+
+Classification hides a bad model behind accuracy. Regression hides one behind `r2`,
+which is scaled by the variance of whatever you happened to sample — so the same model
+scores differently on a narrow test set and a wide one, and neither number is wrong.
+
+`qk.evaluate.regression` returns all of them, and says when `r2` has stopped meaning
+anything.
+
+## A target with structure a linear model cannot reach
+
+```python
+import numpy as np
+import qmlkit as qk
+
+rng = np.random.default_rng(0)
+X = rng.uniform(-1.0, 1.0, size=(160, 3))
+y = np.sin(2.0 * X[:, 0]) + 0.4 * X[:, 1] ** 2 + 0.1 * rng.normal(size=160)
+
+train, test = np.arange(120), np.arange(120, 160)
+print(f"target range [{y.min():.2f}, {y.max():.2f}], variance {y.var():.3f}")
+```
+
+## The bar first
+
+```python
+table = qk.baseline(X, y, cv=3, seed=0, include=["mean", "linear", "rbf-kernel-ridge"])
+print(table)
+```
+
+`mean` scores `r2 = 0` by construction — it is the definition of the zero point, not a
+model. `linear` is the one that matters here: the target is deliberately non-linear, so
+the gap between `linear` and `rbf-kernel-ridge` is how much non-linear structure is
+actually available to be captured. If that gap is small, no model of any kind is going
+to look impressive, and it is better to know before training one.
+
+## The quantum regressor
+
+```python
+# docs: requires torch
+import torch
+
+pipeline = qk.FeaturePipeline(n_qubits=3).fit(X[train])
+Xtr, Xte = pipeline.transform(X[train]), pipeline.transform(X[test])
+
+torch.manual_seed(0)
+model = qk.VQRegressor(n_features=3, n_qubits=3, n_layers=2, seed=0)
+model.fit(Xtr, y[train], epochs=30, lr=0.08, batch_size=256)
+
+scores = qk.evaluate.regression(y[test], model.predict(Xte))
+print(scores)
+```
+
+Seven metrics, and they answer different questions:
+
+- **`r2`** — how much of the variance is explained, relative to predicting the mean.
+  Comparable across models on *this* data and not across datasets.
+- **`rmse`** and **`mae`** — error in the target's own units. `rmse` punishes large
+  misses quadratically; `mae` does not. When they disagree, the residuals are skewed.
+- **`median_absolute_error`** — the typical miss, immune to a handful of outliers.
+- **`max_error`** — the worst single case, which is the only one that matters if the
+  prediction feeds a decision with a floor under it.
+- **`explained_variance`** — `r2` without the bias term, so the gap between them is
+  exactly the model's systematic offset.
+
+`mape` is omitted here rather than returned as infinity, and the note says why: it is
+undefined wherever the target is zero, and this target crosses zero.
+
+## Where the quantum model's ceiling comes from
+
+A variational circuit with angle encoding is a **Fourier series in the input**, and its
+reachable frequencies are set by how many times the data is uploaded — not by how many
+weights it has:
+
+```python
+print(qk.fourier.reachable_frequencies(1))   # one upload
+print(qk.fourier.reachable_frequencies(3))   # three uploads
+```
+
+The target contains `sin(2x)`, so a single-upload model has no frequency-2 component to
+fit it with, however many layers are stacked on top. That is a representational limit,
+not an optimisation one, and no learning rate will move it.
+
+Re-uploading is the fix — with the trap the library warns about:
+
+```python
+fmap = qk.AngleFeatureMap(3, entangle=False)
+good = qk.reupload(fmap, n_layers=3, block=qk.RotationLayer(("rz", "ry", "rz")))
+print(f"{good.n_params} weights, reaching frequencies 0..3")
+```
+
+If the trainable block used `ry` — the same generator the encoding uses — the uploads
+would merge into a single rotation, the model would reach one frequency, and every
+weight would become a phase. It would still train, still converge, and still report a
+loss. `reupload()` warns at construction, and `qk.diagnose` catches it on a model
+composed by hand:
+
+```python
+collapsed = qk.Ansatz(3, qk.repeat(3, qk.EncodingLayer(fmap) + qk.RotationLayer("ry")),
+                      name="ry-reupload", n_inputs=3)
+print(qk.diagnose(collapsed))
+```
+
+## The verdict
+
+```python
+# docs: requires torch
+print(f"quantum r2 {scores['r2']:.3f}  vs  best classical "
+      f"{table.best_classical.mean:.3f} ({table.best_classical.name})")
+```
+
+Verify the spectrum of any re-uploading model you build with
+`qmlkit.fourier.spectrum` rather than trusting the upload count — the frequencies are
+reachable, not guaranteed.
+
+
+==============================================================================
+# Case studies / 4. Chemistry - H2 ground state    (source: docs/studies/04-chemistry.md)
+==============================================================================
+
+# Study 4 — H₂, and an ansatz that converges to the wrong energy
+
+Chemistry is the one place quantum computing has a target it can be scored against
+exactly: diagonalise the Hamiltonian and compare. That makes it the best available
+test of whether a variational method is working, and the worst place to be
+approximately right without knowing it.
+
+Chemical accuracy is 1 kcal/mol — **1.594 mHa**. Anything outside that is not a
+chemistry result.
+
+## The molecule
+
+```python
+import qmlkit as qk
+from qmlkit.algorithms import VQE, exact_ground_energy, h2_hamiltonian
+
+hamiltonian, info = h2_hamiltonian()
+exact = exact_ground_energy(hamiltonian, 4)
+print(f"{info['n_terms']} Pauli terms on {info['n_qubits']} qubits")
+print(f"exact ground state {exact:.6f} Ha")
+```
+
+The Hartree–Fock reference is the occupation `[1, 1, 0, 0]` — the two electrons in the
+two lowest spin-orbitals. An `Ansatz` starts from `|0000>`, so that state has to be
+prepared first:
+
+```python
+occupation = info["hartree_fock_occupation"]
+
+def hartree_fock(inner):
+    """Prepend the HF occupation to any ansatz."""
+    def build(circuit, context):
+        for wire, occupied in enumerate(occupation):
+            if occupied:
+                circuit.x(wire)
+        inner.block.emit(circuit, context)
+    return qk.Ansatz(4, qk.Custom(build, "hf"), f"hf_{inner.name}")
+
+reference = qk.QCircuit(4)
+reference.x(0)
+reference.x(1)
+print(f"Hartree-Fock energy {qk.expectation(reference.to_spec(), hamiltonian):.6f} Ha")
+```
+
+That prints `-1.116999`. So HF already has most of the answer, and the whole job of
+the VQE is the **20.3 mHa of correlation energy** between it and the exact value. That
+framing matters: a method that returns something near `-1.1` has not necessarily done
+anything at all.
+
+## The failure
+
+```python
+shallow = hartree_fock(qk.hardware_efficient(4, 2))
+result = VQE(hamiltonian, ansatz=shallow).run(seed=0)
+print(f"VQE {result.energy:.6f} Ha   error {abs(result.energy - exact) * 1000:.1f} mHa")
+```
+
+`-0.536370 Ha`, which is **601 mHa** out — off by thirty times the entire correlation
+energy, and *worse than doing nothing*, since Hartree–Fock alone was 20 mHa away.
+
+Nothing raised. The optimiser converged. `-0.53` is a plausible-looking number in
+Hartree, and it is the energy of the `|1000>` state — the circuit found a comfortable
+minimum in the wrong particle-number sector and settled there.
+
+## What the library says about it
+
+Depth is the problem, and it is visible before the energy is:
+
+```python
+for layers in (2, 4):
+    ansatz = hartree_fock(qk.hardware_efficient(4, layers))
+    energy = VQE(hamiltonian, ansatz=ansatz).run(seed=0).energy
+    error = abs(energy - exact) * 1000
+    verdict = "chemical accuracy" if error < 1.594 else "NOT chemical accuracy"
+    print(f"  {layers} layers, {ansatz.n_params:2d} params: {energy:+.6f} Ha"
+          f"  ({error:7.2f} mHa)  {verdict}")
+```
+
+Four layers reaches `-1.137306` — **0.00 mHa**, exact to the printed precision. Two
+layers cannot represent the state at all, and says so only through an energy you have
+to already know the answer to recognise as wrong.
+
+`strongly_entangling(4, 3)` also reaches it, so this is about expressive capacity
+rather than about one particular template.
+
+## Two traps this study sits on top of
+
+**Rotosolve is not always valid.** `VQE` defaults to it, and its three-point fit
+assumes the loss is a single sinusoid in each angle. That fails when one angle drives
+several gates that do not compose — QAOA's cost angle drives one `rz` per edge, five
+frequencies — and it then converges instantly to the wrong point and reports it. Check
+before trusting it:
+
+```python
+from qmlkit.optim import supports_rotosolve
+
+print(supports_rotosolve(hartree_fock(qk.hardware_efficient(4, 4)).build()))
+```
+
+**Particle number is conserved.** A molecular Hamiltonian commutes with the number
+operator, so any excitation that does not conserve it has *exactly zero* gradient at
+Hartree–Fock. An ADAPT run with a generic operator pool grows an empty circuit and
+reports convergence. Use `chemistry_operator_pool`; this is physics, not a bug, and a
+test pins it.
+
+## The verdict
+
+The quantum method wins this one outright — `-1.137306` against an exact
+`-1.137306` — which is worth stating plainly given how the other studies end. H₂ in a
+minimal basis is four qubits and sixteen amplitudes, so a laptop diagonalises it
+instantly and no advantage is claimed. What the study demonstrates is narrower and
+more useful: **the same code, one layer count apart, produces an answer that is exact
+and an answer that is 601 mHa wrong, and only one of them looks different from the
+outside.**
+
+
+==============================================================================
+# Case studies / 5. Clustering and generative    (source: docs/studies/05-beyond-classification.md)
+==============================================================================
+
+# Study 5 — Clustering and generative models
+
+Accuracy needs labels and a decision. Two large parts of machine learning have
+neither, and they fail in ways a classification metric cannot describe: a clustering
+that is beautifully separated and answers the wrong question, and a generative model
+that assigns zero probability to something that actually happens.
+
+## Clustering: two kinds of "good" that routinely disagree
+
+```python
+import numpy as np
+import qmlkit as qk
+
+X, y = qk.datasets.make_blobs(n_samples=90, centers=3, seed=0)
+labels = qk.algorithms.QMeans(n_clusters=3, seed=0).fit_predict(X)
+
+scores = qk.evaluate.clustering(X, labels, y_true=y)
+print(scores)
+```
+
+`qk.evaluate.clustering` returns both families, because they answer different
+questions and you usually only have one of them:
+
+**Internal** — no ground truth needed. `silhouette` asks whether points sit closer to
+their own cluster than to the next one; `davies_bouldin` compares within-cluster
+spread to between-cluster distance (lower is better). These say the partition is
+*clean*.
+
+**External** — needs labels. `adjusted_rand` corrects for chance agreement, so zero
+means "no better than a random partition of the same shape"; `normalized_mutual_info`
+measures shared information; `purity` is the honest-but-flattering one, since it rises
+automatically as clusters get smaller.
+
+They disagree constantly. A silhouette of 0.7 with an ARI of 0.05 is a well-separated
+partition of something other than what you were looking for — and that is a finding,
+not a failure, but only if you looked at both.
+
+```python
+print(f"cluster sizes {scores.extras['cluster_sizes']}")
+```
+
+The primary metric is `adjusted_rand` when labels are given and `silhouette` when they
+are not, so the number you quote does not silently change meaning with the arguments.
+
+## Generative: the model that assigns zero to something real
+
+A quantum circuit Born machine samples bitstrings from `|psi|^2`. The standard target
+is bars-and-stripes — six valid patterns out of sixteen four-bit strings:
+
+```python
+patterns = qk.datasets.bars_and_stripes(2)
+target = np.zeros(16)
+for row in patterns:
+    target[int("".join(map(str, row.astype(int))), 2)] += 1
+target /= target.sum()
+
+uniform = np.full(16, 1 / 16)
+print(f"a uniform guess scores TV = "
+      f"{qk.evaluate.generative(uniform, target)['total_variation']:.3f}")
+```
+
+That is the number to beat. Reporting a total variation of 0.5 means nothing until you
+know that guessing scores 0.625.
+
+```python
+model = qk.generative.QCBM(n_qubits=4, n_layers=3, seed=0)
+model.fit(patterns, n_iterations=60)
+
+scores = qk.evaluate.generative(model.probabilities(), target)
+print(scores)
+```
+
+### Why total variation is the primary, and KL is not
+
+```python
+missing = qk.evaluate.generative(np.eye(16)[0], target)
+print(f"KL(target || model) = {missing['kl_target_model']}")
+print(f"total variation     = {missing['total_variation']:.3f}")
+```
+
+A model that puts zero mass where the target has some gives an **infinite** KL. That
+is mathematically correct and useless as a training signal — it is infinite for a model
+that misses one rare pattern and equally infinite for one that has learned nothing.
+
+Total variation stays finite, is bounded in `[0, 1]`, and is a metric. `hellinger` and
+`js_distance` share those properties. `support_coverage` reports the fraction of the
+target's support the model reaches at all, and a note fires whenever mass is missing,
+so the infinity is explained rather than just printed.
+
+All divergences here are in **nats**, stated because half the literature uses bits and
+the factor of `ln 2` is exactly the kind of silent discrepancy this library exists to
+avoid.
+
+## The verdict
+
+A four-qubit QCBM at this depth and iteration budget beats a uniform guess and does not
+master the distribution. Depth helps — eight layers reaches roughly `TV = 0.49` against
+the uniform `0.625`, with about half its mass on valid patterns against the `0.375` a
+random distribution puts there — but that is a modest win on a sixteen-outcome problem
+a lookup table solves exactly.
+
+Which is the point of measuring it against the uniform baseline rather than against
+zero. `total_variation = 0.49` sounds like a result; `0.49 against a 0.625 floor`
+is one.
+
+
+==============================================================================
 # Guides / Guides    (source: docs/guides/index.md)
 ==============================================================================
 
