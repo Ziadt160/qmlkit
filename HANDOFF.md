@@ -257,31 +257,84 @@ chasing, and nobody ships it.
 ### 5. Parallelism - the "12% CPU" complaint, answered correctly
 
 Users report 10-20% CPU during training and conclude the library is single-threaded.
-It is, but **threads are the wrong cure and adding them would not help**. At 6-12
-qubits the statevector is kilobytes to a few megabytes, far below where NumPy or BLAS
-threading pays for itself; the bottleneck is Python-level dispatch per circuit. 12% is
-one core of eight, and one core is all the work there is.
+It is, but **threads are the wrong cure and adding them would not help**. 12% is one
+core of eight, and one core is all the work there is.
 
 Confirmed absent from `src/`: no `multiprocessing`, `joblib`, `concurrent.futures`,
 thread pool, or `n_jobs` anywhere.
 
-In priority order:
+**Measured 2026-09-13, and it changes the ranking.** The NumPy backend's cost is
+almost entirely NumPy's *per-call overhead*, not arithmetic and not qmlkit's own
+Python. One `tensordot` + `moveaxis` on a 6-qubit state costs **10.5 us** while the
+arithmetic in it is nanoseconds, so a 51-gate circuit cannot finish under ~570 us
+however fast the maths is. Stripping qmlkit out entirely and running the same
+tensordot loop by hand recovers only 10-25%.
 
-1. **Say it.** A dispatch-bound diagnostic - "6 qubits, 4000 circuits, one at a time;
-   more threads will not help, batching will, here is the call." Cheapest item here
-   and worth more than the knob, because the user's own conclusion is wrong.
-2. **Process-level fan-out over independent work**, where real cores do help: kernel
+The decisive measurement is that **gate width is nearly free**, because the cost is
+per call rather than per FLOP:
+
+| qubits | 1q gate | 2q | 3q | 4q |
+|---|---|---|---|---|
+| 6 | 11.6 us | 12.4 | 13.4 | **14.8** |
+| 8 | 12.7 | 13.9 | 14.8 | **16.1** |
+| 10 | 14.8 | 16.5 | - | **19.9** |
+| 12 | 21.4 | 24.7 | 27.7 | **35.0** |
+| 14 | 45.6 | 45.6 | 61.1 | **107.3** |
+
+A 4-qubit gate does 16x the arithmetic of a 1-qubit gate and costs **1.3x** below 12
+qubits. So **gate fusion is the win, and it is large**: merging runs of adjacent gates
+into one k<=4 block trades 4 NumPy calls for 1.3, and the circuit is already data
+(`spec.ops`), so the fusion plan is a pass over the IR that can be computed once per
+*structure* and reused across every parameter binding in a training loop. Nothing in
+`src/` does any fusion today.
+
+Do **not** compile to a full `2^n` unitary. Measured against a 51-gate loop it is
+14.7x faster at 6 qubits, 7.1x at 10, and **0.2x at 12** - five times slower. The
+crossover sits between 10 and 12 qubits, suspiciously close to the batching crossover
+already encoded in `batch_max_qubits`.
+
+And BLAS threading is irrelevant at these sizes for a reason worth writing down: a
+10-qubit statevector is **16 KiB**. OpenBLAS will not thread that, so the cores were
+never reachable by threading in the first place.
+
+Probes are in the session scratchpad and worth re-running before acting:
+`probe_dispatch.py` (dispatch vs arithmetic) and `probe_fusion.py` (width, and the
+matvec floor).
+
+In priority order, revised by the measurement above:
+
+1. **Gate fusion.** The largest measured win, it needs no concurrency and no new
+   dependency, and it compounds with batching rather than competing with it. A pass
+   over `spec.ops` merging adjacent gates into blocks of at most 4 qubits, cached per
+   structure. Guard it with the existing convention: assert the fused circuit's
+   statevector equals the unfused one over randomised circuits, and put it in
+   `tests/test_torture.py`'s path - a fusion bug is a *silent wrong number*, which is
+   the one class of defect this library cannot ship.
+2. **Say it.** A dispatch-bound diagnostic - "6 qubits, 4000 circuits, one at a time;
+   more threads will not help, fusion and batching will, here is the call." Cheap, and
+   worth more than any knob because the user's own conclusion is wrong.
+3. **Process-level fan-out over independent work**, where real cores do help: kernel
    Gram blocks, CV folds, `search()` configurations, multi-seed runs, and
    parameter-shift shifts on backends that cannot batch. One `n_jobs` convention
    everywhere, default serial.
-3. **BLAS thread control**, once 2 exists, so that processes times BLAS threads stop
+4. **BLAS thread control**, once 3 exists, so that processes times BLAS threads stop
    oversubscribing. Classic slowdown, and it will appear as soon as fan-out lands.
 
 Remember `NumpyBackend.batch_max_qubits` (default 10): batching *loses* above the
 10-11 qubit crossover, so any recommendation here has to respect it rather than
 assume batching is always the answer. Do not raise it without re-measuring.
 
-GPU stays out of scope. It is lost on headcount and costs nothing strategically.
+**GPU is not the answer to this complaint and should not be sold as one.** A kernel
+launch costs single-digit microseconds, about what a whole 6-qubit gate application
+costs on CPU, so below roughly 20 qubits a GPU is *slower* - it is the same per-call
+overhead problem with a longer wire. Where it genuinely pays is large registers or
+very large batches, neither of which is what the people reporting 12% CPU are doing.
+
+If a GPU path is wanted anyway, the cheap version already exists and is unfinished
+rather than absent: `core/backends/torch_backend.py` has **no device handling at all**
+(no `.to(device)`, no CUDA anywhere), so giving it a `device=` argument reaches GPU
+through torch without a second backend to maintain. That is the whole of the work, and
+it should be ranked below everything above it.
 
 ### 6. The conformance contract - "runs on anything" without shipping hardware
 
