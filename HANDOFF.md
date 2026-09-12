@@ -12,7 +12,8 @@ first thing read in a fresh session.
 | **Repository** | <https://github.com/Ziadt160/qmlkit> — public, Apache-2.0 |
 | **Documentation** | <https://ziadt160.github.io/qmlkit/> — deploys from `main` |
 | **Source of truth** | The `qmlkit/` subdirectory of the upstream working repository; this repo is a subtree split of it |
-| **PyPI** | **Not published.** `pip install qmlkit` does not work yet |
+| **PyPI** | **Published.** `pip install qmlkit` installs 0.1.0 (2026-09-12) |
+| **Released version** | `0.1.0`, tagged `v0.1.0` at the split commit. **It has a known wrong-number bug — see below** |
 
 ### The one non-obvious thing about the workflow
 
@@ -31,9 +32,63 @@ upstream repository, because it is about that project rather than about qmlkit.
 
 ---
 
+## Read this first: 0.1.0 is published and returns a wrong number
+
+`pip install qmlkit` works. It should not be recommended to anyone yet.
+
+**The torch backend in 0.1.0 evaluates a different circuit than the one it was
+given.** `_apply_torch` reimplements `np.moveaxis` without the
+`sorted(zip(destination, source))` numpy does, so any two-qubit gate on wires
+`(a, b)` with `a > b` permutes the *untouched* wires. `Z(3)` on a four-qubit circuit
+reads `-0.1288` where NumPy, Qiskit and Cirq all agree on `-0.7374`. Nothing raises.
+`method="backprop"` differentiates through the same function, so its gradients are
+wrong too, and `qk.conv_block(filter="su4")` reaches it without anyone hand-writing a
+circuit.
+
+It is **fixed on this branch and not yet released**. Cutting 0.1.1 is the first
+priority, and its release note should say plainly that 0.1.0 returns wrong numbers
+under that condition — anyone who ran a `backprop` gradient on it has no way to know.
+
+Two things worth carrying forward from how it was found. `qk.selfcheck` catches it and
+names the cause exactly; nothing was running `selfcheck`. And the cross-backend suite
+could not: it compares the backends against *each other*, and the torch backend was
+excluded from the property that would have noticed. An agreement test that skips a
+participant tests nothing about that participant.
+
+## What is fixed here and waiting for 0.1.1
+
+Everything below is committed on `claude/library-motivation-error-correction-bcd9d1`
+and absent from the published 0.1.0:
+
+| | why it matters |
+|---|---|
+| torch backend axis permutation | silent wrong number, above |
+| `expectation(return_std=True)` | reported `+-0.00000` for any multi-term observable once \|<O>\| reached 1 — every molecular Hamiltonian got a fake error bar |
+| `info.purity(..., backend=<mixed>)` | returned a hard-coded `1.0` for a state whose purity was 0.309 |
+| `ENCODING_COMMUTES` false positive | fired at *error* severity on correct architectures — **including the example in the README** |
+| `VQC` could not express data re-uploading | the pattern the docs recommend most was unreachable from the class they recommend first |
+| `AnsatzReport` trainability | probed a dead parameter and reported `1.4e-32`, which reads as a barren plateau |
+| `qk.draw` on Windows | `UnicodeEncodeError` on a cp1252 console, i.e. printing a circuit killed the script |
+| `list_baselines()` / `Scores.get()` | a duplicated name; a near-miss metric key returning `None` silently |
+
+Plus new: `qk.optim.minimize_adam`, `qk.evaluate.selective` / `risk_coverage`,
+`from_cirq`, the mixed-state backends, Study 8, and `tests/test_torture.py`.
+
+## Two fix sessions may still be running
+
+Started from this session and working in their own worktrees. **Check before editing
+their files**, and let them land before tagging 0.1.1:
+
+* `EncodingLayer` slot aliasing plus the observable algebra (`ansatz/blocks.py`,
+  `core/observables.py`)
+* six defects from the adversarial audit (`kernels/`, `info.py`, `evaluate.py`,
+  `diagnostics.py`) — the worst is `QuantumKernel(estimator="hadamard")` returning
+  `Re(<x'\|x>)**2` instead of `\|<x'\|x>\|**2`
+
 ## Status
 
-**1312 tests on Python 3.14, 881 on SpinQit's 3.10, 0 failures in either.** ruff clean
+**1370 tests on Python 3.14, 684 on a bare py3.10 install, 925 on SpinQit's 3.10,
+0 failures in any.** ruff clean
 and `ruff format --check` clean; `mypy --strict` clean over **the whole package** - the
 config listed six paths until 2026-08-28 and now lists `src/qmlkit`, so "mypy clean" and
 "the package type-checks" finally mean the same thing. **94% coverage**, combined in
@@ -42,8 +97,23 @@ twelve coverage files still fail to map (macOS and Windows record different abso
 roots), so the figure is carried by the `full` job, which installs every extra and runs
 the whole suite on Linux.
 
-Phases 0–6 are done, plus the algorithm and interoperability work. Phase 7 (release) is
-the open one.
+Phases 0–7 are done: 0.1.0 is on PyPI and the release workflow ran green end to end,
+so the mechanism is proven rather than hoped for. What is open is 0.1.1.
+
+### How the library is checked, in order of how much it proves
+
+1. **`tests/densesim.py`** — a dense reference that shares *nothing* with qmlkit.
+   Hand-written gate matrices, hand-derived derivatives, reads only `spec.ops`, calls
+   no backend. Four properties in `test_torture.py` run it against random circuits.
+   This is the only check that can catch a mistake every other one would make
+   together, and it is what found the torch bug.
+2. **`tests/test_pennylane_parity.py`** — 301 cases against a second library.
+3. **`tests/test_torture.py`** — property-based, Hypothesis, invariants that hold by
+   mathematics. Depth is tunable: `QMLKIT_TORTURE_EXAMPLES=1500` before a release runs
+   ~19,500 circuits and takes about ten minutes. Hypothesis shrinks a failure to the
+   smallest circuit that shows it and replays it thereafter.
+4. **`tests/test_cross_backend.py`** — the five backends against the NumPy reference.
+5. The rest of the suite.
 
 Run the suite in **both** environments — SpinQit needs Python 3.10 and pins `numpy<2`:
 
@@ -127,35 +197,46 @@ Emitted as `Sd·CX·S`. Its simulator also carries a `1e-10` precision floor.
 
 ## What to do next
 
-### 1. Publish to PyPI — the real bottleneck
+### 1. Cut 0.1.1 — a correctness release
 
-Nothing else matters as much: none of this is reachable until `pip install qmlkit`
-works. Everything on this side is ready — the wheel builds, `twine check` passes, and
-the clean-venv verifier passes.
+0.1.0 is published and returns a wrong number (top of this file). Everything needed is
+committed on this branch; what remains is to let the two in-flight fix sessions land,
+re-verify, and tag.
 
-**Everything else is done and verified as of 2026-09-12:** `ruff check`,
-`ruff format --check` and `mypy` all clean over the whole package; `mkdocs build
---strict` clean; the wheel builds, `twine check` passes, and a clean venv installing
-only the wheel pulls in **numpy and nothing else** before `verify_install.py` passes.
+The release mechanism is proven — it ran green on 2026-09-12 — and `RELEASING.md` has
+the steps. Two things that are easy to get wrong and cost a version number, because a
+PyPI version can never be reused:
 
-**`RELEASING.md` used to send you to the wrong repository** and is now fixed. There
-are two: `qmlkit/` here is the source of truth, and the standalone repo is a
-`git subtree split` of it. `release.yml` only exists in the published one, so the
-old instruction (`git push origin main --tags`) tagged the upstream repository and
-triggered nothing. The tag goes on the split commit and is pushed to the `qmlkit` remote.
+* **The tag goes on the published repo, not upstream.** `release.yml` exists only in
+  the subtree split. Tagging upstream triggers nothing and looks like a broken
+  workflow; check with `git ls-remote --tags qmlkit`.
+* **Push the split branch first and let CI go green before tagging.** This caught a
+  py3.10-only mypy failure that no local environment on this machine could reproduce.
+  One CI cycle is cheap; a burnt version number is not.
 
-**It needs your account, and cannot be done for you.** Trusted Publishing requires a
-publisher registered while signed in to PyPI; the alternative is an API token, which is
-a credential Claude does not handle.
+### 1b. Run the checks in the environment CI actually uses
 
-1. <https://pypi.org/manage/account/publishing/> → add a *pending publisher*: project
-   `qmlkit`, owner `Ziadt160`, repo `qmlkit`, workflow `release.yml`, environment `pypi`
-2. Same at <https://test.pypi.org/manage/account/publishing/> with environment `testpypi`
-3. GitHub → Settings → Environments → create `pypi` and `testpypi`
+A green local check has meant nothing three times now, and each time the cause was a
+package this machine has and CI does not:
 
-Then pushing the tag `v0.1.0` does the rest. `RELEASING.md` has the full procedure and
-what to do when it goes wrong. **A PyPI version number can never be reused**, so the
-tag is deliberately not pushed yet.
+| what looked fine | what CI saw |
+|---|---|
+| `ruff format --check` | red across 18 untouched files — `dev` allowed `ruff>=0.5` and CI installed a newer one. Now pinned `>=0.15,<0.16` |
+| `mypy` | 13 errors — `qmlkit.nn` subclasses `torch.nn.Module`, and CI's `[dev]` install has no torch |
+| `pytest` | 9 failures — `test_search.py` had no torch guard; two doc blocks did not declare their extra |
+| `mypy` again | 6 errors on **py3.10 only** — NumPy 2.3 gave `ndarray`'s shape parameter a default, and 2.2 is the newest NumPy supporting 3.10 |
+
+So before believing anything, build the environment and run it there:
+
+```bash
+python -m venv C:/Users/pc/AppData/Local/Temp/qkci     # SHORT path: no long-path support here
+C:/Users/pc/AppData/Local/Temp/qkci/Scripts/python.exe -m pip install -e ".[dev,pennylane]"
+```
+
+then `ruff`, `mypy` and `pytest` from that interpreter. A second venv on Python 3.10
+(`numpy==2.2`) covers the `core` matrix job. SpinQit's env is a *third* NumPy
+generation (`1.26`) and catches NumPy-2-only APIs — `np.trapezoid` and `np.in1d` are
+both written down as traps in this file and both have been walked into anyway.
 
 ### 2. Real users — the only thing that can calibrate the thresholds
 

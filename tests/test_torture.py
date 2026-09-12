@@ -28,6 +28,7 @@ import os
 import numpy as np
 import pytest
 
+import densesim
 import qmlkit as qk
 from qmlkit.core.gates import get_gate
 from qmlkit.core.ir import CircuitSpec, Op, ParamRef
@@ -331,3 +332,57 @@ def test_sampling_converges_on_the_exact_expectation(case):
     sampled = qk.expectation(bound, obs, shots=40_000, seed=0)
     # five standard errors of a bounded-[-1,1] estimator at 40k shots
     assert abs(sampled - exact) < 5 * (1.0 / np.sqrt(40_000)) + 1e-9
+
+
+# --------------------------------------------------------------------------- #
+# an opinion that shares nothing with the library
+#
+# Every other property here is internal consistency: four gradient derivations
+# agreeing, five backends agreeing, batched matching looped. All of that passes if
+# they share one wrong convention. `densesim` inherited nothing - hand-written gate
+# matrices, hand-derived derivatives, reads only spec.ops - so it is the only check
+# in this file that can catch a mistake they would all make together.
+# --------------------------------------------------------------------------- #
+@TORTURE
+@given(circuit_and_angles(max_qubits=3, max_ops=8))
+def test_the_dense_reference_agrees_on_the_statevector(case):
+    spec, theta = case
+    bound = spec.bind(theta) if spec.n_params else spec
+    assert qk.statevector(bound) == pytest.approx(densesim.state(spec, theta), abs=1e-11)
+
+
+@TORTURE
+@given(circuit_and_angles(max_qubits=3, max_ops=8))
+def test_the_dense_reference_agrees_on_the_expectation(case):
+    spec, theta = case
+    bound = spec.bind(theta) if spec.n_params else spec
+    obs = _observable(spec.n_qubits)
+    assert qk.expectation(bound, obs) == pytest.approx(densesim.expval(spec, obs, theta), abs=1e-11)
+
+
+@TORTURE
+@given(circuit_and_angles(max_qubits=3, max_ops=6))
+def test_the_dense_reference_agrees_on_the_gradient(case):
+    """Hand-derived product rule against the adjoint sweep, on random circuits."""
+    spec, theta = case
+    if spec.n_params == 0:
+        return
+    obs = _observable(spec.n_qubits)
+    assert qk.grad(spec, theta, obs) == pytest.approx(densesim.grad(spec, theta, obs), abs=1e-10)
+
+
+@TORTURE
+@given(circuit_and_angles(max_qubits=3, max_ops=8))
+def test_the_dense_reference_agrees_on_every_backend(case):
+    """The property that would have caught the torch permutation bug on day one."""
+    from qmlkit.core.backends.registry import available_backends
+
+    spec, theta = case
+    bound = spec.bind(theta) if spec.n_params else spec
+    obs = _observable(spec.n_qubits)
+    truth = densesim.expval(spec, obs, theta)
+    for name in available_backends():
+        tolerance = 1e-7 if name == "spinqit" else 1e-10
+        assert qk.expectation(bound, obs, backend=name) == pytest.approx(truth, abs=tolerance), (
+            f"{name} disagrees with the independent dense reference"
+        )
