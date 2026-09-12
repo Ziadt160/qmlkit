@@ -33,7 +33,7 @@ upstream repository, because it is about that project rather than about qmlkit.
 
 ## Status
 
-**1340 tests on Python 3.14, 909 on SpinQit's 3.10, 0 failures in either.** ruff clean
+**1401 tests on Python 3.14, 956 on SpinQit's 3.10, 0 failures in either.** ruff clean
 and `ruff format --check` clean; `mypy --strict` clean over **the whole package** - the
 config listed six paths until 2026-08-28 and now lists `src/qmlkit`, so "mypy clean" and
 "the package type-checks" finally mean the same thing. **94% coverage**, combined in
@@ -44,6 +44,16 @@ the whole suite on Linux.
 
 Phases 0–6 are done, plus the algorithm and interoperability work. 0.1.0 is released;
 0.1.1 is prepared and untagged.
+
+**Split the release from a branch that has *both* halves of the audit fixes.** The ten
+defects were closed on two branches that never met -
+`claude/library-motivation-error-correction-bcd9d1` (F1, F3, F4, F5) and
+`claude/audit-fixes-0-1-1` (F2, F6-F10), merge base `4e6e6b2`, neither containing the
+other. On either tip alone half the audit is still open, and `git subtree split`
+publishes whatever branch it is given, so cutting 0.1.1 from the branch *named* for it
+would have shipped the torch backend still computing a different circuit. They are
+merged on `claude/fix-documented-bugs-e51eb0`; confirm before splitting with
+`git merge-base --is-ancestor <each tip> HEAD`.
 
 Run the suite in **both** environments — SpinQit needs Python 3.10 and pins `numpy<2`:
 
@@ -141,18 +151,23 @@ Emitted as `Sd·CX·S`. Its simulator also carries a `1e-10` precision floor.
 
 ## What to do next
 
-### 1. Release 0.1.1 - the encoding defect is the reason it exists
+### 1. Release 0.1.1 - 0.1.0 returns wrong numbers and should not be recommended
 
-0.1.0 is on PyPI. 0.1.1 is prepared here and **not yet tagged**: it fixes a
-composition the README recommended that built the wrong circuit without raising,
-and fills in the observable arithmetic that identity-shifted cost functions need.
-The changelog entry has the whole account.
+0.1.0 is on PyPI. 0.1.1 is prepared here and **not yet tagged**. It closes eleven
+defects found after 0.1.0 shipped: one a reader hit using the library - a composition
+the README recommended that built the wrong circuit without raising - and ten from an
+adversarial audit, four of which corrupt a result silently. The worst is the torch
+backend computing a different circuit from every other backend, reachable from the
+built-in `conv_block(filter="su4")` and inherited by `method="backprop"`. All eleven
+are in the version people can `pip install` today. The changelog entry has the whole
+account.
 
-Everything on this side is ready, verified 2026-09-12: 1340 tests green on 3.14 and
-909 on SpinQit's 3.10, `ruff check`, `ruff format --check` and `mypy` clean over the
-whole package, `mkdocs build --strict` clean, the wheel builds and `twine check`
-passes, and a clean venv installing only the wheel pulls in **numpy and nothing else**
-before `verify_install.py` passes.
+Everything on this side is ready, verified 2026-09-13 **on the merged tree**: 1401 tests
+green on 3.14 and 956 on SpinQit's 3.10, `ruff check`, `ruff format --check` and `mypy`
+clean over the whole package, `mkdocs build --strict` clean, every reproducer in the
+audit's own findings re-run and closed in both environments, the wheel and sdist build,
+`twine check` passes on both, and a clean venv installing only the wheel pulls in
+**numpy and nothing else** before `verify_install.py` passes.
 
 **The tag goes on the subtree-split commit, not on this repository.** There are two:
 `qmlkit/` here is the source of truth, and the standalone repo is a

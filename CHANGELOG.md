@@ -4,7 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.1] - 2026-09-12
+## [0.1.1] - 2026-09-13
+
+**Upgrade from 0.1.0.** Everything below was found after 0.1.0 was published, so it is
+all still present in the version on PyPI. One defect was reported by a reader using the
+library; ten came from an adversarial audit told to find a case where qmlkit returns a
+*wrong number* rather than an error. Four of the ten corrupt a result silently, and the
+worst of those is in the torch backend, which computed a different circuit from every
+other backend - so `backend="torch"` and `method="backprop"` returned wrong numbers,
+reachable from the built-in `conv_block(filter="su4")`. Nothing raised in any of the
+four.
+
+The audit's account is split over three sections below by where each defect lived:
+*three silent wrong numbers*, *five defects*, and the diagnostic in *a diagnostic that
+asserted what it had only inferred*. They are one audit, settled against one dense
+reference simulator that shares no code with qmlkit.
 
 ### Fixed - a composition the README recommended built the wrong circuit
 
@@ -153,34 +167,6 @@ deliberate departure from scikit-learn, which returns 1.0 for the perfect case a
 for the rest - a convention that cannot be read back, since a 0.0 could mean either
 "undefined" or "no better than the mean".
 
-### Changed
-
-- `Ansatz(..., n_inputs=)` now defaults to `None`, meaning *infer*. Existing calls that
-  passed the correct total keep working; one that passed a different number now raises
-  rather than silently building a circuit whose encodings overlap.
-- `Ansatz` gained `feature_maps`, `angles`, `angle_jacobian` and `n_features`.
-  `ReuploadModel`'s own `angles`/`angle_jacobian` were identical for its single map and
-  are now inherited.
-- Composing feature maps that read different numbers of features now raises. Every map
-  in one model is handed the same `x`, so such a model could never have been bound.
-- `scripts/verify_install.py` compared `__version__` against a hardcoded `"0.1.0"` - a
-  third copy of the version that had to be bumped by hand, and the gate failed on this
-  release for that reason alone. It now reads the installed distribution metadata and
-  checks the module constant against it, which is what the check was named for.
-- `QuantumLayer` treats a model as carrying its own encoding only when it reserves
-  input slots. Every `Ansatz` can map data onto its slots now, so the four-attribute
-  check alone no longer distinguishes a model from a bare ansatz.
-- **`geometric_difference` now returns values `sqrt(N)` times smaller than 0.1.0's.**
-  Code that compared it against a hand-picked constant will read differently and
-  should compare against `sqrt(N)` instead, which is the comparison the statistic was
-  always for.
-- `QuantumKernel(estimator="hadamard").n_evaluations` counts two circuits per pair
-  rather than one, which is how many it now runs.
-
-## [0.1.0] - 2026-09-12
-
-First release.
-
 ### Fixed - three silent wrong numbers, found by attacking the library
 
 An agent was asked to break qmlkit: to find a case where it returns a *wrong number*
@@ -285,6 +271,34 @@ regression; the listing read the values and never deduplicated.
 key with a did-you-mean and `.get` bypassed it, so a near-miss became a silent `None`
 that surfaced later as a `TypeError` from inside numpy. An explicit default is still
 honoured without comment.
+
+### Changed
+
+- `Ansatz(..., n_inputs=)` now defaults to `None`, meaning *infer*. Existing calls that
+  passed the correct total keep working; one that passed a different number now raises
+  rather than silently building a circuit whose encodings overlap.
+- `Ansatz` gained `feature_maps`, `angles`, `angle_jacobian` and `n_features`.
+  `ReuploadModel`'s own `angles`/`angle_jacobian` were identical for its single map and
+  are now inherited.
+- Composing feature maps that read different numbers of features now raises. Every map
+  in one model is handed the same `x`, so such a model could never have been bound.
+- `scripts/verify_install.py` compared `__version__` against a hardcoded `"0.1.0"` - a
+  third copy of the version that had to be bumped by hand, and the gate failed on this
+  release for that reason alone. It now reads the installed distribution metadata and
+  checks the module constant against it, which is what the check was named for.
+- `QuantumLayer` treats a model as carrying its own encoding only when it reserves
+  input slots. Every `Ansatz` can map data onto its slots now, so the four-attribute
+  check alone no longer distinguishes a model from a bare ansatz.
+- **`geometric_difference` now returns values `sqrt(N)` times smaller than 0.1.0's.**
+  Code that compared it against a hand-picked constant will read differently and
+  should compare against `sqrt(N)` instead, which is the comparison the statistic was
+  always for.
+- `QuantumKernel(estimator="hadamard").n_evaluations` counts two circuits per pair
+  rather than one, which is how many it now runs.
+
+## [0.1.0] - 2026-09-12
+
+First release.
 
 ### Fixed - two defects found by using the library, not by testing it
 
