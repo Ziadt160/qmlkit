@@ -4,6 +4,38 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added - `diagnose` can now be asked whether the quantum layer earned its place
+
+`qk.diagnose(model, X, y)` takes a *trained* model and the data it was trained on,
+and answers the question the structural checks cannot: not "is this architecture
+broken" before the run, but "it trained, it converged, and it works just as well
+without the quantum part". That complaint is the most common one in the field and
+nothing in any library answers it.
+
+The new finding is `QUANTUM_LAYER_BYPASSED`. A forward hook captures what the
+quantum layer received and what it returned; the same hyperparameter-free probe
+scores both, averaged over five splits. The finding fires only when separability
+measurably *dropped* across the layer by more than the spread across those splits —
+the same verdict rule `qk.baseline` uses, where a lead inside the spread is not a
+lead. It reports both numbers, so the claim can be argued with:
+
+```text
+[warning] QUANTUM_LAYER_BYPASSED: The quantum layer reduced separability: the same
+probe scores 0.951 on what the layer received and 0.578 on what it returned, a drop
+of 0.373 against a spread of 0.028 across 5 splits. The classical layers around it
+are carrying this model.
+```
+
+The probe is `NearestCentroid` precisely because it has no solver and no
+hyperparameter: neither side of the comparison can win by having been tuned better,
+so a difference in score is a difference in the activations. Classification targets
+only — a continuous target is declined rather than guessed at. Without `X` and `y`,
+or without torch, `diagnose` behaves exactly as before.
+
+`X` and `y` are optional positional parameters, so every existing call is unchanged.
+
 ## [0.1.1] - 2026-09-12
 
 ### Fixed - a composition the README recommended built the wrong circuit

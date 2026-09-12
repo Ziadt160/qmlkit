@@ -589,6 +589,155 @@ def _diagnose_kernel(
 # --------------------------------------------------------------------------- #
 # dispatch
 # --------------------------------------------------------------------------- #
+#: Splits the activation probe averages over. The verdict rule is ``qk.baseline``'s:
+#: a lead that sits inside the spread across splits is not a lead.
+_PROBE_SPLITS = 5
+
+#: Fraction of rows the probe trains on.
+_PROBE_TRAIN = 0.7
+
+
+def _find_quantum_layer(model: object) -> Any | None:
+    """The module that actually evaluates a circuit, wherever it is nested.
+
+    Returns ``None`` when torch is absent or the model holds no quantum layer, which
+    is the same thing as "there is nothing to ablate here".
+    """
+    try:
+        from qmlkit.nn.layer import QuantumLayer
+    except Exception:  # pragma: no cover - torch is an optional extra
+        return None
+    children = getattr(model, "modules", None)
+    if not callable(children):
+        return None
+    for module in children():  # modules() yields the model itself first
+        if isinstance(module, QuantumLayer):
+            return module
+    return None
+
+
+def _activations(model: Any, layer: Any, X: Any) -> tuple[Any, Any] | None:
+    """What the quantum layer received and what it returned, on one forward pass.
+
+    A forward hook rather than a re-implementation of the model's own plumbing: the
+    question is what this layer did *in this model*, so the model has to be the thing
+    that runs.
+    """
+    import torch
+
+    captured: dict[str, Any] = {}
+
+    def hook(_module: Any, inputs: Any, output: Any) -> None:
+        if inputs and hasattr(inputs[0], "detach"):
+            captured["in"] = inputs[0].detach().cpu().numpy()
+        if hasattr(output, "detach"):
+            captured["out"] = output.detach().cpu().numpy()
+
+    try:
+        dtype = next(model.parameters()).dtype
+    except (StopIteration, AttributeError):
+        dtype = torch.float64
+
+    handle = layer.register_forward_hook(hook)
+    try:
+        with torch.no_grad():
+            model(torch.as_tensor(np.asarray(X, dtype=float)).to(dtype))
+    finally:
+        handle.remove()
+
+    if "in" not in captured or "out" not in captured:
+        return None
+    return captured["in"], captured["out"]
+
+
+def _probe_score(
+    activations: Any, y: npt.NDArray[Any], seed: int | None
+) -> tuple[float, float] | None:
+    """How separable these activations are, averaged over repeated splits.
+
+    The probe is :class:`~qmlkit.baselines.NearestCentroid` precisely because it has no
+    solver and no hyperparameter: neither side of the comparison can come out ahead by
+    having been tuned better, so a difference is a difference in the activations.
+    """
+    from qmlkit.baselines import NearestCentroid
+
+    A = np.atleast_2d(np.asarray(activations, dtype=float))
+    if A.ndim != 2 or A.shape[0] != len(y):
+        return None
+    rng = np.random.default_rng(seed)
+    scores: list[float] = []
+    for _ in range(_PROBE_SPLITS):
+        order = rng.permutation(len(y))
+        cut = max(1, int(_PROBE_TRAIN * len(y)))
+        train, test = order[:cut], order[cut:]
+        if len(test) == 0 or len(np.unique(y[train])) < 2:
+            continue
+        predicted = NearestCentroid().fit(A[train], y[train]).predict(A[test])
+        scores.append(float(np.mean(predicted == y[test])))
+    if not scores:
+        return None
+    return float(np.mean(scores)), float(np.std(scores))
+
+
+def _looks_like_classification(y: npt.NDArray[Any]) -> bool:
+    """The probe is a classifier, so a continuous target is out of its scope."""
+    distinct = len(np.unique(y))
+    return distinct >= 2 and (y.dtype.kind in "iub" or distinct <= max(2, len(y) // 10))
+
+
+def _diagnose_contribution(model: object, X: Any, y: Any, *, seed: int | None) -> list[Finding]:
+    """Did the quantum layer earn its place?
+
+    Measured, not inferred: a probe scores what the layer *received*, the same probe
+    scores what it *returned*, and the finding reports both numbers. A model can look
+    trained, converge, and route around its quantum layer entirely -- which is the
+    complaint "it works just as well without the quantum part", and nothing in this
+    field answers it.
+    """
+    layer = _find_quantum_layer(model)
+    if layer is None:
+        return []
+
+    labels = np.asarray(y).ravel()
+    if not _looks_like_classification(labels):
+        return []
+
+    captured = _activations(model, layer, X)
+    if captured is None:
+        return []
+    received, returned = captured
+
+    before = _probe_score(received, labels, seed)
+    after = _probe_score(returned, labels, seed)
+    if before is None or after is None:
+        return []
+
+    mean_in, spread_in = before
+    mean_out, spread_out = after
+    margin = max(spread_in, spread_out)
+
+    if mean_in - mean_out <= margin:
+        return []
+
+    return [
+        Finding(
+            "QUANTUM_LAYER_BYPASSED",
+            "warning",
+            f"The quantum layer reduced separability: the same probe scores "
+            f"{mean_in:.3f} on what the layer received and {mean_out:.3f} on what it "
+            f"returned, a drop of {mean_in - mean_out:.3f} against a spread of "
+            f"{margin:.3f} across {_PROBE_SPLITS} splits. The classical layers around "
+            "it are carrying this model.",
+            fix=(
+                "Compare against the same network with the quantum layer removed before "
+                "reporting a result, and check qk.diagnose(ansatz) for a structural "
+                "cause -- a collapsed encoding or dead weights will do exactly this."
+            ),
+            value=float(mean_in - mean_out),
+        )
+    ]
+
+
 def _find_ansatz(subject: object) -> Ansatz | None:
     """The ansatz inside a model, wherever a torch module happens to keep it."""
     if isinstance(subject, Ansatz):
@@ -636,6 +785,8 @@ def _find_observables(subject: object) -> list[Observable]:
 
 def diagnose(
     subject: object,
+    X: Any = None,
+    y: Any = None,
     *,
     obs: Observable | None = None,
     n_samples: int = 30,
@@ -653,6 +804,11 @@ def diagnose(
         An :class:`~qmlkit.ansatz.library.Ansatz`, anything holding one (a
         ``QuantumLayer``, ``VQC``, ``VQRegressor``, or an ``nn.Sequential``
         containing one), or a square Gram matrix.
+    X, y
+        Optional. Given both, and a *trained* model holding a ``QuantumLayer``, the
+        structural checks are joined by one that needs data: whether the quantum
+        layer earned its place, or the classical layers around it are carrying the
+        model. Classification targets only -- the probe is a classifier.
     obs
         Observable for the trainability probe. Defaults to ``Z(0)``, matching
         :func:`~qmlkit.metrics.barren_plateau_scan`.
@@ -718,6 +874,8 @@ def diagnose(
         prefix=prefix,
         observables=_find_observables(subject),
     )
+    if X is not None and y is not None:
+        findings += _diagnose_contribution(subject, X, y, seed=seed)
     label = f"{type(subject).__name__} ({ansatz.name})" if subject is not ansatz else ansatz.name
     subject_line = f"{label} on {ansatz.n_qubits} qubits"
     _, substituted = _structural_backend(backend)

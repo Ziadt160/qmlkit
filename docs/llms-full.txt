@@ -5278,7 +5278,7 @@ datasets
     Datasets for benchmarking quantum models.
 def default_backend() -> 'Backend'
     The process-wide default.
-def diagnose(subject: 'object', *, obs: 'Observable | None' = None, n_samples: 'int' = 30, probes: 'int' = 3, seed: 'int | None' = 0, backend: 'BackendLike' = None, shots: 'int | None' = None, n_qubits: 'int | None' = None) -> 'Report'
+def diagnose(subject: 'object', X: 'Any' = None, y: 'Any' = None, *, obs: 'Observable | None' = None, n_samples: 'int' = 30, probes: 'int' = 3, seed: 'int | None' = 0, backend: 'BackendLike' = None, shots: 'int | None' = None, n_qubits: 'int | None' = None) -> 'Report'
     Check a model or a Gram matrix for the failures that do not raise.
 def displace_matrix(K: 'npt.NDArray[Any]') -> 'npt.NDArray[Any]'
     Shift the whole spectrum up until it is non-negative.
