@@ -81,6 +81,7 @@ entirely about a third of the time, which makes the test score noise.
 `VQC` takes the weighting directly, computed from the `y` passed to `fit`:
 
 ```python
+# docs: requires torch
 model = qk.VQC(n_features=2, n_classes=2, class_weight="balanced")
 ```
 

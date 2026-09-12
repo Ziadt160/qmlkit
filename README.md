@@ -38,7 +38,7 @@ to machine precision.
 The core depends on **NumPy and nothing else**, and CI enforces it.
 
 **[Documentation](https://ziadt160.github.io/qmlkit/)** — tutorials, guides and a generated API reference.
-**[HANDOFF.md](HANDOFF.md)** — status, conventions, known traps, and what to do next, if you are picking this up.
+**[HANDOFF.md](https://github.com/Ziadt160/qmlkit/blob/main/HANDOFF.md)** — status, conventions, known traps, and what to do next, if you are picking this up.
 
 ## Two lines
 
@@ -191,7 +191,7 @@ and guide plus the entire public API with signatures. Both are generated from th
 pages and the package, committed, and checked in CI, so neither can drift.
 
 [Working with a coding agent](https://ziadt160.github.io/qmlkit/guides/agents/) is
-the long version; [`AGENTS.md`](AGENTS.md) is for working *on* qmlkit.
+the long version; [`AGENTS.md`](https://github.com/Ziadt160/qmlkit/blob/main/AGENTS.md) is for working *on* qmlkit.
 
 ## Install
 
@@ -679,7 +679,7 @@ it into the wheel:
 python -m build && python -m venv /tmp/clean && /tmp/clean/bin/pip install dist/qmlkit-*.whl && /tmp/clean/bin/python scripts/verify_install.py
 ```
 
-[`RELEASING.md`](RELEASING.md) has the rest of the process.
+[`RELEASING.md`](https://github.com/Ziadt160/qmlkit/blob/main/RELEASING.md) has the rest of the process.
 
 ## License
 

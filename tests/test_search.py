@@ -89,6 +89,7 @@ def test_max_configs_samples_reproducibly(moons):
 # pruning: the part that needs the diagnostics
 # --------------------------------------------------------------------------- #
 def test_untrainable_configurations_are_skipped_with_their_reason(wide):
+    pytest.importorskip("torch")  # search() fits a VQC, which is a torch model
     X, y = wide
     result = search(
         X,
@@ -107,6 +108,7 @@ def test_untrainable_configurations_are_skipped_with_their_reason(wide):
 
 
 def test_prune_none_fits_everything(wide):
+    pytest.importorskip("torch")  # search() fits a VQC, which is a torch model
     X, y = wide
     result = search(
         X,
@@ -122,6 +124,7 @@ def test_prune_none_fits_everything(wide):
 
 def test_every_row_carries_its_diagnosis_whether_or_not_it_was_pruned(moons):
     """A configuration that scores well *and* carries DEAD_WEIGHTS is worth seeing."""
+    pytest.importorskip("torch")  # search() fits a VQC, which is a torch model
     X, y = moons
     result = search(X, y, cv=2, dry_run=True, prune="error")
     assert not result.pruned
@@ -129,6 +132,7 @@ def test_every_row_carries_its_diagnosis_whether_or_not_it_was_pruned(moons):
 
 
 def test_prune_accepts_an_explicit_list_of_codes(wide):
+    pytest.importorskip("torch")  # search() fits a VQC, which is a torch model
     X, y = wide
     result = search(
         X,
@@ -169,6 +173,7 @@ def test_a_pruned_reason_does_not_split_a_decimal_in_half():
 # a real run
 # --------------------------------------------------------------------------- #
 def test_a_real_search_ranks_and_rebuilds_the_winner(moons):
+    pytest.importorskip("torch")  # search() fits a VQC, which is a torch model
     X, y = moons
     result = search(X, y, n_layers=[1, 2], epochs=8, cv=2, verbose=False)
     assert len(result.ran) == 2
@@ -190,6 +195,7 @@ def test_every_configuration_is_scored_on_identical_folds(moons):
 
 
 def test_dry_run_fits_nothing_but_still_prunes(wide):
+    pytest.importorskip("torch")  # search() fits a VQC, which is a torch model
     X, y = wide
     result = search(
         X,

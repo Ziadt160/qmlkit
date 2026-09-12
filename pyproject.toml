@@ -5,11 +5,11 @@ build-backend = "hatchling.build"
 [project]
 name = "qmlkit"
 version = "0.1.0"
-description = "A backend-agnostic quantum machine learning library for SpinQit, Qiskit, Cirq and PyTorch"
+description = "A quantum machine learning library with the diagnostics to catch mistakes that do not raise, on SpinQit, Qiskit, Cirq and PyTorch"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Ziad Tarek Mohammed" }]
 keywords = ["quantum", "machine-learning", "qml", "spinqit", "qiskit", "cirq", "pytorch", "variational"]
 classifiers = [
@@ -21,6 +21,8 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
   "Topic :: Scientific/Engineering :: Physics",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
   "Typing :: Typed",
@@ -60,8 +62,10 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Ziadt160/qmlkit"
+Homepage = "https://ziadt160.github.io/qmlkit/"
+Documentation = "https://ziadt160.github.io/qmlkit/"
 Source = "https://github.com/Ziadt160/qmlkit"
+Changelog = "https://github.com/Ziadt160/qmlkit/blob/main/CHANGELOG.md"
 Issues = "https://github.com/Ziadt160/qmlkit/issues"
 
 [tool.hatch.build.targets.wheel]
@@ -126,6 +130,21 @@ warn_return_any = false
 
 # Optional SDKs ship no type stubs (or stubs we do not want to depend on). Silencing
 # just these keeps `mypy --strict` meaningful for everything we actually own.
+# ``qmlkit.nn`` subclasses ``torch.nn.Module``, and torch is an optional extra. Where
+# it is absent the base class resolves to ``Any`` and --strict objects to subclassing
+# it -- so the package would type-check only on machines that happen to have torch,
+# which is the opposite of what a type check is for. These two rules are about
+# *third-party* base classes and decorators; everything else stays strict.
+[[tool.mypy.overrides]]
+module = ["qmlkit.nn.*"]
+disallow_subclassing_any = false
+disallow_untyped_decorators = false
+# and for the same reason an ignore here can be necessary or redundant depending on
+# whether torch is installed -- `Function.apply` is untyped upstream when it is, and
+# Any when it is not. Flagging the unused case would make the two environments
+# disagree about a comment.
+warn_unused_ignores = false
+
 [[tool.mypy.overrides]]
 module = [
   "spinqit.*",

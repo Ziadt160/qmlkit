@@ -98,9 +98,13 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -e ".[dev,torch,qiskit,cirq,sklearn,pennylane,viz]"
+      - run: pip install -e ".[dev,torch,qiskit,cirq,aer,sklearn,pennylane,viz]"
+      # aer is here and not in the matrix above because its distribution and its
+      # import name differ, and because it is the only way the qiskit-aer noisy
+      # backend gets exercised at all: without it every test in
+      # tests/test_noisy_backends.py skips itself and the job still goes green.
       - name: Confirm every extra actually imported
-        run: python -c "import torch, qiskit, cirq, sklearn, pennylane, matplotlib"
+        run: python -c "import torch, qiskit, qiskit_aer, cirq, sklearn, pennylane, matplotlib"
       - name: Whole suite, no marker filter
         run: coverage run --parallel-mode --source=qmlkit -m pytest -q
       - uses: actions/upload-artifact@v4

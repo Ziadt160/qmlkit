@@ -76,6 +76,7 @@ print(qk.diagnose(gram, n_qubits=2))
 ## The verdict
 
 ```python
+# docs: requires sklearn
 K_train = kernel(X[:60])
 svc = qk.QSVC(feature_map).fit(X[:60], y[:60])
 scores = qk.evaluate.classification(y[60:], svc.predict(X[60:]))

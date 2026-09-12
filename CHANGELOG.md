@@ -43,6 +43,56 @@ already trained, on the first thing a new user does, on the platform where it br
 about to return and degrade to ASCII when it cannot, at identical column widths;
 `ascii=True`/`False` overrides the detection.
 
+**CI never installed `qiskit-aer`, so the backend that needs it was never tested.**
+The `full` job installed every extra except that one, and every test in
+`tests/test_noisy_backends.py` guards itself with `is_available` - so the whole
+qiskit-aer noisy backend skipped itself and the job went green anyway. The workflow's
+own comment says an SDK job that proves nothing is worse than no SDK job; this was
+that. `aer` is now in the full job's install and in its import assertion.
+
+**The suite passed only where the optional extras happened to be installed.** Both
+CI's lint job and the release workflow's verify job install `[dev]`, without torch or
+scikit-learn, and nine tests failed there while passing locally. Three causes, all
+pre-existing:
+
+- `tests/test_search.py` never guarded on torch, unlike the ten other test modules
+  that need it. `search()` fits a `VQC`, which is a torch model. Six of its
+  twenty-three tests build one, so the guard went on those six rather than the module,
+  which would have thrown away the other seventeen.
+- Two documentation blocks used `VQC` and `QSVC` without declaring the extra they
+  need.
+- A third failed for a subtler reason worth recording: blocks on a page share a
+  namespace and run in order, so skipping one leaves the *next* one without the
+  `import qmlkit as qk` it was relying on, and it fails with `NameError` rather than
+  anything that names the real cause. A block that depends on a skipped block needs
+  the same directive.
+
+**`mypy` passed only where torch happened to be installed.** Widening the type check
+to the whole package brought `qmlkit.nn` into it, and those modules subclass
+`torch.nn.Module`. torch is an optional extra, so where it is absent the base class
+resolves to `Any` and `--strict` refuses to subclass it: 13 errors in an environment
+with no torch, none in one with it. Both CI's lint job and the release workflow's
+verify job install `[dev]` without torch, so this would have failed the release before
+it built anything. `qmlkit.nn.*` now exempts the three rules that are about
+*third-party* base classes and decorators, and the package type-checks identically
+with and without torch. Everything else stays strict.
+
+### Packaging
+
+Things nobody sees until the page is live, and a PyPI version cannot be reused to fix
+them:
+
+- The summary PyPI shows in search results was the category sentence the README
+  deliberately stopped opening with.
+- The README's links to `HANDOFF.md`, `AGENTS.md` and `RELEASING.md` were relative.
+  PyPI renders the README standalone, so all three were 404s for every reader.
+- `Documentation` and `Changelog` were missing from `[project.urls]`, which is the
+  sidebar on the project page. Both exist.
+- `NOTICE` was not in the wheel. Apache-2.0 section 4(d) expects it to travel with
+  the distribution.
+- Added the `Operating System :: OS Independent` and `Intended Audience :: Developers`
+  classifiers.
+
 ### Changed - documentation
 
 - The README leads with what the library is *for* rather than what category it is in.

@@ -68,6 +68,7 @@ print("weight tying means one parameter, several gates — see the parameter-shi
 ## The filter is a choice, and it is measurable
 
 ```python
+# docs: requires torch
 print(qk.list_conv_filters())
 ```
 
