@@ -8,6 +8,7 @@ more, because those are two outcomes out of ``2**n``.
 
 from __future__ import annotations
 
+import numbers
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -71,11 +72,31 @@ class PauliString:
 
     __rmul__ = __mul__
 
+    def __truediv__(self, k: float | complex) -> PauliString:
+        return PauliString(self.paulis, self.coeff / k)
+
     def __neg__(self) -> PauliString:
         return PauliString(self.paulis, -self.coeff)
 
-    def __add__(self, other: Observable) -> PauliSum:
-        return PauliSum((self,)) + other
+    def __add__(self, other: Observable | float | complex) -> PauliSum | Any:
+        term = _as_term(other)
+        if term is None:
+            return NotImplemented
+        return PauliSum((self,)) + term
+
+    def __radd__(self, other: Observable | float | complex) -> PauliSum | Any:
+        term = _as_term(other)
+        if term is None:
+            return NotImplemented
+        return term + PauliSum((self,))
+
+    def __sub__(self, other: Observable | float | complex) -> PauliSum | Any:
+        negated = _negate(other)
+        return NotImplemented if negated is None else self + negated
+
+    def __rsub__(self, other: Observable | float | complex) -> PauliSum | Any:
+        term = _as_term(other)
+        return NotImplemented if term is None else term + (-self)
 
     def __repr__(self) -> str:
         body = "I" if not self.paulis else " ".join(f"{p}{q}" for q, p in sorted(self.paulis))
@@ -88,15 +109,38 @@ class PauliSum:
 
     terms: tuple[PauliString, ...] = ()
 
-    def __add__(self, other: Observable) -> PauliSum:
-        if isinstance(other, PauliString):
-            return PauliSum(self.terms + (other,))
-        return PauliSum(self.terms + other.terms)
+    def __add__(self, other: Observable | float | complex) -> PauliSum | Any:
+        term = _as_term(other)
+        if term is None:
+            return NotImplemented
+        if isinstance(term, PauliString):
+            return PauliSum(self.terms + (term,))
+        return PauliSum(self.terms + term.terms)
+
+    def __radd__(self, other: Observable | float | complex) -> PauliSum | Any:
+        term = _as_term(other)
+        if term is None:
+            return NotImplemented
+        return term + self
+
+    def __sub__(self, other: Observable | float | complex) -> PauliSum | Any:
+        negated = _negate(other)
+        return NotImplemented if negated is None else self + negated
+
+    def __rsub__(self, other: Observable | float | complex) -> PauliSum | Any:
+        term = _as_term(other)
+        return NotImplemented if term is None else term + (-self)
 
     def __mul__(self, k: float | complex) -> PauliSum:
         return PauliSum(tuple(t * k for t in self.terms))
 
     __rmul__ = __mul__
+
+    def __truediv__(self, k: float | complex) -> PauliSum:
+        return PauliSum(tuple(t / k for t in self.terms))
+
+    def __neg__(self) -> PauliSum:
+        return PauliSum(tuple(-t for t in self.terms))
 
     def support(self) -> tuple[int, ...]:
         return tuple(sorted({q for t in self.terms for q in t.support()}))
@@ -106,6 +150,36 @@ class PauliSum:
 
 
 Observable = PauliString | PauliSum
+
+
+# ------------------------------------------------------------------- promotion
+def _as_term(other: object) -> Observable | None:
+    """An observable from ``other``, or ``None`` when there is no sensible reading.
+
+    A scalar means that multiple of the identity — ``I - Z(0)`` and ``1 - Z(0)`` are
+    the same observable, and the second is how a projector is usually written. The
+    additive identity is dropped rather than carried as ``0*I``, which is what lets
+    ``sum(...)`` start from ``0`` and return the sum itself.
+
+    ``None`` rather than a raise, so the caller returns ``NotImplemented`` and Python
+    reports the unsupported operand types — the honest error for ``Z(0) + "x"``.
+    """
+    if isinstance(other, (PauliString, PauliSum)):
+        return other
+    if isinstance(other, bool) or not isinstance(other, numbers.Complex):
+        return None
+    return _ZERO if other == 0 else PauliString((), complex(other))
+
+
+def _negate(other: object) -> Observable | None:
+    term = _as_term(other)
+    if term is None:
+        return None
+    return -term
+
+
+#: The empty sum. Adding it changes nothing, which is what makes it the identity.
+_ZERO = PauliSum(())
 
 
 # ------------------------------------------------------------------ shorthands

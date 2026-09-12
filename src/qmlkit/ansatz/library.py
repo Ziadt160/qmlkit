@@ -28,6 +28,7 @@ from qmlkit.ansatz.blocks import (
     ParametricEntangler,
     PoolLayer,
     RotationLayer,
+    encoding_layers,
     repeat,
     share,
 )
@@ -56,19 +57,55 @@ __all__ = [
 ]
 
 
+def _distinct_encodings(block: Block) -> tuple[Any, ...]:
+    """The feature maps a block encodes with, de-duplicated by identity, in slot order."""
+    seen: list[Any] = []
+    for layer in encoding_layers(block):
+        if not any(m is layer.feature_map for m in seen):
+            seen.append(layer.feature_map)
+    return tuple(seen)
+
+
+def _encoding_summary(maps: Sequence[Any]) -> str:
+    return " + ".join(f"{type(m).__name__} needs {int(m.n_angles)}" for m in maps)
+
+
 class Ansatz:
-    """A trainable circuit: a qubit count and a composable block."""
+    """A trainable circuit: a qubit count and a composable block.
+
+    ``n_inputs`` is **inferred** from the encoding layers in the block — each feature
+    map owns a disjoint range of input slots, and the same map re-used shares its own.
+    Pass it only to assert a total you already know; a value that disagrees raises.
+    """
 
     def __init__(
-        self, n_qubits: int, block: Block, name: str = "ansatz", n_inputs: int = 0
+        self, n_qubits: int, block: Block, name: str = "ansatz", n_inputs: int | None = None
     ) -> None:
         if n_qubits < 1:
             raise ValueError("n_qubits must be at least 1")
         self.n_qubits = n_qubits
         self.block = block
         self.name = name
-        self.n_inputs = n_inputs
         self._spec: CircuitSpec | None = None
+        self.feature_maps: tuple[Any, ...] = _distinct_encodings(block)
+        needed = sum(int(m.n_angles) for m in self.feature_maps)
+        self.n_inputs = needed if n_inputs is None else n_inputs
+        if self.feature_maps and n_inputs is not None and n_inputs != needed:
+            raise ValueError(
+                f"{name!r} was given n_inputs={n_inputs}, but its encodings reserve "
+                f"{needed} slot(s): {_encoding_summary(self.feature_maps)}. Each feature "
+                "map owns its own input slots, because each derives its angles its own "
+                "way, so the total is their sum and not any single map's angle count. "
+                "Leave n_inputs unset and it is inferred."
+            )
+        widths = {int(m.n_features) for m in self.feature_maps}
+        if len(widths) > 1:
+            raise ValueError(
+                f"{name!r} composes feature maps that read different numbers of "
+                f"features ({sorted(widths)}). Every map in one model is handed the "
+                "same x, so a model whose maps disagree about its width could never "
+                "be bound."
+            )
 
     # ------------------------------------------------------------------ build --
     def _template(self) -> CircuitSpec:
@@ -102,8 +139,27 @@ class Ansatz:
 
     def bind(self, x: ArrayLike, weights: ArrayLike) -> CircuitSpec:
         """Bind data and weights separately, in that order."""
-        angles = self.angles(x) if hasattr(self, "angles") else np.asarray(x, dtype=float)
-        return self.build(np.concatenate([np.ravel(angles), np.ravel(weights)]))
+        return self.build(np.concatenate([np.ravel(self.angles(x)), np.ravel(weights)]))
+
+    # ----------------------------------------------------------------- encoding --
+    def angles(self, x: ArrayLike) -> npt.NDArray[Any]:
+        """The input slots for ``x``, in slot order.
+
+        One feature map's angles, or several maps' angles concatenated in the order
+        their slots were allocated. With no encoding layer there is nothing to
+        transform, so the values are the slot values themselves.
+        """
+        if not self.feature_maps:
+            return np.asarray(x, dtype=float).ravel()
+        parts = [np.ravel(m.angles(x)) for m in self.feature_maps]
+        return np.concatenate(parts) if len(parts) > 1 else parts[0]
+
+    def angle_jacobian(self, x: ArrayLike, eps: float = 1e-6) -> npt.NDArray[Any]:
+        """``d(angle)/d(feature)``, shape ``(n_inputs, n_features)`` — one block per map."""
+        if not self.feature_maps:
+            return np.eye(np.asarray(x, dtype=float).ravel().size)
+        rows = [np.atleast_2d(m.angle_jacobian(x)) for m in self.feature_maps]
+        return np.vstack(rows) if len(rows) > 1 else rows[0]
 
     def __call__(self, theta: ArrayLike | None = None) -> CircuitSpec:
         return self.build(theta)
@@ -118,6 +174,17 @@ class Ansatz:
     def n_weights(self) -> int:
         """Trainable parameters only, excluding reserved input slots."""
         return self.n_params - self.n_inputs
+
+    @property
+    def n_features(self) -> int:
+        """How wide the data is. Every encoding reads the same ``x``, so they agree.
+
+        With no encoding layer there is nothing to transform and the input slots are
+        the features themselves.
+        """
+        if not self.feature_maps:
+            return self.n_inputs
+        return int(self.feature_maps[0].n_features)
 
     @property
     def param_shape(self) -> tuple[int, ...]:

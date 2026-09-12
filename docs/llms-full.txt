@@ -4892,8 +4892,12 @@ class AngleFeatureMap(n_features: 'int', rotation: 'str' = 'ry', entangle: 'bool
     ``cos^2((x - x')/2)`` per feature when ``entangle=False``.
 class AngleScaler(lo: 'float' = 0.0, hi: 'float' = 6.283185307179586, data_min: 'npt.NDArray[Any] | None' = None, data_max: 'npt.NDArray[Any] | None' = None) -> None
     Fit-then-transform angle scaling, so train and test share one range.
-class Ansatz(n_qubits: 'int', block: 'Block', name: 'str' = 'ansatz', n_inputs: 'int' = 0) -> 'None'
+class Ansatz(n_qubits: 'int', block: 'Block', name: 'str' = 'ansatz', n_inputs: 'int | None' = None) -> 'None'
     A trainable circuit: a qubit count and a composable block.
+
+    ``n_inputs`` is **inferred** from the encoding layers in the block — each feature
+    map owns a disjoint range of input slots, and the same map re-used shares its own.
+    Pass it only to assert a total you already know; a value that disagrees raises.
 class AnsatzReport(ansatz: 'Ansatz', n_samples: 'int' = 300, seed: 'int | None' = 0, backend: 'BackendLike' = None, results: 'dict[str, object]' = <factory>) -> None
     Expressibility, entanglement, depth, cost and trainability in one call.
 
@@ -4956,8 +4960,27 @@ class EncodingLayer(feature_map: 'object') -> 'None'
         EncodingLayer(fmap) + repeat(4, RotationLayer("ry"))          # encode once, vary often
         EncodingLayer(zz) + RotationLayer("ry") + EncodingLayer(angle)  # two different maps
 
-    Every repeat references the **same** input angles: re-uploading means feeding the
-    same data in again, not consuming new features.
+    **Which slots a layer reads.** Every repeat of *the same feature map* references
+    the same input angles: re-uploading means feeding the same data in again, not
+    consuming new features. Two *different* maps get disjoint ranges, allocated in the
+    order they first appear, because a slot holds an **angle** and each map derives its
+    angles its own way — ``ZZFeatureMap(2).angles([0.3, 0.7])`` is
+    ``[0.6, 1.4, 13.876]``, since a Z term follows the ``Rz(2 phi)`` convention, while
+    ``AngleFeatureMap(2).angles([0.3, 0.7])`` is ``[0.3, 0.7]``. Angle 0 of one is not
+    angle 0 of the other, so sharing the slot would encode the wrong number without
+    raising.
+
+    So the composition above reserves ``3 + 2 = 5`` input slots, and
+    :meth:`~qmlkit.ansatz.library.Ansatz.angles` concatenates the maps' angles in the
+    same order. ``n_inputs`` is inferred from the block; pass it only to assert a
+    total you already know.
+
+    Slots cannot instead be keyed by *feature*, so that both maps read the raw ``x``:
+    a slot is referenced by a :class:`~qmlkit.core.ir.ParamRef`, which is affine in one
+    parameter (``scale * theta[i] + offset``), and a Pauli map's higher-order angle is
+    ``2 * prod_j (pi - x_j)`` — nonlinear, in several features at once. The map from
+    features to angles has to stay classical, which is what
+    :meth:`~qmlkit.encoding.feature_maps.FeatureMap.angle_jacobian` is for.
 
     To learn the *frequencies* rather than inherit them from the encoding, put a
     classical layer in front — ``nn.Sequential(nn.Linear(d, d), QuantumLayer(...))``.

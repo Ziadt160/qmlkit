@@ -30,6 +30,7 @@ __all__ = [
     "ParametricEntangler",
     "PoolLayer",
     "EncodingLayer",
+    "encoding_layers",
     "Sequential",
     "Repeat",
     "Share",
@@ -56,12 +57,56 @@ class BuildContext:
         self._replay: list[int] | None = None
         self._replay_pos = 0
         self._log: list[int] = []
+        # input slots are carved out of [0, n_inputs) one feature map at a time, so
+        # two maps never land on each other's angles. Keyed by identity and holding a
+        # strong reference, because a freed id() could be handed to a later map.
+        self._input_owners: list[object] = []
+        self._input_ranges: list[tuple[int, int]] = []
+        self._next_input = 0
 
     def input_ref(self, i: int, scale: float = 1.0, offset: float = 0.0) -> ParamRef:
         """Reference encoding angle ``i``. Re-uploads reuse the same reference."""
         if not 0 <= i < self.n_inputs:
             raise IndexError(f"input {i} out of range for n_inputs={self.n_inputs}")
         return ParamRef(i, scale, offset)
+
+    def input_slots(self, owner: object, n_angles: int) -> list[ParamRef]:
+        """The input slots belonging to ``owner``, allocating them on first sight.
+
+        A slot holds an *angle*, and every feature map derives its angles differently
+        — ``ZZFeatureMap`` emits ``2*x_i`` where ``AngleFeatureMap`` emits ``x_i``. So
+        angle ``i`` of one map is not angle ``i`` of another, and two maps sharing a
+        slot would silently feed one map's transformed angles into the other. Each map
+        therefore owns a disjoint range, while *the same map* re-used gets the range it
+        already has — which is what makes re-uploading feed the same data in again.
+        """
+        for existing, (start, stop) in zip(self._input_owners, self._input_ranges, strict=True):
+            if existing is owner:
+                return [ParamRef(i) for i in range(start, stop)]
+        start = self._next_input
+        stop = start + n_angles
+        if stop > self.n_inputs:
+            already = (
+                f"{self._owner_summary()}, and {n_angles} more for this one"
+                if self._input_ranges
+                else f"{n_angles} for this one"
+            )
+            raise ValueError(
+                f"the circuit reserves {self.n_inputs} input slot(s), and the encodings "
+                f"in it need at least {stop}: {already}. Leave n_inputs unset and it is "
+                f"inferred; raising it to one feature map's angle count is what makes "
+                f"two maps overlap."
+            )
+        self._input_owners.append(owner)
+        self._input_ranges.append((start, stop))
+        self._next_input = stop
+        return [ParamRef(i) for i in range(start, stop)]
+
+    def _owner_summary(self) -> str:
+        return " + ".join(
+            f"{type(o).__name__} needs {stop - start}"
+            for o, (start, stop) in zip(self._input_owners, self._input_ranges, strict=True)
+        )
 
     def new_param(self, scale: float = 1.0, offset: float = 0.0) -> ParamRef:
         """Allocate a parameter — or replay a shared one, when tying weights."""
@@ -262,8 +307,27 @@ class EncodingLayer(Block):
         EncodingLayer(fmap) + repeat(4, RotationLayer("ry"))          # encode once, vary often
         EncodingLayer(zz) + RotationLayer("ry") + EncodingLayer(angle)  # two different maps
 
-    Every repeat references the **same** input angles: re-uploading means feeding the
-    same data in again, not consuming new features.
+    **Which slots a layer reads.** Every repeat of *the same feature map* references
+    the same input angles: re-uploading means feeding the same data in again, not
+    consuming new features. Two *different* maps get disjoint ranges, allocated in the
+    order they first appear, because a slot holds an **angle** and each map derives its
+    angles its own way — ``ZZFeatureMap(2).angles([0.3, 0.7])`` is
+    ``[0.6, 1.4, 13.876]``, since a Z term follows the ``Rz(2 phi)`` convention, while
+    ``AngleFeatureMap(2).angles([0.3, 0.7])`` is ``[0.3, 0.7]``. Angle 0 of one is not
+    angle 0 of the other, so sharing the slot would encode the wrong number without
+    raising.
+
+    So the composition above reserves ``3 + 2 = 5`` input slots, and
+    :meth:`~qmlkit.ansatz.library.Ansatz.angles` concatenates the maps' angles in the
+    same order. ``n_inputs`` is inferred from the block; pass it only to assert a
+    total you already know.
+
+    Slots cannot instead be keyed by *feature*, so that both maps read the raw ``x``:
+    a slot is referenced by a :class:`~qmlkit.core.ir.ParamRef`, which is affine in one
+    parameter (``scale * theta[i] + offset``), and a Pauli map's higher-order angle is
+    ``2 * prod_j (pi - x_j)`` — nonlinear, in several features at once. The map from
+    features to angles has to stay classical, which is what
+    :meth:`~qmlkit.encoding.feature_maps.FeatureMap.angle_jacobian` is for.
 
     To learn the *frequencies* rather than inherit them from the encoding, put a
     classical layer in front — ``nn.Sequential(nn.Linear(d, d), QuantumLayer(...))``.
@@ -276,13 +340,8 @@ class EncodingLayer(Block):
 
     def emit(self, qc: QCircuit, ctx: BuildContext) -> None:
         n_angles = int(self.feature_map.n_angles)  # type: ignore[attr-defined]
-        if ctx.n_inputs < n_angles:
-            raise ValueError(
-                f"the circuit reserves {ctx.n_inputs} input slots but this feature map "
-                f"needs {n_angles}; build it with reupload() or pass n_inputs to Ansatz"
-            )
         spec = self.feature_map._emit(  # type: ignore[attr-defined]
-            [ctx.input_ref(i) for i in range(n_angles)]
+            ctx.input_slots(self.feature_map, n_angles)
         )
         for op in spec.ops:
             qc.apply(op.gate, op.qubits, *op.params)
@@ -336,6 +395,31 @@ class Share(Block):
 
     def __repr__(self) -> str:
         return f"share({self.times}, {self.block!r})"
+
+
+def encoding_layers(block: Block) -> list[EncodingLayer]:
+    """Every :class:`EncodingLayer` in a block tree, in the order it is first emitted.
+
+    Used to infer how many input slots a model reserves. ``Repeat`` and ``Share``
+    re-emit one child, and a repeated encoding re-uses its slots, so each node is
+    reported once — the count that matters here is *distinct maps*, not uploads.
+    """
+    found: list[EncodingLayer] = []
+
+    def walk(b: Block) -> None:
+        if isinstance(b, EncodingLayer):
+            found.append(b)
+        for attr in ("blocks", "block"):
+            child = getattr(b, attr, None)
+            if isinstance(child, Block):
+                walk(child)
+            elif isinstance(child, tuple):
+                for item in child:
+                    if isinstance(item, Block):
+                        walk(item)
+
+    walk(block)
+    return found
 
 
 def repeat(times: int, block: Block) -> Repeat:

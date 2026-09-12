@@ -238,3 +238,78 @@ def test_identity_terms_need_no_circuit_at_all():
     value = qk.expectation(spec, 2.5 * qk.I(), theta=theta, shots=1000, backend=backend)
     assert value == pytest.approx(2.5)
     assert backend.circuits == 0
+
+
+# ------------------------------------------------------- identity-shifted algebra
+def test_sum_starts_from_zero():
+    """``sum()`` seeds with ``0``, so without ``__radd__`` the idiom cannot work."""
+    assert as_sum(sum([qk.Z(0), qk.Z(1), qk.Z(2)])).terms == (qk.Z(0), qk.Z(1), qk.Z(2))
+
+
+def test_a_scalar_is_that_multiple_of_the_identity():
+    """``I - Z`` is how a projector is written; ``1 - Z`` is how it is usually typed.
+
+    Terms keep the order they were written in, so the assertions differ only in that.
+    """
+    identity, minus_z0 = PauliString((), 1.0), PauliString(((0, "Z"),), -1.0)
+    assert as_sum(1 - qk.Z(0)).terms == (identity, minus_z0)
+    assert as_sum(qk.I() - qk.Z(0)).terms == (identity, minus_z0)
+    assert as_sum(-qk.Z(0) + 1).terms == (minus_z0, identity)
+    assert as_sum(qk.Z(0) + 2).terms == (qk.Z(0), PauliString((), 2.0))
+
+
+def test_the_additive_identity_is_dropped_rather_than_carried():
+    assert as_sum(qk.Z(0) + 0).terms == (qk.Z(0),)
+    assert as_sum(0 + qk.Z(0)).terms == (qk.Z(0),)
+    assert as_sum(qk.Z(0) - 0).terms == (qk.Z(0),)
+
+
+def test_subtraction_negates_the_right_hand_side():
+    assert as_sum(qk.Z(0) - qk.Z(1)).terms == (qk.Z(0), -qk.Z(1))
+    assert as_sum((qk.Z(0) + qk.Z(1)) - qk.Z(0)).terms == (qk.Z(0), qk.Z(1), -qk.Z(0))
+    assert as_sum(1 - (qk.Z(0) + qk.Z(1))).terms[0] == PauliString((), 1.0)
+
+
+def test_a_sum_negates_and_divides_termwise():
+    assert as_sum(-(qk.Z(0) + qk.Z(1))).terms == (-qk.Z(0), -qk.Z(1))
+    assert as_sum((qk.Z(0) + qk.Z(1)) / 2).terms == (0.5 * qk.Z(0), 0.5 * qk.Z(1))
+    assert (qk.Z(0) / 2).coeff == 0.5
+
+
+@pytest.mark.parametrize("scalar", [np.float64(1.0), np.int64(1)])
+def test_numpy_scalars_shift_an_observable_too(scalar):
+    """``np.int64`` is not an ``int`` subclass, so the check cannot be ``isinstance(int)``."""
+    assert as_sum(scalar - qk.Z(0)).terms == (PauliString((), 1.0), -qk.Z(0))
+
+
+@pytest.mark.parametrize(
+    ("lhs", "op", "rhs"),
+    [
+        (qk.Z(0), "+", "x"),
+        (qk.Z(0), "-", None),
+        (qk.Z(0) + qk.Z(1), "+", object()),
+        (qk.Z(0) + qk.Z(1), "-", "x"),
+    ],
+)
+def test_an_unsupported_operand_says_so_instead_of_leaking(lhs, op, rhs):
+    """``Z(0) + 1`` used to raise ``AttributeError: 'int' object has no attribute 'terms'``.
+
+    Returning ``NotImplemented`` is what lets Python report the operand types, so a
+    genuinely unsupported operand reads as one rather than as a failure inside qmlkit.
+    """
+    with pytest.raises(TypeError, match="unsupported operand type"):
+        lhs + rhs if op == "+" else lhs - rhs
+
+
+def test_shifted_observables_evaluate_to_the_shifted_expectation():
+    """The arithmetic has to agree with the algebra, not merely run."""
+    ansatz = qk.hardware_efficient(2, 1)
+    spec, theta = ansatz.build(), ansatz.init(seed=3)
+    z0 = qk.expval(spec, qk.Z(0), theta=theta)
+    z1 = qk.expval(spec, qk.Z(1), theta=theta)
+
+    assert qk.expval(spec, 1 - qk.Z(0), theta=theta) == pytest.approx(1 - z0)
+    assert qk.expval(spec, (1 - qk.Z(0)) / 2, theta=theta) == pytest.approx((1 - z0) / 2)
+    assert qk.expval(spec, qk.Z(0) - qk.Z(1), theta=theta) == pytest.approx(z0 - z1)
+    assert qk.expval(spec, sum([qk.Z(0), qk.Z(1)]), theta=theta) == pytest.approx(z0 + z1)
+    assert qk.expval(spec, -(qk.Z(0) + qk.Z(1)), theta=theta) == pytest.approx(-(z0 + z1))

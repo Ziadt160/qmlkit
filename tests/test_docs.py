@@ -16,6 +16,12 @@ type them. Two directives control this, both written as the first line of a bloc
 ``# docs: requires <module>``
     Run only if that module imports. Keeps torch and sklearn examples in the docs
     without making them dependencies of the docs build.
+
+``# docs: run``
+    The README opts *in* rather than out. It is a reference rather than a tutorial, so
+    most of its blocks are deliberate fragments naming an API — marking those skipped
+    would put "untested" over nearly the whole of the most-read file. A block that is
+    self-contained carries this directive and is executed here instead.
 """
 
 from __future__ import annotations
@@ -26,10 +32,12 @@ from pathlib import Path
 
 import pytest
 
-DOCS = Path(__file__).resolve().parent.parent / "docs"
+ROOT = Path(__file__).resolve().parent.parent
+DOCS = ROOT / "docs"
 BLOCK = re.compile(r"^```python\b[^\n]*\n(.*?)^```", re.MULTILINE | re.DOTALL)
 REQUIRES = re.compile(r"^#\s*docs:\s*requires\s+([\w.]+)\s*$", re.MULTILINE)
 SKIP = re.compile(r"^#\s*docs:\s*skip\s*$", re.MULTILINE)
+RUN = re.compile(r"^#\s*docs:\s*run\s*$", re.MULTILINE)
 
 
 def _pages() -> list[Path]:
@@ -60,6 +68,32 @@ def test_documentation_snippets_run(page: Path) -> None:
             )
             raise AssertionError(
                 f"{page.relative_to(DOCS)} block {i} raised {type(exc).__name__}: {exc}\n{numbered}"
+            ) from exc
+
+
+def test_readme_blocks_marked_runnable_do_run() -> None:
+    """The README's opted-in examples, executed the way a reader would type them.
+
+    The composition of two feature maps used to be advertised here with a hand-counted
+    ``n_inputs`` that made the two maps overlap. It built, bound, differentiated and
+    trained — and encoded the wrong values. Nothing caught it because the README is the
+    one page ``test_documentation_snippets_run`` does not reach.
+    """
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    blocks = [b for b in BLOCK.findall(text) if RUN.search(b)]
+    assert blocks, "README.md has no '# docs: run' block; the directive is dead"
+
+    namespace: dict[str, object] = {"__name__": "__docs__"}
+    exec(compile("import qmlkit as qk", "README#preamble", "exec"), namespace)  # noqa: S102
+    for i, block in enumerate(blocks, start=1):
+        try:
+            exec(compile(block, f"README.md#run{i}", "exec"), namespace)  # noqa: S102
+        except Exception as exc:
+            numbered = "\n".join(
+                f"  {n:>3} | {line}" for n, line in enumerate(block.splitlines(), 1)
+            )
+            raise AssertionError(
+                f"README.md runnable block {i} raised {type(exc).__name__}: {exc}\n{numbered}"
             ) from exc
 
 

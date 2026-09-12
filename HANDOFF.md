@@ -12,7 +12,7 @@ first thing read in a fresh session.
 | **Repository** | <https://github.com/Ziadt160/qmlkit> — public, Apache-2.0 |
 | **Documentation** | <https://ziadt160.github.io/qmlkit/> — deploys from `main` |
 | **Source of truth** | The `qmlkit/` subdirectory of the upstream working repository; this repo is a subtree split of it |
-| **PyPI** | **Not published.** `pip install qmlkit` does not work yet |
+| **PyPI** | <https://pypi.org/project/qmlkit/> - 0.1.0 is published; 0.1.1 is prepared here and not yet tagged |
 
 ### The one non-obvious thing about the workflow
 
@@ -33,7 +33,7 @@ upstream repository, because it is about that project rather than about qmlkit.
 
 ## Status
 
-**1312 tests on Python 3.14, 881 on SpinQit's 3.10, 0 failures in either.** ruff clean
+**1340 tests on Python 3.14, 909 on SpinQit's 3.10, 0 failures in either.** ruff clean
 and `ruff format --check` clean; `mypy --strict` clean over **the whole package** - the
 config listed six paths until 2026-08-28 and now lists `src/qmlkit`, so "mypy clean" and
 "the package type-checks" finally mean the same thing. **94% coverage**, combined in
@@ -42,8 +42,8 @@ twelve coverage files still fail to map (macOS and Windows record different abso
 roots), so the figure is carried by the `full` job, which installs every extra and runs
 the whole suite on Linux.
 
-Phases 0–6 are done, plus the algorithm and interoperability work. Phase 7 (release) is
-the open one.
+Phases 0–6 are done, plus the algorithm and interoperability work. 0.1.0 is released;
+0.1.1 is prepared and untagged.
 
 Run the suite in **both** environments — SpinQit needs Python 3.10 and pins `numpy<2`:
 
@@ -95,6 +95,11 @@ it into the wheel.
 are tests, not illustrations, so a rename that breaks a tutorial breaks the build.
 Every number shown was produced by running the code.
 
+`README.md` is the exception and opts *in* instead: it is a reference whose blocks are
+mostly deliberate fragments, so a self-contained one is marked `# docs: run` and
+executed by `test_readme_blocks_marked_runnable_do_run`. The 0.1.1 encoding defect
+shipped in a README example precisely because nothing ran it.
+
 ---
 
 ## Traps that have already cost time
@@ -117,6 +122,15 @@ a result. `supports_rotosolve(spec)` checks the first case.
 has *exactly zero* gradient at Hartree–Fock, so the generic pool grows an empty
 circuit. Use `chemistry_operator_pool`. This is physics, not a bug, and a test pins it.
 
+**An input slot holds an *angle*, not a feature.** Each feature map derives its
+angles its own way - a `ZZFeatureMap` Z term is `Rz(2 x_i)`, an `AngleFeatureMap`
+rotation is `Ry(x_i)` - so angle `i` of one map is not angle `i` of another. Each map
+therefore owns a disjoint range of slots, and the *same* map re-used keeps its own,
+which is what makes re-uploading re-upload. Slots cannot be keyed by feature instead:
+`ParamRef` is affine in one parameter, and a Pauli map's higher-order angle is
+`2 * prod_j (pi - x_j)`. Before 0.1.1 two maps silently shared slots 0..n and the
+second encoded the first's transformed angles - see the 0.1.1 changelog entry.
+
 **Gate and gradient registries are process-wide.** Other test modules register throwaway
 gates at run time, so anything iterating them must snapshot at import.
 
@@ -127,35 +141,29 @@ Emitted as `Sd·CX·S`. Its simulator also carries a `1e-10` precision floor.
 
 ## What to do next
 
-### 1. Publish to PyPI — the real bottleneck
+### 1. Release 0.1.1 - the encoding defect is the reason it exists
 
-Nothing else matters as much: none of this is reachable until `pip install qmlkit`
-works. Everything on this side is ready — the wheel builds, `twine check` passes, and
-the clean-venv verifier passes.
+0.1.0 is on PyPI. 0.1.1 is prepared here and **not yet tagged**: it fixes a
+composition the README recommended that built the wrong circuit without raising,
+and fills in the observable arithmetic that identity-shifted cost functions need.
+The changelog entry has the whole account.
 
-**Everything else is done and verified as of 2026-09-12:** `ruff check`,
-`ruff format --check` and `mypy` all clean over the whole package; `mkdocs build
---strict` clean; the wheel builds, `twine check` passes, and a clean venv installing
-only the wheel pulls in **numpy and nothing else** before `verify_install.py` passes.
+Everything on this side is ready, verified 2026-09-12: 1340 tests green on 3.14 and
+909 on SpinQit's 3.10, `ruff check`, `ruff format --check` and `mypy` clean over the
+whole package, `mkdocs build --strict` clean, the wheel builds and `twine check`
+passes, and a clean venv installing only the wheel pulls in **numpy and nothing else**
+before `verify_install.py` passes.
 
-**`RELEASING.md` used to send you to the wrong repository** and is now fixed. There
-are two: `qmlkit/` here is the source of truth, and the standalone repo is a
-`git subtree split` of it. `release.yml` only exists in the published one, so the
-old instruction (`git push origin main --tags`) tagged the upstream repository and
-triggered nothing. The tag goes on the split commit and is pushed to the `qmlkit` remote.
+**The tag goes on the subtree-split commit, not on this repository.** There are two:
+`qmlkit/` here is the source of truth, and the standalone repo is a
+`git subtree split` of it. `release.yml` only exists in the published one, so
+`git push origin main --tags` tags the upstream repository and triggers nothing.
+`RELEASING.md` has the procedure and what to do when it goes wrong; it now names
+`v0.1.1`.
 
-**It needs your account, and cannot be done for you.** Trusted Publishing requires a
-publisher registered while signed in to PyPI; the alternative is an API token, which is
-a credential Claude does not handle.
-
-1. <https://pypi.org/manage/account/publishing/> → add a *pending publisher*: project
-   `qmlkit`, owner `Ziadt160`, repo `qmlkit`, workflow `release.yml`, environment `pypi`
-2. Same at <https://test.pypi.org/manage/account/publishing/> with environment `testpypi`
-3. GitHub → Settings → Environments → create `pypi` and `testpypi`
-
-Then pushing the tag `v0.1.0` does the rest. `RELEASING.md` has the full procedure and
-what to do when it goes wrong. **A PyPI version number can never be reused**, so the
-tag is deliberately not pushed yet.
+**A PyPI version number can never be reused**, so the tag is deliberately not pushed
+until the release is wanted. If the Trusted Publishing setup from 0.1.0 is still in
+place, pushing `v0.1.1` is the whole procedure.
 
 ### 2. Real users — the only thing that can calibrate the thresholds
 

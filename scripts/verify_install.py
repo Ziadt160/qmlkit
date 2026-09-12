@@ -13,12 +13,18 @@ a bare install:
 * qmlkit needs nothing but NumPy;
 * a missing optional SDK produces an install command, not an ``ImportError``.
 
+The version is compared against the *installed distribution metadata* rather than a
+literal. A literal here has to be bumped by hand every release, and a stale one
+fails the gate for the wrong reason; what actually matters is that
+``qmlkit.__version__`` and the packaging metadata have not drifted apart.
+
 Exits non-zero on the first broken promise.
 """
 
 from __future__ import annotations
 
 import sys
+from importlib import metadata
 from pathlib import Path
 
 import numpy as np
@@ -42,7 +48,12 @@ print("\nthe install itself")
 here = Path(qk.__file__).resolve().parent
 check("imported from site-packages, not the source tree", "site-packages" in str(here), str(here))
 check("py.typed shipped, so downstream mypy sees the annotations", (here / "py.typed").is_file())
-check("version matches the distribution", qk.__version__ == "0.1.0", qk.__version__)
+packaged = metadata.version("qmlkit")
+check(
+    "version matches the distribution",
+    qk.__version__ == packaged,
+    f"module {qk.__version__}, metadata {packaged}",
+)
 
 # --------------------------------------------------------------------------- #
 print("\nno optional dependency is secretly required")

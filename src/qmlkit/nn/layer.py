@@ -94,8 +94,16 @@ _UNCHANGED: Any = ...
 
 
 def _is_combined(obj: object) -> TypeGuard[Combined]:
-    """True for a model that interleaves its own encoding (a re-uploading ansatz)."""
-    return all(hasattr(obj, a) for a in ("n_inputs", "n_weights", "angles", "angle_jacobian"))
+    """True for a model that interleaves its own encoding (a re-uploading ansatz).
+
+    Every :class:`~qmlkit.ansatz.library.Ansatz` can map data onto its input slots, so
+    the four attributes alone no longer separate a model from a bare ansatz —
+    *reserving* input slots is what does. An ansatz with none encodes nothing and still
+    needs a feature map in front of it.
+    """
+    if not all(hasattr(obj, a) for a in ("n_inputs", "n_weights", "angles", "angle_jacobian")):
+        return False
+    return int(getattr(obj, "n_inputs", 0)) > 0
 
 
 class _Runner:

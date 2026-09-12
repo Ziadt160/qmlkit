@@ -4,6 +4,100 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-09-12
+
+### Fixed - a composition the README recommended built the wrong circuit
+
+Reported by a reader who tried the two-feature-map example and read the parameter
+indices off the built circuit.
+
+**Two feature maps in one model shared each other's angles.** `EncodingLayer`
+reserved circuit input slots per *angle* rather than per feature map, always taking
+slots `0..n_angles-1`. So in the composition the README advertised verbatim -
+
+```python
+# docs: skip - this is the defect, kept as it was written
+qk.Ansatz(2, qk.EncodingLayer(zz) + qk.RotationLayer("ry") + qk.EncodingLayer(angle),
+          n_inputs=3)
+```
+
+— the `ZZFeatureMap` took slots 0, 1, 2, the rotation layer took 3, 4, and the second
+encoding took **0 and 1 again**. Those slots already held the ZZ map's *transformed*
+angles: `ZZFeatureMap(2).angles([0.3, 0.7])` is `[0.6, 1.4, 13.876]`, because a Z term
+follows the `Rz(2 phi)` convention. The trailing `Ry` therefore encoded `2*x_i` where
+the caller asked for `x_i`. Nothing raised. The circuit built, bound, differentiated,
+trained and converged - on the wrong numbers. That is the failure class this library
+exists to refuse, in an example of its own.
+
+Each feature map now owns a **disjoint** range of input slots, allocated in the order
+the maps first appear; the *same* map re-used keeps the range it already has, which is
+what makes re-uploading feed the same data in again rather than consume new features.
+`Ansatz.angles` concatenates the maps' angles in slot order and `Ansatz.angle_jacobian`
+stacks their Jacobians, so `bind(x, weights)` and the chain rule down to the data both
+follow. A composed model now also satisfies the `Combined` protocol, so it can go
+straight into a `QuantumLayer` - which the README promised and which had never worked.
+
+Slots could not instead be keyed by *feature*, so that both maps read the raw `x`:
+a slot is referenced by a `ParamRef`, which is affine in one parameter
+(`scale * theta[i] + offset`), and a Pauli map's higher-order angle is
+`2 * prod_j (pi - x_j)` - nonlinear, in several features at once. The map from features
+to angles has to stay classical, which is what `angle_jacobian` is for.
+
+**The error message steered users into the bug.** With `n_inputs=2` the same
+composition raised *"the circuit reserves 2 input slots but this feature map needs 3"*,
+which tells you to raise `n_inputs` - and raising it to 3 is exactly what produced the
+silent collision. `n_inputs` is now **inferred** from the block, so there is no count
+to get wrong; passing one that disagrees with what the encodings reserve raises and
+names the sum. This closes the last hand-counted number in `Ansatz`, whose docstring
+already promised that parameter counts are "inferred from a dry build, never
+hand-counted, so a miscount is not a failure mode".
+
+**The README example is fixed, and now runs.** `tests/test_docs.py` executes every
+Python block in `docs/`, but never reached `README.md` - the most-read page was the
+one page not under the executable-documentation rule, which is why this survived. The
+README is a reference rather than a tutorial and most of its blocks are deliberate
+fragments naming an API, so it opts *in*: a self-contained block marked `# docs: run`
+is executed by `test_readme_blocks_marked_runnable_do_run`.
+
+### Fixed - observable arithmetic that QML cost functions need
+
+`I - Z` and its relatives are how a projector is written, and most of the ways to
+write one did not work. `Z(0) + Z(1)` and `2.0 * Z(0)` did; these did not:
+
+| Expression | Was |
+|---|---|
+| `sum([Z(0), Z(1)])` | `TypeError` - no `__radd__` for `sum`'s `0` start value |
+| `Z(0) + 1` | `AttributeError: 'int' object has no attribute 'terms'` |
+| `1 - Z(0)`, `Z(0) - Z(1)`, `I() - Z(0)` | `TypeError` - no `__sub__` or `__rsub__` |
+| `-(Z(0) + Z(1))` | `TypeError` - `PauliSum` had no `__neg__` |
+| `Z(0) / 2` | `TypeError` - no `__truediv__` |
+
+`PauliString` and `PauliSum` now implement `__add__`/`__radd__`, `__sub__`/`__rsub__`,
+`__neg__` and `__truediv__`. A scalar promotes to that multiple of the identity, and
+the additive identity is dropped rather than carried as `0*I`, which is what lets
+`sum(...)` return the sum itself. Numbers are recognised through `numbers.Complex`, so
+NumPy scalars work - `np.int64` is not an `int` subclass. An operand with no sensible
+reading returns `NotImplemented`, so `Z(0) + "x"` reports unsupported operand types
+instead of failing somewhere inside qmlkit.
+
+### Changed
+
+- `Ansatz(..., n_inputs=)` now defaults to `None`, meaning *infer*. Existing calls that
+  passed the correct total keep working; one that passed a different number now raises
+  rather than silently building a circuit whose encodings overlap.
+- `Ansatz` gained `feature_maps`, `angles`, `angle_jacobian` and `n_features`.
+  `ReuploadModel`'s own `angles`/`angle_jacobian` were identical for its single map and
+  are now inherited.
+- Composing feature maps that read different numbers of features now raises. Every map
+  in one model is handed the same `x`, so such a model could never have been bound.
+- `scripts/verify_install.py` compared `__version__` against a hardcoded `"0.1.0"` - a
+  third copy of the version that had to be bumped by hand, and the gate failed on this
+  release for that reason alone. It now reads the installed distribution metadata and
+  checks the module constant against it, which is what the check was named for.
+- `QuantumLayer` treats a model as carrying its own encoding only when it reserves
+  input slots. Every `Ansatz` can map data onto its slots now, so the four-attribute
+  check alone no longer distinguishes a model from a bare ansatz.
+
 ## [0.1.0] - 2026-09-12
 
 First release.

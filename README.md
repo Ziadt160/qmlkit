@@ -115,15 +115,29 @@ Which encoding, which trainable block, what order, how much sharing — all of i
 design choice, so none of it is hardcoded:
 
 ```python
+# docs: run
+fmap = qk.AngleFeatureMap(2, rotation="ry")
+
 qk.reupload(fmap, n_layers=3)                      # S W S W S W
 qk.reupload(fmap, n_layers=3, order="WS")          # vary before the first upload
 qk.reupload(fmap, n_layers=3, share_weights=True)  # one tied block, reused
-qk.reupload(fmap, n_layers=3, block=qk.RotationLayer("ry") + qk.EntanglerLayer("cz", "ring"))
+qk.reupload(fmap, n_layers=3, block=qk.RotationLayer(("rz", "ry")) + qk.EntanglerLayer("cz", "ring"))
 
 # or compose directly — two different feature maps in one model
-qk.Ansatz(2, qk.EncodingLayer(zz) + qk.RotationLayer("ry") + qk.EncodingLayer(angle),
-          n_inputs=3)
+zz, angle = qk.ZZFeatureMap(2), qk.AngleFeatureMap(2, rotation="ry")
+model = qk.Ansatz(2, qk.EncodingLayer(zz) + qk.RotationLayer("ry") + qk.EncodingLayer(angle))
+
+model.n_inputs        # 5 — the ZZ map owns 3 slots, the angle map the 2 after them
+model.angles([.3, .7])  # [0.6, 1.4, 13.876, 0.3, 0.7] — each map's own angles, in slot order
 ```
+
+Each feature map owns a **disjoint** range of input slots, because a slot holds an
+*angle* and every map derives its angles differently: a `ZZFeatureMap` Z term is
+`Rz(2 x_i)`, an `AngleFeatureMap` rotation is `Ry(x_i)`. Sharing a slot between them
+would feed one map's transformed angles to the other and encode the wrong number
+without raising. `n_inputs` is inferred, so there is no count to get wrong; the same
+map re-used keeps its own slots, which is what makes re-uploading feed the same data
+in again rather than consume new features.
 
 Any of these drops straight into a `QuantumLayer` — or into `VQC` directly, since a
 re-uploading model is its own encoding *and* its own trainable block:
@@ -172,8 +186,7 @@ differentiates and trains, and reaches one Fourier frequency instead of three:
 
 ```python
 fmap  = qk.AngleFeatureMap(2, rotation="ry")
-model = qk.Ansatz(2, qk.repeat(3, qk.EncodingLayer(fmap) + qk.RotationLayer("ry")),
-                  n_inputs=2)
+model = qk.Ansatz(2, qk.repeat(3, qk.EncodingLayer(fmap) + qk.RotationLayer("ry")))
 print(qk.diagnose(model))
 # [error] ENCODING_COMMUTES: 3 uploads, but every trainable rotation is 'ry', the
 # same generator the encoding uses ... the model reaches 1 frequency rather than

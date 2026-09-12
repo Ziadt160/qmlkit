@@ -8,6 +8,10 @@ import numpy as np
 import pytest
 
 import qmlkit as qk
+from qmlkit.ansatz.blocks import BuildContext
+from qmlkit.core.builder import QCircuit
+from qmlkit.core.execute import expectation
+from qmlkit.core.ir import ParamRef
 from qmlkit.fourier import spectrum
 from qmlkit.generative import (
     QCBM,
@@ -82,15 +86,136 @@ def test_two_different_feature_maps_in_one_model():
         2,
         qk.EncodingLayer(zz) + qk.RotationLayer(("rz", "ry")) + qk.EncodingLayer(angle),
         "mixed",
-        n_inputs=max(zz.n_angles, angle.n_angles),
     )
     assert model.n_weights == 4
+    assert model.n_inputs == zz.n_angles + angle.n_angles  # a sum, never a max
     assert model.build(np.zeros(model.n_params)) is not None  # full vector
 
 
-def test_encoding_layer_needs_reserved_input_slots():
-    with pytest.raises(ValueError, match="reserves 0 input slots"):
-        qk.Ansatz(2, qk.EncodingLayer(qk.AngleFeatureMap(2))).build()
+def test_each_feature_map_owns_its_own_input_slots():
+    """Two maps in one model must not land on each other's angles.
+
+    The maps disagree about what angle ``i`` means - ``ZZFeatureMap`` emits ``2*x_i``
+    for a Z term, ``AngleFeatureMap`` emits ``x_i`` - so a shared slot would feed the
+    first map's *transformed* angles into the second and encode the wrong number
+    without raising.
+    """
+    zz, angle = qk.ZZFeatureMap(2, reps=1), qk.AngleFeatureMap(2, rotation="ry", entangle=False)
+    model = qk.Ansatz(2, qk.EncodingLayer(zz) + qk.RotationLayer("ry") + qk.EncodingLayer(angle))
+
+    spec = model.build()
+    referenced = {p.index for op in spec.ops for p in op.params if isinstance(p, ParamRef)}
+    assert referenced == set(range(model.n_params))  # nothing reserved is left dead
+
+    # the trailing ry layer reads the angle map's own slots, which follow the ZZ map's
+    x, weights = np.array([0.3, 0.7]), np.zeros(model.n_weights)
+    encoded = [op.params[0] for op in model.bind(x, weights).ops if op.gate == "ry"]
+    assert encoded == pytest.approx([0.0, 0.0, 0.3, 0.7])  # x itself, not 2*x
+
+
+def test_composed_encodings_equal_the_circuit_written_by_hand():
+    """The whole point: the composition means what a reader thinks it means."""
+    x, weights = np.array([0.3, 0.7]), np.array([0.25, -0.4])
+    zz = qk.ZZFeatureMap(2, reps=1)
+    angle = qk.AngleFeatureMap(2, rotation="ry", entangle=False)
+    model = qk.Ansatz(2, qk.EncodingLayer(zz) + qk.RotationLayer("ry") + qk.EncodingLayer(angle))
+
+    ref = QCircuit(2)
+    for op in zz.build(x).ops:  # both maps see the raw features
+        ref.apply(op.gate, op.qubits, *op.params)
+    ref.ry(0, weights[0])
+    ref.ry(1, weights[1])
+    for op in angle.build(x).ops:
+        ref.apply(op.gate, op.qubits, *op.params)
+
+    got = expectation(model.bind(x, weights), qk.Z(0))
+    assert got == pytest.approx(expectation(ref.to_spec(), qk.Z(0)), abs=1e-12)
+
+
+def test_composed_angles_and_jacobian_stack_in_slot_order():
+    zz = qk.ZZFeatureMap(2, reps=1)
+    angle = qk.AngleFeatureMap(2, rotation="ry", entangle=False)
+    model = qk.Ansatz(2, qk.EncodingLayer(zz) + qk.RotationLayer("ry") + qk.EncodingLayer(angle))
+    x = np.array([0.3, 0.7])
+
+    assert model.angles(x) == pytest.approx(np.concatenate([zz.angles(x), angle.angles(x)]))
+    jac = model.angle_jacobian(x)
+    assert jac.shape == (model.n_inputs, 2)
+    assert jac == pytest.approx(np.vstack([zz.angle_jacobian(x), angle.angle_jacobian(x)]))
+
+
+def test_the_same_feature_map_twice_shares_one_set_of_slots():
+    """Re-uploading is the same map again, so it must not consume new features."""
+    fmap = qk.AngleFeatureMap(2, rotation="ry", entangle=False)
+    model = qk.Ansatz(2, qk.EncodingLayer(fmap) + qk.RotationLayer("rz") + qk.EncodingLayer(fmap))
+    assert model.n_inputs == fmap.n_angles
+    assert model.feature_maps == (fmap,)
+    for i in range(model.n_inputs):
+        assert len(model.build().occurrences_of(i)) == 2
+
+
+def test_n_inputs_is_inferred_and_a_wrong_one_is_refused():
+    zz, angle = qk.ZZFeatureMap(2, reps=1), qk.AngleFeatureMap(2, entangle=False)
+    block = qk.EncodingLayer(zz) + qk.RotationLayer("ry") + qk.EncodingLayer(angle)
+    assert qk.Ansatz(2, block).n_inputs == 5
+
+    # the count that used to be demanded - one map's angles - is the collision
+    with pytest.raises(ValueError, match="reserve 5 slot"):
+        qk.Ansatz(2, block, "mixed", n_inputs=3)
+    with pytest.raises(ValueError, match="reserve 5 slot"):
+        qk.Ansatz(2, block, "mixed", n_inputs=0)
+
+
+def test_a_hand_built_context_still_refuses_to_overrun_its_slots():
+    """``Ansatz`` infers the total; a context built directly is told what it has."""
+    ctx = BuildContext(2, n_inputs=2)
+    with pytest.raises(ValueError, match="need at least 3"):
+        qk.EncodingLayer(qk.ZZFeatureMap(2)).emit(QCircuit(2), ctx)
+
+
+def test_feature_maps_that_disagree_about_the_data_width_are_refused():
+    """Every map is handed the same ``x``, so a model whose maps disagree cannot bind."""
+    with pytest.raises(ValueError, match="different numbers of features"):
+        qk.Ansatz(
+            3,
+            qk.EncodingLayer(qk.AngleFeatureMap(2)) + qk.EncodingLayer(qk.AngleFeatureMap(3)),
+        )
+
+
+def test_a_composed_model_is_a_drop_in_feature_map_for_quantum_layer():
+    """The README promised this of any composition; only ``reupload()`` ever did it."""
+    torch = pytest.importorskip("torch")
+    zz = qk.ZZFeatureMap(2, reps=1)
+    angle = qk.AngleFeatureMap(2, rotation="ry", entangle=False)
+    model = qk.Ansatz(
+        2, qk.EncodingLayer(zz) + qk.RotationLayer(("rz", "ry")) + qk.EncodingLayer(angle)
+    )
+    assert model.n_features == 2  # five input slots, but the data is still two wide
+
+    layer = qk.QuantumLayer(model, observables=[qk.Z(0)])
+    x = torch.tensor([[0.3, 0.7]], dtype=torch.get_default_dtype(), requires_grad=True)
+    layer(x).sum().backward()
+
+    # the chain rule runs through the *composite* jacobian, so check it against x
+    weights = layer.theta.detach().numpy()
+    point, eps = np.array([0.3, 0.7]), 1e-6
+
+    def f(values):
+        return expectation(model.bind(values, weights), qk.Z(0))
+
+    numeric = [
+        (f(point + step) - f(point - step)) / (2 * eps)
+        for step in (np.array([eps, 0.0]), np.array([0.0, eps]))
+    ]
+    assert x.grad.numpy().ravel() == pytest.approx(numeric, abs=1e-5)
+
+
+def test_an_ansatz_with_no_encoding_passes_its_slot_values_through():
+    """No feature map means the slots *are* the angles, which is what bind() assumed."""
+    plain = qk.Ansatz(2, qk.RotationLayer("ry"))
+    assert plain.n_inputs == 0
+    assert plain.angles([0.3, 0.7]) == pytest.approx([0.3, 0.7])
+    assert plain.angle_jacobian([0.3, 0.7]) == pytest.approx(np.eye(2))
 
 
 def test_reupload_validates_arguments():

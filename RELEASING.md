@@ -36,7 +36,9 @@ the final upload into something you approve by hand.
 
 2. **Set the version in two places**, which must agree or the workflow refuses:
    `pyproject.toml` (`project.version`) and `src/qmlkit/__init__.py`
-   (`__version__`).
+   (`__version__`). Those are the only two - `verify_install.py` reads the packaging
+   metadata and checks the module constant against it, rather than carrying a third
+   copy that has to be remembered.
 
 3. **Run the whole thing locally**, in both interpreters — no single one can import
    all four backends:
@@ -88,8 +90,8 @@ qmlkit is developed as the `qmlkit/` subdirectory of a private upstream working
    It prints the SHA of the split commit — that is what the tag goes on:
 
    ```bash
-   git tag v0.1.0 $(git rev-parse qmlkit-standalone)
-   git push qmlkit v0.1.0
+   git tag v0.1.1 $(git rev-parse qmlkit-standalone)
+   git push qmlkit v0.1.1
    ```
 
    The tag must match the packaged version exactly; the workflow checks and refuses
@@ -117,8 +119,8 @@ qmlkit is developed as the `qmlkit/` subdirectory of a private upstream working
   anything. Delete the tag, fix the version, tag again:
 
   ```bash
-  git push qmlkit :refs/tags/v0.1.0   # delete it on the remote
-  git tag -d v0.1.0                   # and locally
+  git push qmlkit :refs/tags/v0.1.1   # delete it on the remote
+  git tag -d v0.1.1                   # and locally
   ```
 
 - **Nothing happened when you pushed the tag** — you almost certainly tagged the
