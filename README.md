@@ -1,19 +1,41 @@
 # qmlkit
 
-A backend-agnostic quantum machine learning library for **SpinQit**, **Qiskit**,
-**Cirq** and **PyTorch**.
+**A quantum machine learning library built to refuse a plausible wrong number.**
 
-`qmlkit` provides the ML layer that quantum SDKs leave out: reusable feature maps,
-an ansatz vocabulary, quantum kernels, torch layers, and a general-purpose
-parameter-shift gradient you can point at *any* circuit and observable.
+In this field a mistake usually does not raise. A re-uploading model whose trainable
+rotations commute with its encoding will build, bind, differentiate and train — and
+reach one Fourier frequency instead of the eight you designed for. A quantum kernel
+concentrates until every pair of points looks alike, and still returns a Gram matrix.
+A quantum model beats its classical baseline by less than the spread between folds,
+and gets written up as a result. All three run. All three return numbers in the right
+range. All three are wrong.
 
-Exact here means no shot noise and no finite-difference bias — not bit-identical
-arithmetic. Expectations and gradients agree with the analytic value to machine
-precision.
+So the parts of qmlkit that catch those are not an add-on:
 
-**Simulator-only** for the whole `0.x` line, and **backend-agnostic**: the same
-circuit runs on SpinQit, Qiskit, Cirq, or the built-in exact NumPy reference.
-Expectations are exact unless you ask for shots.
+```python
+qk.diagnose(model)   # the failures that return a number instead of raising
+qk.baseline(X, y)    # the classical bar, on identical folds, before you start
+qk.plan(model)       # what the run costs in circuits, before you pay for it
+qk.selfcheck(...)    # every exact gradient route, compared against every other
+```
+
+and the same principle runs through the rest: `adjoint` refuses on a noisy backend
+rather than silently differentiating a noiseless one, an unknown gate is refused by
+name rather than approximated, and `qk.baseline` will not call a lead inside the fold
+spread a result.
+
+Underneath that it is the ML layer quantum SDKs leave out — feature maps, an ansatz
+vocabulary, quantum kernels, torch layers, and a general-purpose parameter-shift
+gradient you can point at *any* circuit and observable — running unchanged on
+**SpinQit**, **Qiskit**, **Cirq**, **PyTorch**, or the built-in NumPy reference.
+
+**Simulator-only** for the whole `0.x` line. Expectations are exact unless you ask for
+shots, and two mixed-state backends take a noise model when you want to ask what a
+device would have done. Exact here means no shot noise and no finite-difference bias —
+not bit-identical arithmetic; expectations and gradients agree with the analytic value
+to machine precision.
+
+The core depends on **NumPy and nothing else**, and CI enforces it.
 
 **[Documentation](https://ziadt160.github.io/qmlkit/)** — tutorials, guides and a generated API reference.
 **[HANDOFF.md](HANDOFF.md)** — status, conventions, known traps, and what to do next, if you are picking this up.
@@ -103,7 +125,15 @@ qk.Ansatz(2, qk.EncodingLayer(zz) + qk.RotationLayer("ry") + qk.EncodingLayer(an
           n_inputs=3)
 ```
 
-Any of these drops straight into a `QuantumLayer`, input gradients included.
+Any of these drops straight into a `QuantumLayer` — or into `VQC` directly, since a
+re-uploading model is its own encoding *and* its own trainable block:
+
+```python
+qk.VQC(n_features=4, n_classes=2,
+       feature_map=qk.reupload(qk.AngleFeatureMap(4), n_layers=3)).fit(X, y)
+```
+
+Input gradients included, so classical layers placed before the quantum one train.
 
 > **One trap the library catches for you.** `L` uploads reach frequencies `0..L`
 > only when the trainable block does **not** commute with the encoding rotation. If
@@ -440,8 +470,11 @@ unclaimed; it would narrow the overhead rows further.
 - **Budget and provenance** — `qk.plan()` costs a run in circuits before it starts;
   `qk.fingerprint()` records the versions, backend and seed that produced a number.
 - **Circuit import** — `from_qasm` (standard library only), `from_qiskit` (unbound
-  parameters included) and `from_pennylane` (templates decompose), so circuits come
-  back in as well as out.
+  parameters included), `from_pennylane` (templates decompose) and `from_cirq`
+  (`sympy` symbols carried onto `ParamRef`), so circuits come back in as well as out.
+- **Noise, named explicitly** — `cirq-density` and `qiskit-aer` evolve a density
+  matrix and take a noise model. `shots=None` still means shot-free, so decoherence
+  and sampling error stay separable; the gradients that need a pure state refuse.
 - **Batched execution** — one circuit at many parameter vectors in a single pass;
   3.6–24× on the training forward pass up to 10 qubits.
 
@@ -597,6 +630,12 @@ qk.shots_for_precision(0.01)      # what a target precision actually costs
 | 5 · Quantum kernels, `QSVC`/`QSVR` | **done** |
 | 6 · QCNN, QLSTM, MPS; QCBM, qGAN, QBM | **done** |
 | 7 · Docs, tutorials, `v0.1.0` on PyPI | docs and tutorials **done**; PyPI pending |
+
+Beyond `0.1.0`, in the order they are likely to matter: the seven lecture notebooks
+rebuilt on the library, a *mitigation verdict* (whether error mitigation improved an
+estimate or only traded bias for variance, on identical seeds with the shot cost
+stated — the implementations belong to [Mitiq](https://mitiq.readthedocs.io)),
+gradients through a noise channel, and batched/async submission for a real device.
 
 ## Development
 

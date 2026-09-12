@@ -166,6 +166,11 @@ def _url(path: str) -> str:
     return f"{SITE}/" if stem == "index" else f"{SITE}/{stem.removesuffix('/index')}/"
 
 
+#: Lines of a class docstring carried into the API index. Enough for a constructor's
+#: arguments and the paragraph that says what they mean; not a whole essay.
+_CLASS_DOC_LINES = 40
+
+
 def _api_index() -> list[str]:
     """Every public name with its signature and one-line summary, from the package.
 
@@ -191,11 +196,19 @@ def _api_index() -> list[str]:
         except (TypeError, ValueError):
             signature = ""
         doc = (inspect.getdoc(obj) or "").strip()
-        summary = doc.splitlines()[0] if doc else ""
-        kind = "class" if inspect.isclass(obj) else "def" if callable(obj) else ""
+        is_class = inspect.isclass(obj)
+        kind = "class" if is_class else "def" if callable(obj) else ""
         lines.append(f"{kind} {name}{signature}".strip())
-        if summary:
-            lines.append(f"    {summary}")
+        if not doc:
+            continue
+        if is_class:
+            # Classes get their whole docstring, functions one line. Constructor
+            # *semantics* - what a keyword means, not merely that it exists - live in
+            # the body, and a signature alone sends the reader to the source. Costs
+            # about 4% of the file.
+            lines += [f"    {line}".rstrip() for line in doc.splitlines()[:_CLASS_DOC_LINES]]
+        else:
+            lines.append(f"    {doc.splitlines()[0]}")
     return lines
 
 
@@ -215,7 +228,7 @@ def build_index() -> str:
         "## Full text",
         "",
         f"- [Everything above as one file]({SITE}/llms-full.txt): every tutorial and "
-        "guide in full, then the whole public API with signatures.",
+        "guide in full, then the whole public API with signatures - and, for classes, the docstring that says what the arguments mean.",
         "",
     ]
     return "\n".join(out)

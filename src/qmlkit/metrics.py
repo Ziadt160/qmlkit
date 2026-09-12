@@ -18,6 +18,7 @@ More expressibility costs trainability. That trade is the whole design problem, 
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -139,6 +140,28 @@ def entangling_capability(
 # --------------------------------------------------------------------------- #
 # trainability
 # --------------------------------------------------------------------------- #
+
+#: Below this, a gradient variance is not small - it is identically zero, and the
+#: parameter probed is dead. Machine epsilon squared, with room for accumulation.
+_DEAD_GRADIENT = 1e-28
+
+
+def _first_live_parameter(ansatz: Ansatz, backend: BackendLike = None) -> int:
+    """The lowest parameter index whose gradient is not identically zero.
+
+    One exact gradient at one random point is enough: a parameter dead here is dead
+    everywhere that matters, because the zero is structural rather than accidental -
+    a leading ``Rz`` on ``|0>`` commutes with a ``Z`` readout at every angle.
+    """
+    from qmlkit.gradients.dispatch import grad
+
+    rng = np.random.default_rng(0)
+    theta = rng.uniform(-np.pi, np.pi, ansatz.n_params)
+    g = grad(ansatz.build(), theta, Z(0), backend=backend)
+    live = np.flatnonzero(np.abs(g) > 1e-12)
+    return int(live[0]) if live.size else 0
+
+
 def gradient_variance(
     ansatz: Ansatz,
     obs: Observable | None = None,
@@ -151,6 +174,14 @@ def gradient_variance(
 
     This is the barren-plateau probe: if it falls exponentially with width, no
     realistic shot budget will resolve the gradient.
+
+    **It probes one parameter, and which one matters.** The default ``param_index=0``
+    is a leading rotation on several stock ansaetze, and a leading ``Rz`` on ``|0>``
+    has a gradient of exactly zero against ``Z`` - not because the ansatz is
+    untrainable but because that parameter does nothing. A variance at machine zero
+    is reported with a warning saying so, because the number alone is
+    indistinguishable from a genuine plateau. :func:`~qmlkit.diagnostics.diagnose`
+    finds dead parameters directly and names their indices.
     """
     from qmlkit.gradients.dispatch import grad
 
@@ -165,7 +196,17 @@ def gradient_variance(
         )
         for _ in range(n_samples)
     ]
-    return float(np.var(vals))
+    variance = float(np.var(vals))
+    if variance < _DEAD_GRADIENT:
+        warnings.warn(
+            f"gradient variance for parameter {param_index} is {variance:.3e}, which is "
+            "machine zero rather than a small number: that parameter does not move this "
+            "observable at all. This reads like a barren plateau and is not one. Probe a "
+            "different param_index, or run qmlkit.diagnose(ansatz), which names dead "
+            "parameters directly.",
+            stacklevel=2,
+        )
+    return variance
 
 
 def barren_plateau_scan(
@@ -313,8 +354,16 @@ class AnsatzReport:
         res["entangling_capability"] = entangling_capability(
             a, n_samples=max(50, self.n_samples // 4), seed=self.seed, backend=self.backend
         )
+        # Probing a dead parameter reports machine zero and reads as a barren
+        # plateau, so pick one that actually moves the readout when index 0 does not.
+        index = _first_live_parameter(a, self.backend)
+        res["gradient_param_index"] = index
         res["gradient_variance"] = gradient_variance(
-            a, n_samples=max(30, self.n_samples // 6), seed=self.seed, backend=self.backend
+            a,
+            n_samples=max(30, self.n_samples // 6),
+            param_index=index,
+            seed=self.seed,
+            backend=self.backend,
         )
         res["name"] = a.name
         self.results = res
@@ -333,7 +382,8 @@ class AnsatzReport:
             f"  expressibility        {r['expressibility']:.4f}   (KL from Haar,\n"
             f"                                 lower is more expressive)\n"
             f"  entangling capability {r['entangling_capability']:.4f}   (Meyer-Wallach Q)\n"
-            f"  gradient variance     {r['gradient_variance']:.3e}   (higher = more trainable)"
+            f"  gradient variance     {r['gradient_variance']:.3e}   "
+            f"(parameter {r['gradient_param_index']}; higher = more trainable)"
         )
 
 

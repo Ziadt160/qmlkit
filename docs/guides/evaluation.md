@@ -149,7 +149,7 @@ because a typo'd axis is a sweep that silently varies nothing.
 ### It skips what the diagnostics already condemn
 
 This is the part a grid search cannot normally do. Before fitting anything, each
-assembled model goes through [`qk.diagnose`](#is-the-number-right-and-can-anyone-reproduce-it),
+assembled model goes through [`qk.diagnose`](#after-the-run-was-it-right-and-can-it-be-repeated),
 and configurations that are already broken are reported with their reason instead of
 costing a full fit and then sitting in the table looking merely unlucky:
 

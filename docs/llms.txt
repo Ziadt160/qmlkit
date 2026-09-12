@@ -97,4 +97,4 @@ What is worth knowing before writing any of it:
 
 ## Full text
 
-- [Everything above as one file](https://ziadt160.github.io/qmlkit/llms-full.txt): every tutorial and guide in full, then the whole public API with signatures.
+- [Everything above as one file](https://ziadt160.github.io/qmlkit/llms-full.txt): every tutorial and guide in full, then the whole public API with signatures - and, for classes, the docstring that says what the arguments mean.

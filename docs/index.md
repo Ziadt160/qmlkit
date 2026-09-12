@@ -21,6 +21,32 @@ print(f"gradient  = {np.round(qk.grad(spec, theta, observable)[:4], 4)} ...")
 print(f"cost      = 1 pass (adjoint) vs {qk.gradient_cost(spec, 'parameter-shift')} circuits (parameter-shift)")
 ```
 
+## And where the circuit is not the hard part
+
+Structure is what makes the library composable. It is not what makes quantum machine
+learning difficult. What makes it difficult is that a mistake here usually does not
+raise: a re-uploading model whose trainable rotations commute with its encoding
+trains happily and reaches one Fourier frequency instead of eight; a kernel
+concentrates until every pair of points looks alike and still returns a Gram matrix;
+a quantum model beats its classical baseline by less than the spread between folds
+and gets written up as a result.
+
+So a second set of tools sits beside the first, and they are not an afterthought:
+
+```python
+# docs: requires torch
+print(qk.diagnose(qk.hardware_efficient(3, 2)))   # what does not raise
+print(qk.plan(qk.hardware_efficient(3, 2)))       # what the run will cost, first
+```
+
+[`diagnose`](guides/agents.md) names the failure and the edit that fixes it,
+[`baseline`](guides/evaluation.md) puts the classical bar on identical folds and
+refuses to call a lead inside the fold spread a result, and `selfcheck` compares
+every exact gradient route against every other. The same instinct runs through the
+rest: `adjoint` [refuses on a noisy backend](guides/noise.md) rather than quietly
+differentiating a noiseless one, and an unknown gate is refused by name rather than
+approximated.
+
 ## Where to start
 
 <div class="grid cards" markdown>
@@ -44,6 +70,11 @@ print(f"cost      = 1 pass (adjoint) vs {qk.gradient_cost(spec, 'parameter-shift
     301 cross-validation cases against PennyLane, and the four genuine convention
     differences that surfaced.
 
+- :material-book-open-page-variant: **[Case studies](studies/index.md)**
+
+    Seven whole problems, raw data to defensible number. In most of them the number
+    is that the quantum model lost.
+
 </div>
 
 ## What is actually here
@@ -57,6 +88,9 @@ print(f"cost      = 1 pass (adjoint) vs {qk.gradient_cost(spec, 'parameter-shift
 | **Kernels** | three overlap estimators, PSD repair, `QSVC`/`QSVR`, trainable and projected kernels |
 | **PyTorch** | `QuantumLayer`, `VQC`, `VQRegressor`, QCNN/QLSTM/MPS, dressed networks |
 | **Analysis** | expressibility, Meyer–Wallach entanglement, barren-plateau scans, Fourier spectra, Fubini–Study geometry |
+| **Noise** | `cirq-density` and `qiskit-aer` evolve a density matrix; shot noise stays separable from decoherence, and state-based gradients refuse |
+| **Interop** | `from_qasm`, `from_qiskit`, `from_pennylane`, `from_cirq` — circuits come back in as well as out |
+| **Honesty** | `diagnose`, `selfcheck`, `baseline`, `evaluate`, `plan`, `fingerprint` — the layer this library is actually for |
 
 ## Three layers, and you pick where to stand
 

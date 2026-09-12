@@ -32,7 +32,7 @@ lecture repo — it maps lectures to library features and belongs with the lectu
 
 ## Status
 
-**1279 tests on Python 3.14, 867 on SpinQit's 3.10, 0 failures in either.** ruff clean
+**1312 tests on Python 3.14, 881 on SpinQit's 3.10, 0 failures in either.** ruff clean
 and `ruff format --check` clean; `mypy --strict` clean over **the whole package** - the
 config listed six paths until 2026-08-28 and now lists `src/qmlkit`, so "mypy clean" and
 "the package type-checks" finally mean the same thing. **94% coverage**, combined in
@@ -131,6 +131,17 @@ Emitted as `Sd·CX·S`. Its simulator also carries a `1e-10` precision floor.
 Nothing else matters as much: none of this is reachable until `pip install qmlkit`
 works. Everything on this side is ready — the wheel builds, `twine check` passes, and
 the clean-venv verifier passes.
+
+**Everything else is done and verified as of 2026-09-12:** `ruff check`,
+`ruff format --check` and `mypy` all clean over the whole package; `mkdocs build
+--strict` clean; the wheel builds, `twine check` passes, and a clean venv installing
+only the wheel pulls in **numpy and nothing else** before `verify_install.py` passes.
+
+**`RELEASING.md` used to send you to the wrong repository** and is now fixed. There
+are two: `qmlkit/` here is the source of truth, and the standalone repo is a
+`git subtree split` of it. `release.yml` only exists in the standalone one, so the
+old instruction (`git push origin main --tags`) tagged the lecture repo and triggered
+nothing. The tag goes on the split commit and is pushed to the `qmlkit` remote.
 
 **It needs your account, and cannot be done for you.** Trusted Publishing requires a
 publisher registered while signed in to PyPI; the alternative is an API token, which is

@@ -236,3 +236,52 @@ def test_model_fit_accepts_batching_and_a_custom_optimizer():
     opt = torch.optim.SGD(model.parameters(), lr=0.1)
     model.fit(X, y, epochs=2, batch_size=4, optimizer=opt)
     assert len(model.history_) == 2
+
+
+# --------------------------------------------------------------------------- #
+# Re-uploading through the class most people start with
+#
+# `HybridModel.__init__` used to do `ansatz or hardware_efficient(...)`, so an ansatz
+# was always supplied and a re-uploading feature map collided with it. The pattern
+# the library recommends most was unreachable from the class it recommends first,
+# and the only way through was a hand-written training loop.
+# --------------------------------------------------------------------------- #
+def test_vqc_accepts_a_reuploading_feature_map():
+    model = qk.VQC(
+        n_features=4,
+        n_classes=2,
+        feature_map=qk.reupload(qk.AngleFeatureMap(4, rotation="ry"), n_layers=3),
+    )
+    assert model.ansatz is None, "a re-uploading model carries its own trainable block"
+    assert type(model.feature_map).__name__ == "ReuploadModel"
+
+
+def test_vqc_trains_a_reuploading_model_end_to_end():
+    rng = np.random.default_rng(0)
+    X = rng.uniform(0.0, 1.0, (32, 4))
+    y = (X[:, 0] + X[:, 1] > 1.0).astype(int)
+    model = qk.VQC(
+        n_features=4,
+        n_classes=2,
+        feature_map=qk.reupload(qk.AngleFeatureMap(4, rotation="ry"), n_layers=2),
+    )
+    model.fit(X, y, epochs=3)
+    assert model.score(X, y) >= 0.0
+    assert len(model.history_) == 3
+
+
+def test_a_reuploading_model_still_refuses_a_second_ansatz():
+    """It contains a trainable block; two would silently stack."""
+    with pytest.raises(ValueError, match="already contains its trainable block"):
+        qk.VQC(
+            n_features=4,
+            n_classes=2,
+            feature_map=qk.reupload(qk.AngleFeatureMap(4, rotation="ry"), n_layers=2),
+            ansatz=qk.hardware_efficient(4, 1),
+        )
+
+
+def test_the_ordinary_path_still_gets_a_default_ansatz():
+    model = qk.VQC(n_features=4, n_classes=2)
+    assert model.ansatz is not None
+    assert model.ansatz.n_params > 0

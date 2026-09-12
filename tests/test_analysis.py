@@ -398,3 +398,59 @@ def test_specs_reports_tied_parameters():
     assert s["weight_tied_parameters"] > 0
     assert s["grad_passes_adjoint"] == 1
     assert s["grad_circuits_parameter_shift"] > 1
+
+
+# --------------------------------------------------------------------------- #
+# A dead parameter is not a barren plateau
+#
+# `gradient_variance` probes ONE parameter, and theta_0 on several stock ansaetze is
+# a leading Rz on |0>, whose gradient against Z is identically zero. AnsatzReport
+# printed 1.4e-32 under "higher = more trainable", which reads as a catastrophic
+# plateau and is really "you probed a parameter that does nothing" - while
+# diagnose() called the same ansatz DEAD_WEIGHTS. Two of this library's own tools
+# contradicting each other is the worst place for it to happen.
+# --------------------------------------------------------------------------- #
+def test_a_machine_zero_gradient_variance_warns_that_it_is_not_a_plateau():
+    ansatz = qk.strongly_entangling(4, 3)
+    with pytest.warns(UserWarning, match="machine zero rather than a small number"):
+        value = qk.metrics.gradient_variance(ansatz, qk.Z(0), n_samples=10, seed=0)
+    assert value < 1e-28
+    # the number itself is unchanged - only the silence around it was the bug
+    assert value >= 0.0
+
+
+def test_a_genuinely_small_variance_does_not_warn():
+    """The warning must not fire on every deep circuit, or it means nothing."""
+    ansatz = qk.hardware_efficient(3, 2)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        value = qk.metrics.gradient_variance(ansatz, qk.Z(0), n_samples=10, seed=0)
+    assert value > 1e-28
+
+
+def test_ansatz_report_probes_a_live_parameter():
+    """The reported number has to be about the ansatz, not about index 0."""
+    ansatz = qk.strongly_entangling(4, 3)
+    report = qk.metrics.AnsatzReport(ansatz, n_samples=60, seed=0)
+    index = report["gradient_param_index"]
+    assert index != 0, "theta_0 is dead on this ansatz, so the report must move off it"
+    assert float(report["gradient_variance"]) > 1e-28
+    assert f"parameter {index}" in str(report)
+
+
+def test_ansatz_report_agrees_with_diagnose_about_dead_weights():
+    """Both tools look at the same ansatz; they must not contradict each other."""
+    ansatz = qk.strongly_entangling(4, 3)
+    report = qk.metrics.AnsatzReport(ansatz, n_samples=60, seed=0)
+    findings = qk.diagnose(ansatz, seed=0, n_samples=10, probes=1)
+    assert "DEAD_WEIGHTS" in findings.codes
+    # diagnose says some weights are dead; the report no longer reads as though the
+    # whole ansatz were untrainable because it happened to land on one of them
+    assert float(report["gradient_variance"]) > 1e-28
+
+
+def test_first_live_parameter_falls_back_when_everything_is_dead():
+    from qmlkit.metrics import _first_live_parameter
+
+    ansatz = qk.Ansatz(1, qk.RotationLayer("rz"))  # Rz on |0> moves nothing measurable
+    assert _first_live_parameter(ansatz) == 0

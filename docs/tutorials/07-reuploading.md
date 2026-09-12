@@ -164,6 +164,52 @@ print(f"inputs {model.n_inputs}, weights {model.n_weights}")
 sizes disagree — the two calling conventions were a real source of confusion, so the
 error message names both sizes.
 
+## Training one
+
+A re-uploading model is its own encoding *and* its own trainable block, so it goes in
+as the **feature map**, with no separate ansatz:
+
+```python
+# docs: requires torch
+model = qk.VQC(
+    n_features=2,
+    n_classes=2,
+    feature_map=qk.reupload(qk.AngleFeatureMap(2), n_layers=3),
+)
+print(model.ansatz)   # None -- the re-uploading model already carries the weights
+```
+
+Passing one as `ansatz=` instead, or alongside a separate ansatz, is refused:
+
+```python
+# docs: requires torch
+try:
+    qk.VQC(
+        n_features=2,
+        n_classes=2,
+        feature_map=qk.reupload(qk.AngleFeatureMap(2), n_layers=2),
+        ansatz=qk.hardware_efficient(2, 1),
+    )
+except ValueError as exc:
+    print(exc)
+```
+
+The same applies one layer down, where `QuantumLayer` takes it in the feature-map
+position and `ansatz=None`:
+
+```python
+# docs: requires torch
+layer = qk.QuantumLayer(
+    qk.reupload(qk.AngleFeatureMap(2), n_layers=2), None, [qk.Z(0), qk.Z(1)]
+)
+print(layer.n_features, layer.n_outputs)
+```
+
+Both were unreachable before `0.1.0`: `VQC` supplied a default ansatz unconditionally,
+so a re-uploading feature map always collided with it and the only way through was a
+hand-written training loop. Worth stating because the fix came from someone trying to
+use the pattern this page recommends and finding they could not.
+
 ---
 
 **Next:** [Trainability](08-trainability.md) — what happens when the gradient is

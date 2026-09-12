@@ -4,9 +4,45 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - 2026-08-28
+## [0.1.0] - 2026-09-12
 
 First release.
+
+### Fixed - two defects found by using the library, not by testing it
+
+An independent agent was given a dataset and told to build the best classifier it
+could with qmlkit, knowing nothing about the project. Its report found two things the
+test suite could not, because both were about the API rather than the arithmetic.
+
+**`VQC` could not express data re-uploading.** `HybridModel.__init__` did
+`ansatz or hardware_efficient(...)`, so an ansatz was *always* supplied and a
+re-uploading feature map collided with it:
+`ValueError: a re-uploading model already contains its trainable block`. The pattern
+this library recommends most was unreachable from the class it recommends first, and
+the only way through was a hand-written training loop. A re-uploading model now goes
+in as the feature map with `ansatz=None` supplied automatically, and
+`docs/tutorials/07-reuploading.md` has a "Training one" section, which it never had.
+
+**A dead parameter read as a barren plateau.** `gradient_variance` probes one
+parameter and defaults to index 0, which on several stock ansaetze is a leading `Rz`
+on `|0>` whose gradient against `Z` is identically zero. `AnsatzReport` printed
+`1.4e-32` under the gloss "higher = more trainable" — indistinguishable from a
+catastrophic plateau, and really "you probed a parameter that does nothing" — while
+`diagnose()` called the same ansatz `DEAD_WEIGHTS`. Two of this library's own tools
+contradicting each other, in the part of it that exists to stop people believing
+wrong numbers. `gradient_variance` now warns when a variance is machine zero rather
+than small, and `AnsatzReport` probes the first parameter that actually moves the
+readout and names which one it used.
+
+### Changed - documentation
+
+- The README leads with what the library is *for* rather than what category it is in.
+- `QuantumKernel.bandwidth` is documented. It is the first thing to reach for when a
+  kernel has concentrated, and it had no prose anywhere — only a default in a
+  signature.
+- The generated API index (`docs/llms-full.txt`) carries the **whole** docstring for
+  classes rather than its first line. Constructor *semantics* live in the body, and a
+  signature alone sent readers to the source; this costs about 4% of the file.
 
 ### Added - `mypy` over the whole package
 

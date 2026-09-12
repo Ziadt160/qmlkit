@@ -95,6 +95,34 @@ class QuantumKernel:
     kernel = QuantumKernel(qk.ZZFeatureMap(2))
     K = kernel(X)                 # training Gram matrix
     K_test = kernel(X_test, X)    # rectangular, test against train
+
+    Arguments
+    ---------
+    estimator
+        How the overlap is measured. ``"inversion"`` (the default) runs the
+        compute-uncompute circuit and reads the all-zeros probability; ``"swap"``
+        uses a swap test; ``"hadamard"`` a Hadamard test, squared. They agree on a
+        simulator and differ in width and circuit count on a device.
+    shots
+        ``None`` reads the exact probability. A budget samples it, which is what a
+        device does — and a sampled kernel is not positive semi-definite by
+        construction, so pair it with :func:`threshold_matrix`.
+    bandwidth
+        **The first thing to try when a kernel has concentrated.** Every feature
+        vector is scaled by this before encoding, so it sets how far apart two points
+        are in the feature map rather than in the data. At the default ``1.0`` a
+        fidelity kernel over a wide register drives every off-diagonal entry toward
+        the same small number — every pair of points looks equally dissimilar, the
+        Gram matrix approaches the identity, and no amount of training recovers what
+        the encoding threw away. Shrinking the bandwidth (``0.1``-``0.5`` is the usual
+        range) compresses the data into a smaller region of state space and pulls the
+        off-diagonals back apart. :func:`concentration_report` measures whether you
+        have the problem, and ``qk.diagnose(K)`` names it as ``KERNEL_CONCENTRATED``.
+        The alternative fix is a projected kernel, which survives width by measuring
+        local reduced states instead — see the kernels tutorial for when each applies.
+    cache
+        Memoises pair evaluations, which matters because a Gram matrix asks for the
+        same circuit many times. ``n_evaluations`` counts the circuits actually run.
     """
 
     def __init__(

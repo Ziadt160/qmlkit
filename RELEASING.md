@@ -60,11 +60,40 @@ the final upload into something you approve by hand.
    python -m venv /tmp/clean && /tmp/clean/bin/pip install dist/qmlkit-*.whl && /tmp/clean/bin/python scripts/verify_install.py
    ```
 
-5. **Commit, then tag.** The tag must match the packaged version exactly:
+   On Windows the venv puts them in `Scripts` rather than `bin`:
+
+   ```powershell
+   python -m venv $env:TEMP\clean
+   & "$env:TEMP\clean\Scripts\python.exe" -m pip install (Get-Item dist\qmlkit-*.whl)
+   & "$env:TEMP\clean\Scripts\python.exe" scripts\verify_install.py
+   ```
+
+5. **Publish the subtree, then tag it *there*.** This is the step that is easy to get
+   wrong, because there are two repositories.
+
+   The source of truth is the `qmlkit/` subdirectory of the **lecture** repo
+   (`Quantum-Machine-Learning-Module`). The **standalone** repo
+   (`github.com/Ziadt160/qmlkit`) is produced from it by `git subtree split`, and
+   `release.yml` lives there. Tagging the lecture repo triggers nothing at all.
+
+   Commit inside `qmlkit/` first, then, from the lecture repo root:
 
    ```bash
-   git tag v0.1.0 && git push origin main --tags
+   git branch -D qmlkit-standalone 2>/dev/null
+   git subtree split --prefix=qmlkit -b qmlkit-standalone
+   git push qmlkit qmlkit-standalone:main
    ```
+
+   The split is deterministic, so re-running it fast-forwards rather than diverging.
+   It prints the SHA of the split commit — that is what the tag goes on:
+
+   ```bash
+   git tag v0.1.0 $(git rev-parse qmlkit-standalone)
+   git push qmlkit v0.1.0
+   ```
+
+   The tag must match the packaged version exactly; the workflow checks and refuses
+   otherwise.
 
 6. **Watch the workflow.** It runs the suite again on the tagged commit, builds,
    re-verifies the wheel in a clean environment, publishes to TestPyPI, and only
@@ -85,4 +114,18 @@ the final upload into something you approve by hand.
   deleting it. Yanking leaves existing pins working while stopping new installs from
   resolving to it.
 - **The tag does not match `pyproject.toml`** — the workflow fails before publishing
-  anything. Delete the tag, fix the version, tag again.
+  anything. Delete the tag, fix the version, tag again:
+
+  ```bash
+  git push qmlkit :refs/tags/v0.1.0   # delete it on the remote
+  git tag -d v0.1.0                   # and locally
+  ```
+
+- **Nothing happened when you pushed the tag** — you almost certainly tagged the
+  lecture repo instead of the standalone one. `release.yml` only exists in the
+  standalone repo; check with `git ls-remote --tags qmlkit`.
+
+- **The split branch will not push** — it is deterministic, so a rejected push means
+  the remote has commits the split does not contain (someone committed directly to
+  the standalone repo). Reconcile there first; never force-push over it, because a
+  published tag must keep pointing at the commit that produced the artifact.

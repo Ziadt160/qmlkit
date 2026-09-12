@@ -27,7 +27,7 @@ from qmlkit.ansatz.library import Ansatz, hardware_efficient
 from qmlkit.core.observables import Observable, Z
 from qmlkit.encoding.feature_maps import AngleFeatureMap, FeatureMap
 from qmlkit.encoding.scaling import AngleScaler
-from qmlkit.nn.layer import QuantumLayer
+from qmlkit.nn.layer import QuantumLayer, _is_combined
 
 __all__ = ["HybridModel", "VQC", "VQRegressor"]
 
@@ -56,7 +56,19 @@ class HybridModel(nn.Module):
         n_qubits = n_qubits or (feature_map.n_qubits if feature_map else n_features)
 
         self.feature_map = feature_map or AngleFeatureMap(n_qubits, entangle=n_qubits > 1)
-        self.ansatz = ansatz or hardware_efficient(n_qubits, n_layers)
+        # A re-uploading model is its own encoding *and* its own trainable block, so
+        # the default ansatz must not be supplied on top of it. Doing that
+        # unconditionally is what made re-uploading - the pattern this library
+        # recommends most - unreachable from the class most people start with.
+        if _is_combined(self.feature_map):
+            if ansatz is not None:
+                raise ValueError(
+                    "a re-uploading feature map already contains its trainable block; "
+                    "pass it alone, without a separate ansatz"
+                )
+            self.ansatz: Ansatz | None = None
+        else:
+            self.ansatz = ansatz or hardware_efficient(n_qubits, n_layers)
         obs = list(observables) if observables is not None else [Z(i) for i in range(n_qubits)]
 
         # a classical projection only when the widths genuinely differ
