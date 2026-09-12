@@ -163,7 +163,7 @@ def pl_iqp_kernel(a, b):
 
 
 # A real convention difference, not a bug. PennyLane's IQPEmbedding emits
-# RZ(x_i) and MultiRZ(x_i * x_j); qmlkit follows the Qiskit / lecture convention
+# RZ(x_i) and MultiRZ(x_i * x_j); qmlkit follows the Qiskit convention
 # and emits Rz(2 * phi). Halving the data map lines them up exactly.
 qk_iqp = qk.PauliFeatureMap(
     2,

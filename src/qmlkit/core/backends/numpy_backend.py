@@ -9,8 +9,8 @@ Sampling, basis rotation and expectation semantics all live in
 :class:`~qmlkit.core.backends.base.Backend`; this class supplies the statevector
 and nothing else.
 
-Convention: qubit 0 is the **most significant** bit of a bitstring, matching the
-lecture notebooks where ``basis_encode([1, 0, 1])`` yields ``'101'``.
+Convention: qubit 0 is the **most significant** bit of a bitstring, so
+``basis_encode([1, 0, 1])`` yields ``'101'`` and reads in the order it was written.
 """
 
 from __future__ import annotations

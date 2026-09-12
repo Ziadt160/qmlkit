@@ -207,8 +207,9 @@ class DressedQuantumNet(nn.Module):
 
     Transfer learning with a quantum head. The backbone is frozen, so only the
     dressed block trains — and because the layer returns input gradients, the
-    ``Linear`` that feeds the circuit trains too. The lecture's version returns
-    ``None`` there, which silently freezes exactly that layer.
+    ``Linear`` that feeds the circuit trains too. An implementation that returns
+    ``None`` for the input gradient silently freezes exactly that layer, which is the
+    one doing the adapting.
     """
 
     def __init__(

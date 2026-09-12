@@ -5,9 +5,10 @@ Above this boundary everything is ordinary torch — ``Adam``, ``.backward()``,
 write an ``autograd.Function`` themselves.
 
 **Inputs get gradients.** ``backward`` returns ``df/dx`` as well as ``df/dtheta``,
-so a classical layer placed *before* the quantum one actually trains. The lecture's
-version returns ``None`` there, which silently freezes any pre-net — including the
-``Linear(512, 4)`` in its own transfer-learning example.
+so a classical layer placed *before* the quantum one actually trains. Returning
+``None`` there is the common shortcut, and it silently freezes any pre-net — which
+is invisible in the loss curve and fatal to transfer learning, where the layer
+feeding the circuit is the one you meant to train.
 
 Getting ``df/dx`` through a *nonlinear* feature map takes two steps: the circuit is
 differentiated with respect to its encoding angles, then the chain rule down to the

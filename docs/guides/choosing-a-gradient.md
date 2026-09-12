@@ -80,6 +80,31 @@ Its reason to exist is that the circuit sits *inside* an autograd graph, which i
 what `QuantumLayer` needs. It is also the least physical method here: it reads
 intermediate states no device will expose, and its memory grows with depth.
 
+How much slower, measured on a hardware-efficient ansatz:
+
+| qubits | `P` | `adjoint` | `backprop` | `parameter-shift` |
+|---|---|---|---|---|
+| 3 | 12 | **1.4 ms** | 4.7 ms | 8.2 ms |
+| 4 | 24 | **2.3 ms** | 9.0 ms | 31.5 ms |
+| 6 | 36 | **3.8 ms** | 15.9 ms | 79.2 ms |
+| 8 | 32 | **3.6 ms** | 16.3 ms | 93.5 ms |
+
+Batched over a training batch of 128, the gap widens and `backprop` drops out
+entirely - it has no batched form, and `grad_batch` says so rather than falling back:
+
+| qubits | `P` | `adjoint` | `parameter-shift` |
+|---|---|---|---|
+| 4 | 16 | **7.6 ms** | 58.7 ms |
+| 6 | 24 | **28.3 ms** | 430.9 ms |
+| 8 | 32 | **118 ms** | 2552 ms |
+
+This is worth stating because the intuition travels badly. In a framework where every
+circuit evaluation goes through a dispatch layer, `backprop` can be dramatically
+*faster* than `adjoint` - the dispatch dominates, and backprop pays it once instead of
+once per parameter. qmlkit's adjoint is a direct NumPy sweep with no dispatch to
+amortise, so the ranking inverts. If you arrive expecting backprop to win, measure
+before switching; `method="auto"` already picks the fast one here.
+
 **`hadamard`** — one circuit per parameter instead of two, using an ancilla in `|+⟩`
 and a controlled generator. Unlike adjoint it is a real measurement, so it stays
 valid on hardware. The trade is an ancilla that must couple to every wire the

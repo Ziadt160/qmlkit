@@ -11,12 +11,13 @@ first thing read in a fresh session.
 |---|---|
 | **Repository** | <https://github.com/Ziadt160/qmlkit> — public, Apache-2.0 |
 | **Documentation** | <https://ziadt160.github.io/qmlkit/> — deploys from `main` |
-| **Source of truth** | The `qmlkit/` subdirectory of the lecture repo (`Quantum-Machine-Learning-Module`) |
+| **Source of truth** | The `qmlkit/` subdirectory of the upstream working repository; this repo is a subtree split of it |
 | **PyPI** | **Not published.** `pip install qmlkit` does not work yet |
 
 ### The one non-obvious thing about the workflow
 
-The standalone repo is produced by a **subtree split** from the lecture repo. Commit
+The published repo is produced by a **subtree split** of the upstream working
+repository's `qmlkit/` subdirectory. Commit
 inside `qmlkit/` there, then:
 
 ```bash
@@ -26,7 +27,7 @@ git push qmlkit qmlkit-standalone:main
 ```
 
 The split is deterministic, so re-pushing fast-forwards. `LIBRARY_PLAN.md` stays in the
-lecture repo — it maps lectures to library features and belongs with the lectures.
+upstream repository, because it is about that project rather than about qmlkit.
 
 ---
 
@@ -139,9 +140,9 @@ only the wheel pulls in **numpy and nothing else** before `verify_install.py` pa
 
 **`RELEASING.md` used to send you to the wrong repository** and is now fixed. There
 are two: `qmlkit/` here is the source of truth, and the standalone repo is a
-`git subtree split` of it. `release.yml` only exists in the standalone one, so the
-old instruction (`git push origin main --tags`) tagged the lecture repo and triggered
-nothing. The tag goes on the split commit and is pushed to the `qmlkit` remote.
+`git subtree split` of it. `release.yml` only exists in the published one, so the
+old instruction (`git push origin main --tags`) tagged the upstream repository and
+triggered nothing. The tag goes on the split commit and is pushed to the `qmlkit` remote.
 
 **It needs your account, and cannot be done for you.** Trusted Publishing requires a
 publisher registered while signed in to PyPI; the alternative is an API token, which is
@@ -156,16 +157,17 @@ Then pushing the tag `v0.1.0` does the rest. `RELEASING.md` has the full procedu
 what to do when it goes wrong. **A PyPI version number can never be reused**, so the
 tag is deliberately not pushed yet.
 
-### 2. The seven lecture notebooks — and the first real users
+### 2. Real users — the only thing that can calibrate the thresholds
 
-Phase 7's stated acceptance test, and the highest-value item after PyPI. Every lecture
-rewritten to `import qmlkit as qk`, every snippet still running, the notebooks getting
-*shorter*. Your students are the first people who will use this without having written
-it, and they are the only thing that can calibrate the judgement calls now baked in:
-the thresholds in `qmlkit.diagnostics` (`_FLAT`, `_CONCENTRATED`), the imbalance cutoff
-in `qmlkit.imbalance`, the fold-spread verdict rule in `baselines` and `search`, and the
-prune levels in `qmlkit.search`. Every one of those is one person's judgement until
-somebody else runs it.
+The highest-value item after PyPI, and it is not a feature. Several judgement calls are
+baked in and none has been exercised by anyone who did not write them: the thresholds in
+`qmlkit.diagnostics` (`_FLAT`, `_CONCENTRATED`), the imbalance cutoff in
+`qmlkit.imbalance`, the fold-spread verdict rule in `baselines` and `search`, and the
+prune levels in `qmlkit.search`. Every one is one person's opinion until somebody else
+runs it and disagrees.
+
+Putting the library in front of a cohort — anyone solving whole problems with it rather
+than reading it — is what turns those into calibrated numbers.
 
 **Resist adding features before that happens.** The library is 190+ exports maintained
 by one author, and the bottleneck stopped being capability several releases ago.

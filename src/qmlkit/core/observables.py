@@ -1,8 +1,9 @@
 """Pauli observables.
 
 One ``expectation()`` that takes an observable and is correct for any register
-width — replacing the per-lecture ``expz(counts)`` helpers, which divide by
-``n0 + n1`` and so silently misreport on more than one qubit.
+width. The hand-rolled ``expz(counts)`` helper this replaces is the usual shortcut,
+and it divides by ``n0 + n1`` — which is right on one qubit and silently wrong on
+more, because those are two outcomes out of ``2**n``.
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """The PyTorch bridge and the ready-made models.
 
 The headline assertion is the last one in the gradient section: a classical layer
-placed *before* the quantum one receives a real gradient and trains. The lecture's
+placed *before* the quantum one receives a real gradient and trains. A common
 implementation returns ``None`` there, silently freezing every pre-net — including
 the one in its own transfer-learning example.
 """
@@ -111,10 +111,10 @@ def test_both_gradient_methods_give_the_same_weights_gradient(method):
 
 
 def test_the_pre_net_actually_trains():
-    """The Lecture 6 defect, asserted directly.
+    """The frozen-pre-net defect, asserted directly.
 
     A Linear before the QuantumLayer must receive a non-zero gradient. Returning
-    None for df/dx — as the lecture does — leaves this at exactly zero, silently.
+    None for df/dx — the usual shortcut — leaves this at exactly zero, silently.
     """
     model = nn.Sequential(
         nn.Linear(6, 3),

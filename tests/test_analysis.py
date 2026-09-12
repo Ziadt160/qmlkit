@@ -454,3 +454,85 @@ def test_first_live_parameter_falls_back_when_everything_is_dead():
 
     ansatz = qk.Ansatz(1, qk.RotationLayer("rz"))  # Rz on |0> moves nothing measurable
     assert _first_live_parameter(ansatz) == 0
+
+
+# --------------------------------------------------------------------------- #
+# Printing a circuit on a console that cannot encode box-drawing glyphs
+#
+# `print(qk.draw(spec))` used to raise UnicodeEncodeError on a Windows console,
+# whose default code page is cp1252. It happened after the model had already
+# trained, on the first thing a new user does, with a traceback naming the codec
+# rather than qk.draw.
+# --------------------------------------------------------------------------- #
+class _Cp1252Stream:
+    """Stands in for a Windows console: reports an encoding that lacks the glyphs."""
+
+    encoding = "cp1252"
+
+
+def _bound(n_qubits=3, layers=1):
+    ansatz = qk.hardware_efficient(n_qubits, layers)
+    return ansatz.build(np.linspace(0.1, 1.2, ansatz.n_params))
+
+
+def test_draw_degrades_when_stdout_cannot_encode_the_glyphs(monkeypatch):
+    spec = _bound()
+    monkeypatch.setattr("sys.stdout", _Cp1252Stream())
+    diagram = qk.draw(spec)
+    diagram.encode("cp1252")  # the whole point: this must not raise
+    assert "─" not in diagram
+    assert "-" in diagram
+
+
+def test_draw_keeps_the_glyphs_on_a_utf8_stream(monkeypatch):
+    class Utf8Stream:
+        encoding = "utf-8"
+
+    monkeypatch.setattr("sys.stdout", Utf8Stream())
+    assert "─" in qk.draw(_bound())
+
+
+def test_ascii_overrides_the_detection_both_ways():
+    spec = _bound()
+    assert "─" not in qk.draw(spec, ascii=True)
+    assert "─" in qk.draw(spec, ascii=False)
+
+
+def test_the_ascii_fallback_lines_up_exactly():
+    """Same column widths, or the fallback is unreadable rather than merely plain."""
+    spec = _bound(3, 2)
+    unicode_lines = qk.draw(spec, ascii=False).splitlines()
+    ascii_lines = qk.draw(spec, ascii=True).splitlines()
+    assert [len(line) for line in unicode_lines] == [len(line) for line in ascii_lines]
+
+
+def test_a_dagger_gate_survives_the_fallback():
+    from qmlkit.core.builder import QCircuit
+
+    qc = QCircuit(1)
+    qc.sdg(0)
+    plain = qk.draw(qc.to_spec(), ascii=True)
+    plain.encode("cp1252")
+    assert "†" not in plain
+
+
+def test_probabilities_bar_degrades_too(monkeypatch):
+    """The histogram's block glyph dies on cp1252 just as loudly as the wires."""
+    from qmlkit.draw import probabilities_bar
+
+    spec = _bound()
+    monkeypatch.setattr("sys.stdout", _Cp1252Stream())
+    bars = probabilities_bar(qk.probabilities(spec), 3, top=3)
+    bars.encode("cp1252")
+    assert "█" not in bars
+    assert "#" in bars
+
+
+def test_detection_survives_a_stream_with_no_encoding(monkeypatch):
+    """A redirected or wrapped stdout may report nothing; assume the narrow case."""
+
+    class NoEncoding:
+        encoding = None
+
+    monkeypatch.setattr("sys.stdout", NoEncoding())
+    qk.draw(_bound()).encode("cp1252")

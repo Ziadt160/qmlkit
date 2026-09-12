@@ -71,12 +71,12 @@ the final upload into something you approve by hand.
 5. **Publish the subtree, then tag it *there*.** This is the step that is easy to get
    wrong, because there are two repositories.
 
-   The source of truth is the `qmlkit/` subdirectory of the **lecture** repo
-   (`Quantum-Machine-Learning-Module`). The **standalone** repo
-   (`github.com/Ziadt160/qmlkit`) is produced from it by `git subtree split`, and
-   `release.yml` lives there. Tagging the lecture repo triggers nothing at all.
+qmlkit is developed as the `qmlkit/` subdirectory of a private upstream working
+   repository, and **published** as `github.com/Ziadt160/qmlkit` — a `git subtree
+   split` of that subdirectory. `release.yml` exists only in the published repo, so
+   tagging upstream triggers nothing at all.
 
-   Commit inside `qmlkit/` first, then, from the lecture repo root:
+   Commit inside `qmlkit/` first, then, from the upstream repository root:
 
    ```bash
    git branch -D qmlkit-standalone 2>/dev/null
@@ -122,10 +122,10 @@ the final upload into something you approve by hand.
   ```
 
 - **Nothing happened when you pushed the tag** — you almost certainly tagged the
-  lecture repo instead of the standalone one. `release.yml` only exists in the
-  standalone repo; check with `git ls-remote --tags qmlkit`.
+  upstream repository instead of the published one. `release.yml` only exists in the
+  published repo; check with `git ls-remote --tags qmlkit`.
 
 - **The split branch will not push** — it is deterministic, so a rejected push means
   the remote has commits the split does not contain (someone committed directly to
-  the standalone repo). Reconcile there first; never force-push over it, because a
+  the published repo). Reconcile there first; never force-push over it, because a
   published tag must keep pointing at the commit that produced the artifact.

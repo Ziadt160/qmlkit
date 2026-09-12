@@ -589,12 +589,13 @@ exact overlap to machine precision:
 k = qk.probabilities(fm.build(x).compose(fm.adjoint(xp)))[0]   # P(all zeros) IS k(x, x')
 ```
 
-**`PauliFeatureMap` is the runnable version of the lecture's.** `Lecture3` cell 42
-calls `_basis(...)` and `_phi(...)`, neither of which is defined anywhere in that
-repository, so the cell cannot execute. Both are supplied here as `basis_change`
-and `default_data_map`, and the maps are tested against the analytic kernels they
-are supposed to induce — the angle map's `cos²((x−x')/2)`, the Z map's
-factorisation, and the ZZ map's failure to factorise.
+**`PauliFeatureMap` is built from its two pieces, and both are public.** A Pauli
+feature map needs a basis change that diagonalises each string and a data map that
+turns features into angles; they are usually left implicit inside one function. Here
+they are `basis_change` and `default_data_map`, so either can be replaced without
+rewriting the map — and the maps are tested against the analytic kernels they are
+supposed to induce rather than against themselves: the angle map's `cos²((x−x')/2)`,
+the Z map's factorisation, and the ZZ map's failure to factorise.
 
 **Amplitude encoding is built from uniformly-controlled rotations**, not a backend
 state-preparation primitive. So it emits only `ry`/`rz`/`cx`, runs identically on
@@ -631,8 +632,7 @@ qk.shots_for_precision(0.01)      # what a target precision actually costs
 | 6 · QCNN, QLSTM, MPS; QCBM, qGAN, QBM | **done** |
 | 7 · Docs, tutorials, `v0.1.0` on PyPI | docs and tutorials **done**; PyPI pending |
 
-Beyond `0.1.0`, in the order they are likely to matter: the seven lecture notebooks
-rebuilt on the library, a *mitigation verdict* (whether error mitigation improved an
+Beyond `0.1.0`, in the order they are likely to matter: a *mitigation verdict* (whether error mitigation improved an
 estimate or only traded bias for variance, on identical seeds with the shot cost
 stated — the implementations belong to [Mitiq](https://mitiq.readthedocs.io)),
 gradients through a noise channel, and batched/async submission for a real device.

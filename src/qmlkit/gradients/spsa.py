@@ -72,7 +72,8 @@ class SPSASchedule:
     ) -> None:
         self.a = a
         self.c = c
-        # the stability constant the lecture's version omits
+        # the stability constant most write-ups omit; without it the early steps
+        # are the largest, which is backwards
         self.A = A if A is not None else max(1.0, 0.1 * n_iterations)
         self.alpha = alpha
         self.gamma = gamma

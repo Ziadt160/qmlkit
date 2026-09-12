@@ -305,8 +305,8 @@ def effective_dimension(
 def generalization_bound(n_trainable_gates: int, n_samples: int, with_log: bool = True) -> float:
     r"""Expected generalization gap, ``O(sqrt(T log T / N))`` (Caro et al. 2022).
 
-    ``with_log=False`` drops the log factor for the simplified ``sqrt(T/N)`` form the
-    lectures use — convenient for teaching, but not the actual bound.
+    ``with_log=False`` drops the log factor for the simplified ``sqrt(T/N)`` form
+    often quoted — easier to reason about, but not the actual bound.
     """
     if n_samples <= 0:
         raise ValueError("n_samples must be positive")

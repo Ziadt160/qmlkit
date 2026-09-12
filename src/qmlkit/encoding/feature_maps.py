@@ -9,11 +9,11 @@ basis change that sends each Pauli to ``Z``. The default data map is the standar
 one: :math:`\phi_{\{i\}}(x) = x_i` for singletons and
 :math:`\phi_S(x) = \prod_{j \in S}(\pi - x_j)` for higher-order terms.
 
-**This module supplies the two helpers the lecture notebook is missing.**
-``Lecture3``'s ``pauli_feature_map`` calls ``_basis(...)`` and ``_phi(...)``; neither
-is defined anywhere in that repository, so the cell cannot run. Here they are
-:func:`basis_change` and :func:`default_data_map`, and the map is tested against
-the analytic kernel it is supposed to induce.
+A Pauli feature map needs two pieces that are usually left implicit: the basis
+change that diagonalises each Pauli string, and the data map that turns features into
+angles. Both are public here — :func:`basis_change` and :func:`default_data_map` — so
+either can be replaced without rewriting the map, and the map is tested against the
+analytic kernel it is supposed to induce rather than against itself.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ DataMap = Callable[[npt.NDArray[Any], tuple[int, ...]], float]
 
 
 # --------------------------------------------------------------------------- #
-# the two helpers Lecture 3 references but never defines
+# the two pieces a Pauli feature map needs, public so either can be swapped
 # --------------------------------------------------------------------------- #
 def default_data_map(x: npt.NDArray[Any], indices: tuple[int, ...]) -> float:
     """The standard data map: ``x_i`` for one index, ``prod(pi - x_j)`` for more.
@@ -193,7 +193,7 @@ class FeatureMap:
 # the Pauli family
 # --------------------------------------------------------------------------- #
 class PauliFeatureMap(FeatureMap):
-    """The general Pauli feature map — a runnable version of ``Lecture3`` cell 42.
+    """The general Pauli feature map, for any set of Pauli strings.
 
     Parameters
     ----------

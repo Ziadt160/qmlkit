@@ -6,6 +6,7 @@ circuit the library can build and shows exactly what a backend will run.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Sequence
 from typing import Any
 
@@ -16,6 +17,42 @@ from qmlkit.core.gates import get_gate
 from qmlkit.core.ir import CircuitSpec, ParamLike, ParamRef
 
 __all__ = ["draw", "specs"]
+
+#: The diagram's glyphs, and what they degrade to when the output stream cannot encode
+#: them. The ASCII forms are chosen to keep column widths identical so the fallback
+#: lines up exactly like the Unicode one.
+_ASCII = {
+    "\u2500": "-",  # horizontal wire
+    "\u2502": "|",  # vertical link between a control and its target
+    "\u2020": "+",  # the dagger in S-dagger / T-dagger
+    "\u03b8": "t",  # theta, in a parameter label
+    "\u00b7": "*",  # the multiplication dot in a scaled parameter
+    "\u2588": "#",  # the solid block in a probability histogram
+}
+
+
+def _stream_handles_unicode() -> bool:
+    """Whether stdout can encode the glyphs the diagram uses.
+
+    A Windows console defaults to cp1252 and encodes none of them. Checking beats
+    catching, because the failure happens at *print* time — inside the caller, with a
+    traceback that names the codec and not this module.
+    """
+    encoding = getattr(sys.stdout, "encoding", None)
+    if not encoding:
+        return False
+    try:
+        "".join(_ASCII).encode(encoding)
+    except (UnicodeEncodeError, LookupError):
+        return False
+    return True
+
+
+def _downgrade(text: str) -> str:
+    for glyph, plain in _ASCII.items():
+        text = text.replace(glyph, plain)
+    return text
+
 
 _LABEL = {
     "cx": "X",
@@ -40,10 +77,18 @@ def _cell(gate: str, params: Sequence[ParamLike]) -> str:
     return f"{name}({body})"
 
 
-def draw(spec: CircuitSpec, max_width: int = 160) -> str:
+def draw(spec: CircuitSpec, max_width: int = 160, ascii: bool | None = None) -> str:
     """A text diagram of the circuit.
 
     print(qk.draw(qk.hardware_efficient(3, 1).build()))
+
+    The diagram uses box-drawing glyphs. ``ascii=None`` (the default) checks whether
+    ``sys.stdout`` can encode them and degrades to ``-``, ``|`` and ``t`` when it
+    cannot: a Windows console defaults to cp1252, which encodes none of them, and
+    printing the result would otherwise raise ``UnicodeEncodeError`` from inside the
+    caller, with a traceback naming the codec rather than this function. Pass
+    ``ascii=True`` or ``ascii=False`` to decide for yourself. Column widths are
+    identical either way, so the fallback lines up exactly like the Unicode form.
     """
     n = spec.n_qubits
     # pack operations into columns so nothing overlaps on a wire
@@ -87,7 +132,9 @@ def draw(spec: CircuitSpec, max_width: int = 160) -> str:
     out = [w + "─" for w in wires]
     if max(len(line) for line in out) > max_width:
         out = [line[: max_width - 3] + "..." for line in out]
-    return "\n".join(out)
+    diagram = "\n".join(out)
+    plain = not _stream_handles_unicode() if ascii is None else ascii
+    return _downgrade(diagram) if plain else diagram
 
 
 def specs(spec: CircuitSpec) -> dict[str, object]:
@@ -109,7 +156,13 @@ def draw_ansatz(ansatz: object, max_width: int = 160) -> str:
     return draw(ansatz.build(), max_width)  # type: ignore[attr-defined]
 
 
-def probabilities_bar(probs: npt.NDArray[Any], n_qubits: int, top: int = 8, width: int = 30) -> str:
+def probabilities_bar(
+    probs: npt.NDArray[Any],
+    n_qubits: int,
+    top: int = 8,
+    width: int = 30,
+    ascii: bool | None = None,
+) -> str:
     """A text histogram of outcome probabilities — the most likely bitstrings."""
     p = np.asarray(probs, dtype=float).ravel()
     order = np.argsort(p)[::-1][:top]
@@ -119,4 +172,6 @@ def probabilities_bar(probs: npt.NDArray[Any], n_qubits: int, top: int = 8, widt
             continue
         bar = "█" * max(1, int(round(p[i] * width)))
         lines.append(f"  |{format(int(i), f'0{n_qubits}b')}>  {p[i]:.4f}  {bar}")
-    return "\n".join(lines)
+    histogram = "\n".join(lines)
+    plain = not _stream_handles_unicode() if ascii is None else ascii
+    return _downgrade(histogram) if plain else histogram

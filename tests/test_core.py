@@ -104,7 +104,7 @@ def test_n_qubits_for():
 
 # --------------------------------------------------------------- observables
 def test_multi_qubit_expectation_is_correct():
-    """The bug the per-lecture expz() had: dividing by n0 + n1 past one qubit."""
+    """The classic hand-rolled-expz bug: dividing by n0 + n1 past one qubit."""
     qc = qk.QCircuit(2)
     qc.h(0).cx(0, 1)  # Bell state
     spec = qc.to_spec()

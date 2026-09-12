@@ -34,9 +34,24 @@ wrong numbers. `gradient_variance` now warns when a variance is machine zero rat
 than small, and `AnsatzReport` probes the first parameter that actually moves the
 readout and names which one it used.
 
+**`print(qk.draw(spec))` crashed on a Windows console.** The diagram uses
+box-drawing glyphs and the default Windows code page is cp1252, which encodes none of
+them, so looking at a circuit raised `UnicodeEncodeError` from inside the caller with
+a traceback naming the codec rather than `draw`. It happened after the model had
+already trained, on the first thing a new user does, on the platform where it breaks.
+`draw` and `probabilities_bar` now check whether `sys.stdout` can encode what they are
+about to return and degrade to ASCII when it cannot, at identical column widths;
+`ascii=True`/`False` overrides the detection.
+
 ### Changed - documentation
 
 - The README leads with what the library is *for* rather than what category it is in.
+- `adjoint` vs `backprop` is now measured in the gradient guide. The intuition travels
+  badly between libraries: where every circuit evaluation goes through a dispatch
+  layer, `backprop` can be dramatically faster because it pays that cost once rather
+  than once per parameter. qmlkit's adjoint is a direct NumPy sweep with no dispatch to
+  amortise, so the ranking inverts and adjoint wins by 3-4.5x standalone, more when
+  batched. `method="auto"` already picks it.
 - `QuantumKernel.bandwidth` is documented. It is the first thing to reach for when a
   kernel has concentrated, and it had no prose anywhere — only a default in a
   signature.
@@ -518,9 +533,9 @@ can be trusted or reproduced.
 ### Added — Phase 2: the encoding layer
 
 - **`PauliFeatureMap`**, with `ZFeatureMap` and `ZZFeatureMap` on top of it — and the
-  two helpers `Lecture3` cell 42 references but never defines, `basis_change` (`_basis`)
-  and `default_data_map` (`_phi`). That cell cannot run as written; this one is tested
-  against the analytic kernels each map induces.
+  two pieces such a map needs made public, `basis_change` and `default_data_map`, so
+  either can be swapped without rewriting the map. Tested against the analytic kernels
+  each map induces rather than against itself.
 - **`amplitude_encode`**, built from uniformly-controlled rotations rather than a
   backend state-preparation primitive. Emits only `ry`/`rz`/`cx`, so it runs identically
   on every backend and its exponential cost is visible. Handles real, signed and complex
@@ -559,7 +574,7 @@ faster at `P=20` and 64× at `P=120`. Requires closed-form gate derivatives, whi
 now declared on every parameterised gate and verified against finite differences.
 
 **SPSA** — two evaluations per gradient whatever `P` is, with Spall's decay schedules
-including the stability constant `A` the lecture version omits. `minimize_spsa` for the
+including the stability constant `A` that most write-ups omit. `minimize_spsa` for the
 optimisation loop.
 
 **One `grad()` with a method registry.** `method="auto"` picks adjoint when every gate
@@ -571,7 +586,7 @@ everywhere the library takes `method=`.
 
 - `QuantumFunction` / `QuantumLayer` — a circuit as an `nn.Module`. **Inputs receive
   gradients**, so a classical layer placed before the quantum one actually trains; this
-  is the Lecture 6 dressed-circuit defect, now fixed and asserted by test. `df/dx`
+  closes the frozen-pre-net defect, asserted by test. `df/dx`
   through a *nonlinear* feature map works by differentiating the circuit with respect
   to its encoding angles and finishing the chain rule classically — no circuits spent
   on the classical half.

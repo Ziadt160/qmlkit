@@ -32,7 +32,7 @@ def fidelity(spec_a, spec_b) -> float:
 @pytest.mark.parametrize(
     "vec",
     [
-        [1, 2, 3, 4],  # the Lecture 3 example
+        [1, 2, 3, 4],  # four features, two of them repeated in the higher-order terms
         [1, 0, 0, 0],
         [0, 1],
         [1, -2, 3, -4],  # signed
@@ -107,7 +107,7 @@ def test_state_preparation_angles_skip_the_phase_cascade_for_real_data():
 
 
 # --------------------------------------------------------------------------- #
-# the helpers Lecture 3 references but never defines
+# the two pieces a Pauli feature map needs, public so either can be swapped
 # --------------------------------------------------------------------------- #
 def test_default_data_map_matches_the_standard_convention():
     x = np.array([0.3, 1.2, 2.0])
@@ -150,7 +150,7 @@ def test_pauli_terms_expansion():
 
 
 def test_pauli_feature_map_runs_at_all():
-    """Lecture 3's version cannot: it calls _basis and _phi, which do not exist."""
+    """Both helpers are public, so the map can be built from its pieces."""
     fm = qk.PauliFeatureMap(3, paulis=("Z", "ZZ"), reps=2)
     spec = fm.build([0.3, 0.8, 1.4])
     assert spec.n_qubits == 3
@@ -161,7 +161,7 @@ def test_pauli_feature_map_runs_at_all():
 # feature maps, checked against the kernels they induce
 # --------------------------------------------------------------------------- #
 def test_angle_map_kernel_is_cos_squared_half_delta():
-    """The one-qubit analytic result the whole of Lecture 4 is built on."""
+    """The one-qubit analytic result every quantum-kernel derivation starts from."""
     fm = qk.AngleFeatureMap(1, entangle=False)
     for x, xp in [(0.0, 0.0), (0.0, np.pi / 2), (0.0, np.pi), (0.4, 1.9)]:
         k = fidelity(fm.build([x]), fm.build([xp]))
@@ -238,7 +238,7 @@ def test_reps_increase_depth_but_not_width():
 # --------------------------------------------------------------------------- #
 # Hamiltonian encoding
 # --------------------------------------------------------------------------- #
-def test_trotter_angles_match_the_lecture_formulas():
+def test_trotter_angles_match_the_closed_form():
     assert qk.encoding.trotter_rz_angle(0.7, 4.0, 8) == pytest.approx(2 * 0.7 * 4.0 / 8)
     assert qk.encoding.trotter_zz_angle(0.7, 1.3, 4.0, 8) == pytest.approx(2 * 0.7 * 1.3 * 4.0 / 8)
 

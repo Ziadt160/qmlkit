@@ -69,7 +69,7 @@ def test_inversion_and_swap_estimators_match_the_exact_overlap(fmap):
 
 
 def test_one_qubit_angle_kernel_is_cos_squared():
-    """The analytic result the whole of Lecture 4 is built on."""
+    """The analytic result every quantum-kernel derivation starts from."""
     fm = qk.AngleFeatureMap(1, entangle=False)
     for dx in (0.0, np.pi / 2, np.pi, 1.3):
         assert fidelity_kernel(fm, [0.0], [dx]) == pytest.approx(np.cos(dx / 2) ** 2, abs=1e-10)
