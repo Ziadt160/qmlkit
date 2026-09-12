@@ -18,7 +18,7 @@ from numpy.typing import ArrayLike
 from qmlkit.core.backends.base import Backend
 from qmlkit.core.backends.registry import get_backend
 from qmlkit.core.ir import CircuitSpec
-from qmlkit.core.observables import Observable, Z
+from qmlkit.core.observables import Observable, Z, iter_terms
 from qmlkit.utils.shots import standard_error
 
 BackendLike = str | Backend | None
@@ -116,7 +116,20 @@ def expectation(
         return value
     if shots is None:
         return value, 0.0
-    return value, standard_error(value, shots)
+    # The single-Pauli formula `sqrt((1 - z^2)/shots)` is wrong for a sum, and wrong
+    # in the worst direction: it reports exactly zero once |<O>| reaches 1, so every
+    # molecular Hamiltonian used to come back with an error bar of +-0.00000 that did
+    # not move with the shot count. The backend computes the real thing.
+    device = get_backend(backend)
+    prepared = _prepare(spec, theta)
+    try:
+        single_shot_variance = device.expectation_variance(prepared, obs)
+    except ValueError:
+        # a sampling-only device: fall back to the single-term formula, which is
+        # exact when there is one term and a bound otherwise
+        scale = sum(abs(float(t.coeff.real)) for t in iter_terms(obs))
+        return value, standard_error(value, shots, scale=scale)
+    return value, float(np.sqrt(single_shot_variance / shots))
 
 
 def expectation_batch(

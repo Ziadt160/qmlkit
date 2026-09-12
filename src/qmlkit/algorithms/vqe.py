@@ -45,6 +45,12 @@ def _spsa(loss, theta0, **kw):  # type: ignore[no-untyped-def]
     return minimize_spsa(loss, theta0, **kw)
 
 
+def _adam(loss, theta0, *, grad, **kw):  # type: ignore[no-untyped-def]
+    from qmlkit.optim import minimize_adam
+
+    return minimize_adam(loss, theta0, grad, **kw)
+
+
 def _gradient_descent(loss, theta0, *, grad, n_steps=100, lr=0.1, **kw):  # type: ignore[no-untyped-def]
     theta = np.asarray(theta0, dtype=float).copy()
     history = [float(loss(theta))]
@@ -58,6 +64,7 @@ OPTIMIZERS: dict[str, Optimizer] = {
     "rotosolve": _rotosolve,
     "spsa": _spsa,
     "gradient-descent": _gradient_descent,
+    "adam": _adam,
 }
 
 

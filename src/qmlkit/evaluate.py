@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -40,6 +40,8 @@ import numpy.typing as npt
 __all__ = [
     "Scores",
     "classification",
+    "selective",
+    "risk_coverage",
     "regression",
     "clustering",
     "generative",
@@ -102,8 +104,27 @@ class Scores:
     def items(self) -> Any:
         return self.values.items()
 
-    def get(self, key: str, default: float | None = None) -> float | None:
-        return self.values.get(key, default)
+    _MISSING: ClassVar[object] = object()
+
+    def get(self, key: str, default: Any = _MISSING) -> float | None:
+        """The metric, or ``default``.
+
+        An explicit ``default`` is honoured without comment - the caller has said what
+        they want when the key is absent. Without one, a key that *nearly* matches a
+        real metric is answered the way ``scores[key]`` answers it, rather than with
+        ``None``: ``get("precision")`` on a classification report is a reach for
+        ``precision_macro``, and returning ``None`` there turns a typo into a
+        ``TypeError`` raised much later from inside numpy.
+        """
+        if key in self.values:
+            return self.values[key]
+        if default is not Scores._MISSING:
+            return cast("float | None", default)
+        from qmlkit.utils.errors import did_you_mean
+
+        if did_you_mean(key, self.values):
+            return self[key]  # __getitem__ raises with the suggestion
+        return None
 
     @property
     def score(self) -> float:
@@ -237,6 +258,11 @@ def _brier(onehot: Array, proba: Array) -> float:
     if p.shape[1] == 2:
         return float(np.mean((p[:, 1] - onehot[:, 1]) ** 2))
     return float(np.mean(np.sum((p - onehot) ** 2, axis=1)))
+
+
+#: Coverage below which a selective accuracy is close to free: abstaining more
+#: raises it monotonically, so the number stops being about the model.
+_LOW_COVERAGE = 0.5
 
 
 def classification(
@@ -394,6 +420,158 @@ def classification(
 # --------------------------------------------------------------------------- #
 # regression
 # --------------------------------------------------------------------------- #
+def selective(
+    y_true: Any,
+    y_pred: Any,
+    abstain: Any = None,
+    labels: Sequence[Any] | None = None,
+) -> Scores:
+    r"""Metrics for a classifier that is allowed to decline.
+
+    An abstaining classifier answers some samples and refuses the rest. Its accuracy
+    is therefore measured on a *subset it chose*, and comparing that number against a
+    classifier which answered everything is not a comparison at all — it is the
+    single most effective way to make a weak model look strong, because raising the
+    abstention threshold raises accuracy monotonically until one sample is left.
+
+    So this reports both halves and refuses to let the first be quoted alone:
+
+    ``coverage``
+        Fraction of samples answered.
+    ``selective_accuracy``
+        Accuracy among the answered — the number that is *not* comparable across
+        different coverages.
+    ``selective_risk``
+        ``1 - selective_accuracy``.
+    ``accuracy``
+        Accuracy over *everything*, counting an abstention as wrong. Pessimistic, and
+        the one number that is directly comparable to a model with no reject option.
+    ``full_coverage_equivalent``
+        The accuracy a model answering everything would need in order to match this
+        one's selective risk on the covered part. Quote this when comparing against a
+        baseline that cannot abstain.
+
+    Parameters
+    ----------
+    y_true, y_pred:
+        Labels, matched by value.
+    abstain:
+        The value in ``y_pred`` meaning "declined". ``None`` (the default) treats
+        ``None`` entries, and NaN in a numeric array, as abstentions.
+    labels:
+        Optional fixed class order, for when a fold is missing a class.
+
+    Examples
+    --------
+    >>> import numpy as np, qmlkit as qk                        # doctest: +SKIP
+    >>> qk.evaluate.selective([0, 1, 0, 1], [0, 1, None, 0]).score   # doctest: +SKIP
+    """
+    truth = _as_labels(y_true, "y_true")
+    predicted = np.asarray(y_pred, dtype=object).ravel()
+    _check_same_length(truth, predicted)
+
+    declined = _abstentions(predicted, abstain)
+    n = int(truth.size)
+    n_answered = int((~declined).sum())
+    coverage = n_answered / n if n else 0.0
+
+    if n_answered:
+        inner = classification(truth[~declined], predicted[~declined], labels=labels)
+        selective_accuracy = float(inner["accuracy"])
+        balanced = float(inner["balanced_accuracy"])
+    else:
+        selective_accuracy = balanced = 0.0
+
+    values = {
+        "coverage": coverage,
+        "selective_accuracy": selective_accuracy,
+        "selective_risk": 1.0 - selective_accuracy,
+        "selective_balanced_accuracy": balanced,
+        "accuracy": selective_accuracy * coverage,
+        "n_answered": float(n_answered),
+        "n_declined": float(n - n_answered),
+        "full_coverage_equivalent": selective_accuracy * coverage,
+    }
+
+    notes: list[str] = []
+    if coverage < 1.0:
+        notes.append(
+            f"selective_accuracy {selective_accuracy:.3f} is measured on "
+            f"{coverage:.1%} of the data ({n_answered} of {n}). It is not comparable "
+            f"to a classifier that answered everything; that one needs "
+            f"{values['full_coverage_equivalent']:.3f} to match, which is 'accuracy' here."
+        )
+    if coverage < _LOW_COVERAGE:
+        notes.append(
+            f"coverage is only {coverage:.1%}: raising an abstention threshold raises "
+            "selective accuracy monotonically, so a high number at low coverage is "
+            "close to free. Report the risk-coverage curve, not a single point."
+        )
+    if n_answered == 0:
+        notes.append("the classifier declined every sample, so there is nothing to score")
+
+    return Scores(
+        task="selective-classification",
+        values=values,
+        primary="accuracy",
+        n_samples=n,
+        notes=tuple(notes),
+        extras={"coverage": coverage},
+    )
+
+
+def risk_coverage(
+    y_true: Any,
+    y_pred: Any,
+    confidence: Any,
+    n_points: int = 20,
+) -> dict[str, Any]:
+    """The accuracy an abstaining classifier reaches at every coverage it could pick.
+
+    A single ``(coverage, accuracy)`` pair says nothing on its own, because the
+    threshold that produced it was chosen. Sweeping the threshold shows the whole
+    trade and makes two models comparable at equal coverage.
+
+    ``aurc`` — area under the risk-coverage curve — summarises it in one number that
+    is *not* gameable by abstaining more: lower is better, and a model that abstains
+    its way to a high selective accuracy pays for it in the low-coverage region.
+
+    Returns ``coverage``, ``risk`` and ``threshold`` arrays plus ``aurc``.
+    """
+    truth = _as_labels(y_true, "y_true")
+    predicted = _as_labels(y_pred, "y_pred")
+    scores = np.asarray(confidence, dtype=float).ravel()
+    _check_same_length(truth, predicted)
+    _check_same_length(truth, scores)
+
+    order = np.argsort(-scores, kind="mergesort")
+    wrong = (truth[order] != predicted[order]).astype(float)
+    n = truth.size
+    cumulative_risk = np.cumsum(wrong) / np.arange(1, n + 1)
+    cumulative_coverage = np.arange(1, n + 1) / n
+
+    take = np.unique(np.linspace(0, n - 1, min(n_points, n)).astype(int))
+    # trapezoid by hand: np.trapezoid is NumPy 2 only and np.trapz is gone in NumPy 2,
+    # so neither name works across the versions this package supports
+    widths = np.diff(cumulative_coverage)
+    heights = (cumulative_risk[1:] + cumulative_risk[:-1]) / 2.0
+    aurc = float(np.sum(widths * heights))
+    return {
+        "coverage": cumulative_coverage[take],
+        "risk": cumulative_risk[take],
+        "threshold": scores[order][take],
+        "aurc": aurc,
+    }
+
+
+def _abstentions(predicted: npt.NDArray[Any], abstain: Any) -> npt.NDArray[Any]:
+    """Which predictions are a refusal to answer."""
+    if abstain is None:
+        out = np.array([p is None or (isinstance(p, float) and np.isnan(p)) for p in predicted])
+        return out
+    return np.array([p == abstain for p in predicted])
+
+
 def regression(y_true: Any, y_pred: Any) -> Scores:
     """Every regression metric worth reporting, with R2 as the primary."""
     truth = np.asarray(y_true, dtype=float).ravel()

@@ -24,11 +24,23 @@ def variance(z: float) -> float:
     return float(1.0 - np.clip(z, -1.0, 1.0) ** 2)
 
 
-def standard_error(z: float, shots: int) -> float:
-    """Standard error of an expectation estimated from ``shots`` samples."""
+def standard_error(z: float, shots: int, scale: float = 1.0) -> float:
+    """Standard error of a **single** Pauli term's expectation over ``shots`` samples.
+
+    ``scale`` is the term's coefficient: ``(cP)^2 = c^2 I``, so the variance is
+    ``c^2 - z^2`` and the error scales with ``|c|``.
+
+    This formula is only correct for one term. A sum needs ``<O^2>``, which is a
+    different measurement and not recoverable from ``<O>`` — feeding a sum in here
+    gives an error bar that is too tight, too loose, or exactly zero once ``|<O>|``
+    reaches ``|c|``. :func:`~qmlkit.core.execute.expectation` checks the observable
+    before calling this.
+    """
     if shots <= 0:
         raise ValueError("shots must be positive")
-    return float(np.sqrt(variance(z) / shots))
+    magnitude = abs(float(scale))
+    spread = max(magnitude**2 - float(z) ** 2, 0.0)
+    return float(np.sqrt(spread / shots))
 
 
 def shots_for_precision(eps: float, z: float = 0.0) -> int:
