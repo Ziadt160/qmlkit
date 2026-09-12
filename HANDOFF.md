@@ -141,68 +141,209 @@ Emitted as `Sd·CX·S`. Its simulator also carries a `1e-10` precision floor.
 
 ## What to do next
 
-### 1. Release 0.1.1 - the encoding defect is the reason it exists
+Revised 2026-09-13, after surveying what users actually complain about in PennyLane
+(their forum, and 134 open `bug`-labelled issues on their tracker). Most of those
+complaints this library already answers. The ranking below is what is *missing*, and
+the ordering is: unblock, then build the substrate, then build on it.
 
-0.1.0 is on PyPI. 0.1.1 is prepared here and **not yet tagged**: it fixes a
-composition the README recommended that built the wrong circuit without raising,
-and fills in the observable arithmetic that identity-shifted cost functions need.
-The changelog entry has the whole account.
+**The standing warning still applies.** 190+ exports, one author, and the bottleneck
+stopped being capability several releases ago. Items 2-6 are mostly *honesty layer*
+rather than new capability surface, which is the only kind of growth this library can
+afford. Where an item is pure capability (threads, GPU), keep it as small as it can be.
+
+### 1. Release 0.1.1 - nothing below is reachable until this ships
+
+0.1.0 is on PyPI and `git ls-remote --tags qmlkit` shows only `v0.1.0`. 0.1.1 is
+prepared here and **not yet tagged**: it fixes a composition the README recommended
+that built the wrong circuit without raising, and fills in the observable arithmetic
+that identity-shifted cost functions need. The changelog entry has the whole account.
 
 Everything on this side is ready, verified 2026-09-12: 1340 tests green on 3.14 and
 909 on SpinQit's 3.10, `ruff check`, `ruff format --check` and `mypy` clean over the
 whole package, `mkdocs build --strict` clean, the wheel builds and `twine check`
 passes, and a clean venv installing only the wheel pulls in **numpy and nothing else**
-before `verify_install.py` passes.
+before `verify_install.py` passes. Re-date the changelog if tagging later.
 
-**The tag goes on the subtree-split commit, not on this repository.** There are two:
-`qmlkit/` here is the source of truth, and the standalone repo is a
-`git subtree split` of it. `release.yml` only exists in the published one, so
-`git push origin main --tags` tags the upstream repository and triggers nothing.
-`RELEASING.md` has the procedure and what to do when it goes wrong; it now names
-`v0.1.1`.
+**The tag goes on the subtree-split commit, not on this repository.** `release.yml`
+only exists in the published one, so `git push origin main --tags` tags the upstream
+repository and triggers nothing. `RELEASING.md` has the procedure; it names `v0.1.1`.
 
 **A PyPI version number can never be reused**, so the tag is deliberately not pushed
-until the release is wanted. If the Trusted Publishing setup from 0.1.0 is still in
-place, pushing `v0.1.1` is the whole procedure.
+until the release is wanted.
 
-### 2. Real users — the only thing that can calibrate the thresholds
+This is also a positioning blocker, not only an engineering one. The published version
+returns a silent wrong number, and a library whose pitch is *refuses a plausible wrong
+number* cannot be promoted in that state.
 
-The highest-value item after PyPI, and it is not a feature. Several judgement calls are
-baked in and none has been exercised by anyone who did not write them: the thresholds in
-`qmlkit.diagnostics` (`_FLAT`, `_CONCENTRATED`), the imbalance cutoff in
+### 2. The run record - one substrate, three features on top
+
+`provenance.py` records a `Fingerprint`: everything that could change a number, at one
+instant. What does not exist is the *trajectory* - what happened during the run. Note
+that `VQC.fit` already keeps `self.history_` (per-epoch loss) and **nothing reads it**.
+
+Build a structured, JSON-serialisable run record: config and fingerprint, then per
+epoch the loss, gradient norm, parameter norm, and a prediction summary; plus the
+resources actually used. Items 3 and 4 both consume it, and reproduction needs it
+(there is no `serialize.py` either).
+
+Three constraints, and they are what make this worth doing rather than a log dump:
+
+- **Recording must not change the numbers.** Assert it: a run with recording on and
+  one with it off must agree exactly, seeded.
+- **Recording must be cheap.** Per-step logging that slows training would be absurd
+  given that the loudest complaint about the competition is speed. Levels and
+  sampling, with the default cheap.
+- **The record is complete; the report is selective.** "Log everything" as a raw dump
+  is the opposite of this library's style, which is to name the finding and the edit
+  that fixes it. Keep the full record machine-readable, and render a report that
+  answers questions rather than printing the record back.
+
+No new dependencies - core stays NumPy-only.
+
+### 3. Post-run diagnosis - the highest-volume complaint in the field
+
+`diagnose()` takes an `Ansatz` or a Gram matrix. It answers *is this architecture
+broken* before the run. Every "my model doesn't learn" thread is the other question:
+*it trained, and the accuracy is 0.5.* That thread type is the most common on
+PennyLane's forum and no QML library answers it.
+
+Extend to `diagnose(model, X, y)` / `diagnose(run)`:
+
+| Code | Catches |
+|---|---|
+| `QUANTUM_LAYER_BYPASSED` | the classical head alone scores the same - an ablation |
+| `PREDICTIONS_CONSTANT` | one class for every input, so accuracy sits at the prior |
+| `THRESHOLD_DEGENERATE` | loss falls but accuracy does not - scores all one side of the cut |
+| `OUTPUT_RANGE_COLLAPSED` | the quantum layer's output range is too small to use |
+| `WEIGHTS_DID_NOT_MOVE` | parameters unchanged since init - learning rate, or a detached graph |
+| `LOSS_FLAT` | `history_` plateaued from the first epoch |
+
+The first two need only a trained model and data, so they can ship before item 2. The
+last two need the run record.
+
+`QUANTUM_LAYER_BYPASSED` is the one to build first: "it works fine without the quantum
+layer" recurs on that forum, `qk.baseline` does **not** answer it (that compares
+against classical estimators on identical folds, which is a different question from
+ablating the quantum layer inside the user's own hybrid model), and it is the most
+uncomfortable finding the library could ship - which is the point.
+
+**Test discipline, non-negotiable.** Construct a model that genuinely has each defect
+and assert the finding is *true*, not that it *fired*. The old diagnostics tests
+asserted firing, and that is exactly how three wrong findings survived. A false
+positive in the honesty layer is worse than a false negative.
+
+These run on trained models with real data, so they will be noisier than the
+structural probes, which are exact. Budget for calibration, and cut a finding that
+cannot be made reliable rather than shipping it at warning severity.
+
+### 4. Resource planning, and recommending a backend
+
+`budget.Plan` reports circuits and wall-clock at a given seconds-per-circuit. It never
+reports **bytes**, and memory is the complaint that ends runs: 7 qubits with 30-40
+parameters reported at 7-8 GB under backprop, kernels dying at 20 qubits.
+
+Two parts:
+
+- **Bytes in `plan()`** - statevector, batch fan-out, and the chosen gradient method.
+  `adjoint` being the default is what avoids the blowup, and nothing currently *says*
+  so; a user learns it only after already choosing this library.
+- **`recommend()`** - given qubits, shots, gradient method, noise and available RAM,
+  which *installed* backend fits, its projected peak memory, and what will fail and
+  why. The refusals are worth as much as the picks.
+
+This is the strongest of the newer ideas: it is honesty-layer work rather than feature
+chasing, and nobody ships it.
+
+### 5. Parallelism - the "12% CPU" complaint, answered correctly
+
+Users report 10-20% CPU during training and conclude the library is single-threaded.
+It is, but **threads are the wrong cure and adding them would not help**. At 6-12
+qubits the statevector is kilobytes to a few megabytes, far below where NumPy or BLAS
+threading pays for itself; the bottleneck is Python-level dispatch per circuit. 12% is
+one core of eight, and one core is all the work there is.
+
+Confirmed absent from `src/`: no `multiprocessing`, `joblib`, `concurrent.futures`,
+thread pool, or `n_jobs` anywhere.
+
+In priority order:
+
+1. **Say it.** A dispatch-bound diagnostic - "6 qubits, 4000 circuits, one at a time;
+   more threads will not help, batching will, here is the call." Cheapest item here
+   and worth more than the knob, because the user's own conclusion is wrong.
+2. **Process-level fan-out over independent work**, where real cores do help: kernel
+   Gram blocks, CV folds, `search()` configurations, multi-seed runs, and
+   parameter-shift shifts on backends that cannot batch. One `n_jobs` convention
+   everywhere, default serial.
+3. **BLAS thread control**, once 2 exists, so that processes times BLAS threads stop
+   oversubscribing. Classic slowdown, and it will appear as soon as fan-out lands.
+
+Remember `NumpyBackend.batch_max_qubits` (default 10): batching *loses* above the
+10-11 qubit crossover, so any recommendation here has to respect it rather than
+assume batching is always the answer. Do not raise it without re-measuring.
+
+GPU stays out of scope. It is lost on headcount and costs nothing strategically.
+
+### 6. The conformance contract - "runs on anything" without shipping hardware
+
+The architecture is already device-generic and this is under-claimed:
+`param_shift_grad_batch` never inspects a state, routes through
+`Backend.expectation_over_slots`, and works on a sampling-only device;
+`examples/toward_hardware.py` is a mock QPU with no statevector at all.
+
+What is missing is the *contract* that lets someone else prove their backend works.
+Verified absent: there is **no `plugins.py`, no `serialize.py`, and no
+`qmlkit/testing/`**, despite a note elsewhere claiming they landed. They never did.
+
+- **Entry-point discovery**, so a third-party backend is installable and found
+- **A conformance suite that ships inside the package**, runnable as
+  `python -m qmlkit.testing --backend=...`, so conformance is demonstrable rather
+  than asserted
+- **Capability declarations** already exist in spirit (`supports_exact`,
+  `supports_statevector`); make them the thing the suite checks
+
+This is the sole-author-compatible version of "generic for any simulator or QPU": ship
+the contract, not the hardware. **0.x stays simulator-only for shipped backends** -
+real devices break exact-by-default, refuse adjoint and backprop, and drag in queues,
+credentials, native gate sets and mitigation. Revisit for 1.0.
+
+Whenever a backend gains or loses a capability, sweep the public API against it. The
+noisy backends broke `diagnose()`, `expressibility`, `entangling_capability`,
+`fidelity_samples`, `metric_tensor` and `qng_step`, and the test suite did not notice.
+
+### 7. A stability promise with teeth
+
+PennyLane ships ~4 releases a year with a 1-2 release deprecation window - under six
+months from deprecated to removed, 11 pending removals in v0.46 alone - and "my code
+broke on upgrade" is a constant on their forum. A research user's paper outlives that
+window.
+
+`docs/about/stability.md` already states what is and is not promised. Add an explicit
+policy: a minimum deprecation window in *months*, what the promise covers, what it does
+not. Cheap, and structurally unmatchable by a vendor shipping at that cadence.
+
+### 8. Real users - the only thing that can calibrate the thresholds
+
+Still the highest-value non-feature item, and items 3 and 4 add to the pile: the
+thresholds in `qmlkit.diagnostics` (`_FLAT`, `_CONCENTRATED`), the imbalance cutoff in
 `qmlkit.imbalance`, the fold-spread verdict rule in `baselines` and `search`, and the
-prune levels in `qmlkit.search`. Every one is one person's opinion until somebody else
-runs it and disagrees.
+prune levels in `qmlkit.search` are each one person's opinion until somebody else runs
+them and disagrees.
 
-Putting the library in front of a cohort — anyone solving whole problems with it rather
-than reading it — is what turns those into calibrated numbers.
+### 9. Smaller, worth doing
 
-**Resist adding features before that happens.** The library is 190+ exports maintained
-by one author, and the bottleneck stopped being capability several releases ago.
-
-### 3. Batched submission on a real device
-
-`Backend.expectation_over_slots` is now the single call a provider would turn into a
-job, and `param_shift_grad_batch` routes a whole batch's gradient through it without
-ever inspecting a state — so the protocol change is made. What remains is a backend
-that submits a *list* and polls, plus async. Those two are the items in
-`examples/toward_hardware.py` that would still change the `Backend` protocol.
-
-### 4. Smaller, worth doing
-
-- A benchmark suite with published reference numbers — what makes a library citable
-- **Noise**: `cirq-density` and `qiskit-aer` evolve a density matrix (see
-  `docs/guides/noise.md`). Neither differentiates *through* the channel - parameter-shift
-  only - which is the one place PennyLane's `default.mixed` is ahead. The `diagnose()`
-  thresholds are still calibrated on exact gradients and will over-fire under shot noise
-- **A mitigation verdict**, not a mitigation implementation: whether mitigation improved
-  an estimate or only traded bias for variance, on identical seeds with the shot cost
-  stated. That is `qk.baseline`'s shape pointed at a new question. The implementations
-  belong to Mitiq and QEC belongs to Stim
+- A benchmark suite with published reference numbers - what makes a library citable
+- **Noise**: neither density-matrix backend differentiates *through* the channel -
+  parameter-shift only - which is the one place PennyLane's `default.mixed` is ahead.
+  The `diagnose()` thresholds are calibrated on exact gradients and over-fire under
+  shot noise
+- **A mitigation verdict**, not a mitigation implementation: whether mitigation
+  improved an estimate or only traded bias for variance, on identical seeds with the
+  shot cost stated. That is `qk.baseline`'s shape pointed at a new question. The
+  implementations belong to Mitiq and QEC belongs to Stim
 - `QLSTMCell` gate-level circuits and `QGAN` generator/discriminator still take their
   defaults less flexibly than the convention above wants
-- Hardware: batched submission and async jobs are the two gaps that would change the
-  `Backend` protocol; see `examples/toward_hardware.py`, which states the rest
+- Async job submission, the other protocol-changing hardware gap; see
+  `examples/toward_hardware.py`
 
 ---
 
@@ -228,8 +369,15 @@ pytest tests/test_pennylane_parity.py    # 301 cross-validation cases
 - **301 parity cases against PennyLane**, including randomised circuit fuzzing over the
   whole gate set. Four genuine convention differences surfaced and are each pinned by a
   test — see `docs/about/validation.md`.
-- **Faster on 14/14 benchmarked operations**, median 6.1×. Sections 1–4 are dispatch
-  overhead and narrow with qubit count; the metric tensor is algorithmic and widens.
+- **Faster on 13/14 benchmarked operations**, median **1.7×** — against PennyLane's
+  *fastest* configuration (`lightning.qubit`, and the O(P) `adjoint_metric_tensor`
+  rather than the O(P²) Hadamard-test one). Never quote the `default.qubit` column:
+  the older "14/14, median 6.1×" was measured against it and is not a fair comparison.
+  Expectation and gradient rows are dispatch overhead and narrow to a tie by 8 qubits;
+  the two real results are the **kernel Gram matrix at 69×** and the **metric tensor at
+  105× (P=24)**, which is algorithmic and *widens* with parameter count. JAX is not
+  installed on the benchmark machine, so jit-compiled PennyLane is untested and
+  unclaimed. `docs/about/validation.md` has the table.
 - **H₂ exact** — 0.00000 mHa across the whole dissociation curve, from one ADAPT-selected
   operator, against a Hamiltonian computed here from STO-3G integrals.
 - **Both ML experiments lose to logistic regression** (97.8% vs 99.7% on MNIST; 89.5% vs
