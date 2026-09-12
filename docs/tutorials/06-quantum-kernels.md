@@ -54,6 +54,12 @@ The Hadamard test is the odd one out on purpose: it estimates the **signed** inn
 product `Re⟨φ(x')|φ(x)⟩`, not its square. Use it when the sign carries information;
 use `fidelity_kernel` otherwise, since it needs the fewest qubits and no ancilla.
 
+As a *kernel*, `QuantumKernel(fmap, estimator="hadamard")` runs it **twice** — once
+for the real part, once (with an `Sdg` on the ancilla) for the imaginary one — and
+returns `Re² + Im²`, which is the same `|⟨φ(x')|φ(x)⟩|²` the other two estimate. One
+Hadamard test measures one *component* of a complex overlap, so the modulus costs two
+circuits, and `kernel.n_evaluations` counts both.
+
 ## A Gram matrix
 
 ```python

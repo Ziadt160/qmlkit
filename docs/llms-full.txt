@@ -1515,6 +1515,12 @@ The Hadamard test is the odd one out on purpose: it estimates the **signed** inn
 product `Re⟨φ(x')|φ(x)⟩`, not its square. Use it when the sign carries information;
 use `fidelity_kernel` otherwise, since it needs the fewest qubits and no ancilla.
 
+As a *kernel*, `QuantumKernel(fmap, estimator="hadamard")` runs it **twice** — once
+for the real part, once (with an `Sdg` on the ancilla) for the imaginary one — and
+returns `Re² + Im²`, which is the same `|⟨φ(x')|φ(x)⟩|²` the other two estimate. One
+Hadamard test measures one *component* of a complex overlap, so the modulus costs two
+circuits, and `kernel.n_evaluations` counts both.
+
 ## A Gram matrix
 
 ```python
@@ -2335,14 +2341,18 @@ difference:
 ```python
 classical = np.exp(-0.5 * ((X[:60, None, :] - X[None, :60, :]) ** 2).sum(-1))
 g = qk.geometric_difference(classical, gram)
-print(f"g(K_classical, K_quantum) = {g:.1f}")
-print("large -> a geometry the RBF kernel cannot reach" if g > 10
-      else "small -> the classical kernel already spans this")
+bar = np.sqrt(len(gram))          # Huang et al.'s threshold, not a number chosen here
+print(f"g(K_classical, K_quantum) = {g:.3g}   (bar: sqrt(N) = {bar:.2f})")
+print("above the bar -> a geometry the RBF kernel cannot reach" if g > bar
+      else "below the bar -> the classical kernel already spans this")
 ```
 
-Huang et al.'s statistic: large means the two kernels induce genuinely different
-geometries, so a separation is at least *possible*. Small means it is not, whatever
-the accuracy table later says.
+Huang et al.'s statistic, and their bar: `g` above `sqrt(N)` means the two kernels
+induce genuinely different geometries, so a separation is at least *possible*. Below
+it means the classical kernel already sees everything the quantum one does, whatever
+the accuracy table later says. Identical kernels give exactly 1, which is what makes
+the scale readable — the threshold is the caller's to apply rather than folded into
+the number.
 
 ## Both at once
 
@@ -5127,8 +5137,11 @@ class QuantumKernel(feature_map: 'FeatureMap', estimator: 'str' = 'inversion', s
     estimator
         How the overlap is measured. ``"inversion"`` (the default) runs the
         compute-uncompute circuit and reads the all-zeros probability; ``"swap"``
-        uses a swap test; ``"hadamard"`` a Hadamard test, squared. They agree on a
-        simulator and differ in width and circuit count on a device.
+        uses a swap test; ``"hadamard"`` runs **two** Hadamard tests and adds the
+        squares of the real and imaginary parts, because one Hadamard test measures
+        one component of a complex overlap and the kernel is its modulus. All three
+        agree on a simulator — :attr:`n_evaluations` is what differs, and on a device
+        so do the width and the connectivity each one needs.
     shots
         ``None`` reads the exact probability. A budget samples it, which is what a
         device does — and a sampled kernel is not positive semi-definite by
@@ -5316,7 +5329,7 @@ def generalization_bound(n_trainable_gates: 'int', n_samples: 'int', with_log: '
 generative
     Generative models — learning a *distribution* rather than a mapping.
 def geometric_difference(k_quantum: 'npt.NDArray[Any]', k_classical: 'npt.NDArray[Any]') -> 'float'
-    ``g(K_c, K_q)`` — the statistic that says whether quantum *could* help.
+    ``g(K_C || K_Q)`` — the statistic that says whether quantum *could* help.
 def get_ansatz(name: 'str', **kwargs: 'object') -> 'Ansatz'
     Build a registered ansatz by name.
 def get_backend(backend: 'str | Backend | None' = None, **kwargs: 'object') -> 'Backend'
@@ -5415,7 +5428,7 @@ def random_layers(n_qubits: 'int', n_layers: 'int' = 2, ratio_imprimitive: 'floa
 def reduce_to_qubits(x: 'npt.NDArray[Any]', n_qubits: 'int', method: 'str' = 'pca', to_angles: 'bool' = True, lo: 'float' = 0.0, hi: 'float' = 6.283185307179586) -> 'npt.NDArray[Any]'
     Reduce a feature matrix to ``n_qubits`` columns, ready for angle encoding.
 def reduced_dm(state: 'CircuitSpec | npt.NDArray[Any]', wires: 'Sequence[int]', n_qubits: 'int | None' = None, backend: 'BackendLike' = None) -> 'npt.NDArray[Any]'
-    Trace out everything except ``wires``.
+    Trace out everything except ``wires``, kept **in the order given**.
 def register_ansatz(name: 'str', factory: 'AnsatzFactory | None' = None) -> 'Callable[[AnsatzFactory], AnsatzFactory] | AnsatzFactory'
     Register an ansatz factory. Usable as a decorator or a direct call.
 def register_backend(name: 'str', factory: 'Callable[..., Backend]', requires: 'str | None' = None, extra: 'str | None' = None) -> 'None'

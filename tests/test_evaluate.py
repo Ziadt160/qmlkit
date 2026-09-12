@@ -135,6 +135,34 @@ def test_mape_is_omitted_rather_than_infinite():
     assert any("mape" in note for note in scores.notes)
 
 
+def test_r2_is_nan_on_a_constant_target_rather_than_zero():
+    """R2 scores against the variance baseline, and a constant target has none.
+
+    Reporting 0.0 made a perfect prediction indistinguishable from one wrong by a
+    factor of 33 - both scored 0.0, in the module whose premise is that a metric says
+    when it is misleading. This is a deliberate departure from scikit-learn, which
+    returns 1.0 for the perfect case and 0.0 for the rest.
+    """
+    perfect = evaluate.regression(np.full(10, 3.0), np.full(10, 3.0))
+    wrong = evaluate.regression(np.full(10, 3.0), np.full(10, 100.0))
+
+    for scores in (perfect, wrong):
+        assert np.isnan(scores["r2"])
+        assert np.isnan(scores["explained_variance"])
+        assert any("no variance" in note for note in scores.notes), scores.notes
+
+    # and the metrics the note points at still tell the two apart
+    assert perfect["mse"] == 0.0 and perfect["max_error"] == 0.0
+    assert wrong["mse"] > 0.0 and wrong["max_error"] == pytest.approx(97.0)
+
+
+def test_a_constant_target_does_not_take_the_zero_r2_note_with_it():
+    """The 'predicting the mean would do as well' note is about a real r2 <= 0, and
+    a nan must not be read as one."""
+    scores = evaluate.regression(np.full(6, 2.0), np.full(6, 2.0))
+    assert not any("predicting the mean" in note for note in scores.notes)
+
+
 # --------------------------------------------------------------------------- #
 # clustering parity
 # --------------------------------------------------------------------------- #

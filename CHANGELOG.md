@@ -80,6 +80,79 @@ NumPy scalars work - `np.int64` is not an `int` subclass. An operand with no sen
 reading returns `NotImplemented`, so `Z(0) + "x"` reports unsupported operand types
 instead of failing somewhere inside qmlkit.
 
+### Fixed - five defects found by an adversarial audit
+
+An agent was asked to break qmlkit 0.1.0 through its public API, and to settle every
+disagreement against a dense simulator it wrote itself - one that reads `spec.ops` and
+never calls qmlkit's own execution code. Most of the library held: all 20 gate
+matrices column by column, four exact gradient routes against an analytic product
+rule, every metric against scikit-learn, the noisy backends against their closed form
+to 1e-16. What it found was the other kind of defect - the one where a plausible
+number comes back and nothing raises. Five of those were in the kernel, analysis and
+metric layers.
+
+**`QuantumKernel(estimator="hadamard")` returned `Re(<x'|x>)^2` instead of
+`|<x'|x>|^2`.** The wrapper squared `hadamard_test`, whose `part` defaults to
+`"real"`, so wherever a feature map produced a complex overlap the estimator dropped
+the imaginary component. Worst observed error 0.831, on a quantity bounded by 1. The
+three estimators are documented as agreeing on a simulator; two of them did.
+
+Nothing downstream could catch it. Squaring the real part alone leaves a Gram matrix
+that is still symmetric, still positive semi-definite and still unit-diagonal -
+`K(x, x)` is real for every feature map, so the diagonal is 1 either way - and
+`diagnose` therefore reported nothing. A `QSVC` fitted on the wrong kernel scored
+*higher* than one fitted on the right one. A Hadamard test measures one *component*
+of a complex overlap, so the modulus takes two circuits: the estimator now runs both
+and returns `Re^2 + Im^2`, and `n_evaluations` reports 2 per pair rather than 1,
+because a caller budgeting circuits is entitled to the real count.
+
+**`reduced_dm` silently ignored the order of `wires`.** It did
+`keep = sorted(set(wires))`, so `reduced_dm(psi, [1, 0])` returned the `[0, 1]`
+matrix. That result is still Hermitian, still has trace 1 and still has the right
+eigenvalues, so `purity`, `vn_entropy`, `mutual_info` and every other
+basis-independent reading built on it agreed with the truth - which is how a
+subsystem-ordering defect sits under a passing test suite indefinitely. `wires` is now
+honoured as given: qubit `wires[0]` is the returned matrix's most significant bit, and
+`[1, 0]` is `SWAP . rho . SWAP` rather than `rho`. `[0, 0]` used to de-duplicate itself
+into a 2x2 matrix and now raises, naming the repeated qubit. The PennyLane parity
+suite compares descending pairs against `qml.math.reduce_dm`, so a second
+implementation holds the convention in place.
+
+**`KERNEL_AT_CONCENTRATION_SCALE` fired on kernels that separate their classes
+perfectly, and its message contradicted its own numbers.** Two defects in six lines.
+The rule compared against `2 * kernel_spread(n)` while the message printed
+`kernel_spread(n)`, so it reported *"spread 5.00e-01 is at or below ... 2.50e-01"* - a
+sentence refuted by the two numbers inside it. And because off-diagonal kernel entries
+live in `[0, 1]`, their standard deviation cannot exceed 0.5, which is exactly the
+threshold at two qubits: below three qubits the check fired on **every** Gram matrix,
+including one built from mutually orthogonal points. `bool(qk.diagnose(K))` was
+therefore true for a good kernel - the same cry-wolf failure as `ENCODING_COMMUTES`
+above, and the one that teaches people to stop reading diagnostics at all. The message
+now quotes the threshold it actually used, and the check is skipped where that
+threshold exceeds what the statistic can attain, because a comparison nothing can pass
+is not a test.
+
+**`geometric_difference(K, K)` returned `sqrt(N)` rather than 1.** Huang et al.'s `g`
+is compared *against* `sqrt(N)`; that threshold had been folded into the statistic
+itself, which left a number agreeing with no published one and a self-comparison whose
+value depended on the sample count. It now returns
+`sqrt(||sqrt(K_Q) K_C^-1 sqrt(K_Q)||)`, which is 1 for identical kernels, and the
+docstring names `sqrt(N)` as the bar for the caller to apply. The kernel study and the
+credit-risk example both compared `g` against a hard-coded `10`; both now compare
+against `sqrt(N)`, which is the literature's test and the only one that scales with
+the data.
+
+**`evaluate.regression` reported `r2 = 0.0` for a perfect fit on a constant target.**
+R2 scores a model against the variance baseline - predict the mean everywhere - and a
+constant target has no variance, so the ratio is `0/0`. Reporting 0.0 made a perfect
+prediction indistinguishable from one wrong by a factor of 33: both scored zero, in
+the module whose premise is that a metric says when it is misleading. `r2` and
+`explained_variance` are now `nan` there, with a note naming the value every target
+takes and pointing at `mse` and `max_error`, which need no baseline. This is a
+deliberate departure from scikit-learn, which returns 1.0 for the perfect case and 0.0
+for the rest - a convention that cannot be read back, since a 0.0 could mean either
+"undefined" or "no better than the mean".
+
 ### Changed
 
 - `Ansatz(..., n_inputs=)` now defaults to `None`, meaning *infer*. Existing calls that
@@ -97,6 +170,12 @@ instead of failing somewhere inside qmlkit.
 - `QuantumLayer` treats a model as carrying its own encoding only when it reserves
   input slots. Every `Ansatz` can map data onto its slots now, so the four-attribute
   check alone no longer distinguishes a model from a bare ansatz.
+- **`geometric_difference` now returns values `sqrt(N)` times smaller than 0.1.0's.**
+  Code that compared it against a hand-picked constant will read differently and
+  should compare against `sqrt(N)` instead, which is the comparison the statistic was
+  always for.
+- `QuantumKernel(estimator="hadamard").n_evaluations` counts two circuits per pair
+  rather than one, which is how many it now runs.
 
 ## [0.1.0] - 2026-09-12
 

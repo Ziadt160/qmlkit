@@ -448,7 +448,9 @@ def test_reduced_density_matrices_and_entropies_agree(seed):
     spec = random_spec(3, 12, 700 + seed)
     state = qk.statevector(spec)
     dm = np.outer(state, np.conj(state))
-    for wires in ([0], [1], [2], [0, 1], [1, 2]):
+    # descending pairs included: a partial trace that sorts its wires agrees with a
+    # second implementation on every sorted case and on nothing else
+    for wires in ([0], [1], [2], [0, 1], [1, 2], [1, 0], [2, 0]):
         assert qk.reduced_dm(spec, wires) == pytest.approx(
             np.asarray(qml.math.reduce_dm(dm, wires)), abs=EXACT
         )

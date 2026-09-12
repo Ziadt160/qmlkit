@@ -405,7 +405,13 @@ def regression(y_true: Any, y_pred: Any) -> Scores:
     ss_res = float(residual @ residual)
     centred = truth - truth.mean()
     ss_tot = float(centred @ centred)
-    r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
+    # R2 scores a model against the variance baseline: predict the mean everywhere.
+    # A constant target has no variance, so the ratio is 0/0 and there is no number
+    # that can be read as a score - 0.0 makes a perfect fit look like a failure, and
+    # 1.0 makes any fit look perfect. nan is what is true; the note below says why,
+    # and points at the metrics that still mean something.
+    no_baseline = ss_tot <= 0.0
+    r2 = float("nan") if no_baseline else 1.0 - ss_res / ss_tot
     mse = ss_res / n
 
     values = {
@@ -416,7 +422,7 @@ def regression(y_true: Any, y_pred: Any) -> Scores:
         "median_absolute_error": float(np.median(np.abs(residual))),
         "max_error": float(np.abs(residual).max()),
         "explained_variance": (
-            float(1.0 - residual.var() / truth.var()) if truth.var() > 0 else 0.0
+            float("nan") if no_baseline else float(1.0 - residual.var() / truth.var())
         ),
     }
 
@@ -429,8 +435,13 @@ def regression(y_true: Any, y_pred: Any) -> Scores:
             f"{int((~nonzero).sum())} target(s) are exactly zero, so mape is undefined "
             "and was omitted"
         )
-    if ss_tot <= 0:
-        notes.append("every target is identical, so r2 is undefined and reported as 0.0")
+    if no_baseline:
+        notes.append(
+            f"every target is {truth.mean():.4g}, so there is no variance for r2 and "
+            "explained_variance to score against and both are nan. Read mse "
+            f"({mse:.4g}) or max_error ({values['max_error']:.4g}), which do not need "
+            "a baseline."
+        )
     elif r2 <= 0.0:
         notes.append(
             f"r2 {r2:.3f} is at or below zero: predicting the mean ({truth.mean():.4g}) "

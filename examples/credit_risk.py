@@ -247,25 +247,35 @@ classical_gram = np.exp(
     -0.5 * ((Xq_train[:120, None, :] - Xq_train[None, :120, :]) ** 2).sum(-1)
 )
 g = qk.geometric_difference(classical_gram, gram)
-print(f"  geometric difference g(K_classical, K_quantum) = {g:.2f}")
+bar = float(np.sqrt(len(gram)))  # Huang et al. compare g against sqrt(N), not a constant
+reaches = g > bar
+print(f"  geometric difference g(K_classical, K_quantum) = {g:.2f}"
+      f"   (bar: sqrt(N) = {bar:.2f})")
 print(
     "  -> "
     + (
         "a geometry the RBF kernel cannot reach, so a separation is at least possible"
-        if g > 10
+        if reaches
         else "the classical kernel already spans this geometry; no advantage available"
     )
 )
 print(qk.diagnose(gram, n_qubits=4))
-print("""
-  Two reports, and they point opposite ways -- which is the useful part. The
-  geometry says a quantum kernel *could* separate what the RBF one cannot; the
-  concentration check says the spread is already at the 2^-n scale at four qubits,
-  so that reachable geometry is being squeezed out as fast as it appears. Widening
-  the register makes the first number better and the second worse.
+geometry = (
+    "the geometry says a quantum kernel *could* separate what the RBF one cannot, "
+    "while the concentration check says the spread is already at the 2^-n scale at "
+    "four qubits -- so that reachable geometry is being squeezed out as fast as it "
+    "appears. That is a real, publishable tension"
+    if reaches
+    else "the geometry says the RBF kernel already spans everything this feature map "
+    "reaches, and the concentration check says the spread is collapsing on top of it "
+    "at four qubits. Both point the same way, and the way they point is away"
+)
+print(f"""
+  Two reports, and {geometry}. Each is measured against a bar the literature sets --
+  sqrt(N) for the geometric difference, 2^-n for the spread -- rather than a number
+  chosen here, and widening the register moves the first up and the second down.
 
-  That is a real, publishable tension, and it took two calls to find rather than a
-  fortnight of fitting SVMs.""")
+  It took two calls to establish rather than a fortnight of fitting SVMs.""")
 
 # --------------------------------------------------------------------------- #
 header(10, "The verdict:  qk.baseline(..., model=)  on identical folds")

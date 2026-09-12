@@ -94,6 +94,37 @@ def test_hadamard_test_keeps_the_sign_magnitude_estimators_lose():
     )
 
 
+def test_every_estimator_measures_the_same_kernel():
+    """The three estimators must agree on a simulator, which the docstring promises.
+
+    A Hadamard test reads one *component* of a complex overlap, so the kernel - its
+    squared modulus - takes two runs. Squaring the real part alone agrees with the
+    kernel on every real-amplitude feature map and on every ``K(x, x) = 1`` diagonal
+    entry, and leaves a Gram matrix that is still symmetric, unit-diagonal and PSD.
+    Only a pair whose overlap is genuinely complex can tell the two apart.
+    """
+    fm = qk.ZZFeatureMap(2, reps=1)
+    x, xp = np.array([0.3, 1.9]), np.array([2.4, 0.7])
+    assert abs(hadamard_test(fm, x, xp, part="imag")) > 0.1, "this overlap must be complex"
+
+    exact = state_fidelity(fm.build(x), fm.build(xp))
+    for estimator in ("inversion", "swap", "hadamard"):
+        got = QuantumKernel(fm, estimator=estimator).evaluate(x, xp)
+        assert got == pytest.approx(exact, abs=1e-9), estimator
+
+
+def test_the_hadamard_estimator_counts_both_of_its_circuits():
+    """Real and imaginary are two runs, and n_evaluations is what a caller budgets from."""
+    fm = qk.AngleFeatureMap(2)
+    x, xp = np.array([0.4, 1.2]), np.array([1.9, 0.6])
+    counted = {}
+    for estimator in ("inversion", "swap", "hadamard"):
+        kernel = QuantumKernel(fm, estimator=estimator)
+        kernel.evaluate(x, xp)
+        counted[estimator] = kernel.n_evaluations
+    assert counted == {"inversion": 1, "swap": 1, "hadamard": 2}
+
+
 def test_hadamard_test_rejects_a_bad_part():
     with pytest.raises(ValueError, match="unknown part 'sideways'"):
         hadamard_test(qk.AngleFeatureMap(1, entangle=False), [0.1], [0.2], part="sideways")
@@ -241,11 +272,19 @@ def test_projected_kernel_resists_concentration():
     assert off(projected_kernel_matrix(fm, X)) > off(QuantumKernel(fm)(X))
 
 
-def test_geometric_difference_is_small_for_identical_kernels():
+def test_geometric_difference_is_exactly_one_for_identical_kernels():
+    """Huang et al.'s g, in Huang et al.'s units.
+
+    The paper's test is ``g`` against ``sqrt(N)``; folding that threshold into the
+    statistic makes the self-comparison return ``sqrt(N)`` rather than the identity
+    value, and leaves a number that cannot be read against the literature's. The
+    threshold belongs to the caller - see the docstring.
+    """
     X, _ = _blobs(n=8)
     K = QuantumKernel(qk.AngleFeatureMap(2))(X)
     same = geometric_difference(K, K)
     other = geometric_difference(K, np.eye(len(X)))
+    assert same == pytest.approx(1.0, abs=1e-6)
     assert same < other
 
 

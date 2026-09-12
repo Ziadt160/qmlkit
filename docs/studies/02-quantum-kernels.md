@@ -56,14 +56,18 @@ difference:
 ```python
 classical = np.exp(-0.5 * ((X[:60, None, :] - X[None, :60, :]) ** 2).sum(-1))
 g = qk.geometric_difference(classical, gram)
-print(f"g(K_classical, K_quantum) = {g:.1f}")
-print("large -> a geometry the RBF kernel cannot reach" if g > 10
-      else "small -> the classical kernel already spans this")
+bar = np.sqrt(len(gram))          # Huang et al.'s threshold, not a number chosen here
+print(f"g(K_classical, K_quantum) = {g:.3g}   (bar: sqrt(N) = {bar:.2f})")
+print("above the bar -> a geometry the RBF kernel cannot reach" if g > bar
+      else "below the bar -> the classical kernel already spans this")
 ```
 
-Huang et al.'s statistic: large means the two kernels induce genuinely different
-geometries, so a separation is at least *possible*. Small means it is not, whatever
-the accuracy table later says.
+Huang et al.'s statistic, and their bar: `g` above `sqrt(N)` means the two kernels
+induce genuinely different geometries, so a separation is at least *possible*. Below
+it means the classical kernel already sees everything the quantum one does, whatever
+the accuracy table later says. Identical kernels give exactly 1, which is what makes
+the scale readable — the threshold is the caller's to apply rather than folded into
+the number.
 
 ## Both at once
 

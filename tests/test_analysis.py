@@ -86,6 +86,46 @@ def test_reduced_dm_validates_wires():
         reduced_dm(_bell(), [5])
 
 
+#: The two-qubit subsystem exchange: rho for wires [1, 0] is SWAP . rho[0, 1] . SWAP.
+_SWAP = np.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 1]], dtype=float)
+
+
+def test_reduced_dm_keeps_the_order_of_wires():
+    """``[1, 0]`` is the ``[0, 1]`` matrix with its subsystems exchanged.
+
+    Nothing downstream can catch a reduced_dm that sorts its wires: the sorted matrix
+    is still Hermitian, still has trace 1 and still has the right eigenvalues, so
+    purity, entropy and mutual information are all blind to it. Only the matrix
+    itself, in the basis the caller asked for, shows the difference.
+    """
+    psi = np.array([0.1, 0.3, 0.5, 0.8])
+    psi = psi / np.linalg.norm(psi)
+    forward = reduced_dm(psi, [0, 1], n_qubits=2)
+    reverse = reduced_dm(psi, [1, 0], n_qubits=2)
+
+    assert np.allclose(reverse, _SWAP @ forward @ _SWAP)
+    assert not np.allclose(reverse, forward)
+    # and the blindness that let this ship: every basis-independent reading agrees
+    assert np.allclose(np.linalg.eigvalsh(reverse), np.linalg.eigvalsh(forward))
+    assert purity(psi, [1, 0], n_qubits=2) == pytest.approx(purity(psi, [0, 1], n_qubits=2))
+
+
+def test_reduced_dm_keeps_the_order_of_non_adjacent_wires():
+    """The traced-out qubit sits between the two kept ones, which is where an
+    implementation that sorts and one that permutes are easiest to confuse."""
+    psi = np.arange(1.0, 9.0)
+    psi = psi / np.linalg.norm(psi)
+    forward = reduced_dm(psi, [0, 2], n_qubits=3)
+    reverse = reduced_dm(psi, [2, 0], n_qubits=3)
+    assert np.allclose(reverse, _SWAP @ forward @ _SWAP)
+
+
+def test_reduced_dm_refuses_a_repeated_wire():
+    """``[0, 0]`` silently de-duplicated to ``[0]`` and returned a 2x2 matrix."""
+    with pytest.raises(ValueError, match="names qubit 0 twice"):
+        reduced_dm(_bell(), [0, 0])
+
+
 def test_bloch_vector_of_basis_and_superposition():
     assert np.allclose(bloch_vector(qk.QCircuit(1).to_spec()), [0, 0, 1], atol=1e-12)
     qc = qk.QCircuit(1)
@@ -454,6 +494,74 @@ def test_first_live_parameter_falls_back_when_everything_is_dead():
 
     ansatz = qk.Ansatz(1, qk.RotationLayer("rz"))  # Rz on |0> moves nothing measurable
     assert _first_live_parameter(ansatz) == 0
+
+
+# --------------------------------------------------------------------------- #
+# A threshold no kernel can pass is not a test
+#
+# KERNEL_AT_CONCENTRATION_SCALE fires below 2 * 2^-n. Off-diagonal kernel entries
+# live in [0, 1], so their standard deviation cannot exceed 0.5 - which is exactly
+# the threshold at two qubits. Every small kernel was therefore flagged, including
+# ones that separate their classes perfectly, and bool(diagnose(K)) was true for a
+# good matrix. A diagnostic that always fires tells a reader to stop reading them.
+# --------------------------------------------------------------------------- #
+def _well_spread_kernel():
+    """Four mutually orthogonal corners plus four points near them, at two qubits."""
+    X = np.array(
+        [
+            [0.0, 0.0],
+            [np.pi, np.pi],
+            [0.0, np.pi],
+            [np.pi, 0.0],
+            [0.3, 0.2],
+            [3.0, 2.9],
+            [1.5, 1.6],
+            [0.1, 3.0],
+        ]
+    )
+    return qk.QuantumKernel(qk.AngleFeatureMap(2, entangle=False))(X)
+
+
+def test_concentration_scale_is_silent_on_a_kernel_that_separates():
+    K = _well_spread_kernel()
+    off = K[~np.eye(len(K), dtype=bool)]
+    assert off.std() > 0.25, "this kernel must genuinely be spread, or it proves nothing"
+    assert off.min() < 0.01 and off.max() > 0.99, "and it must reach both ends"
+
+    report = qk.diagnose(K, n_qubits=2)
+    assert "KERNEL_AT_CONCENTRATION_SCALE" not in report.codes
+    assert not report, f"a good kernel must diagnose clean, got {report.codes}"
+    # one and two qubits are both below the width where the threshold discriminates
+    assert not qk.diagnose(K, n_qubits=1)
+
+
+def test_concentration_scale_still_fires_where_the_threshold_discriminates():
+    """The check has to keep working at the widths it was written for."""
+    rng = np.random.default_rng(0)
+    X = rng.uniform(0, np.pi, (8, 8))
+    K = qk.QuantumKernel(qk.ZZFeatureMap(8, reps=2))(X)
+    assert "KERNEL_AT_CONCENTRATION_SCALE" in qk.diagnose(K, n_qubits=8).codes
+
+
+def test_concentration_scale_message_agrees_with_the_rule_that_fired_it():
+    """It quoted 2^-n while comparing against 2 * 2^-n, so it printed a spread
+    'at or below' a number the spread was demonstrably above."""
+    import re
+
+    rng = np.random.default_rng(0)
+    X = rng.uniform(0, np.pi, (8, 8))
+    K = qk.QuantumKernel(qk.ZZFeatureMap(8, reps=2))(X)
+    finding = next(
+        f for f in qk.diagnose(K, n_qubits=8) if f.code == "KERNEL_AT_CONCENTRATION_SCALE"
+    )
+    spread, predicted, threshold = (
+        float(m) for m in re.findall(r"[0-9]+[.][0-9]+e[-+][0-9]+", finding.message)
+    )
+    assert spread < threshold, f"the message contradicts itself: {finding.message}"
+    # rel, not abs: both are printed to two decimals, so 3.91e-03 doubles to 7.82e-03
+    # against a threshold printed as 7.81e-03
+    assert threshold == pytest.approx(2 * predicted, rel=1e-2)
+    assert spread == pytest.approx(finding.value, rel=1e-2)
 
 
 # --------------------------------------------------------------------------- #

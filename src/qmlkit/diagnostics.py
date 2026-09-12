@@ -65,6 +65,12 @@ _EXACT = 1e-12
 #: no model built on the matrix can separate them.
 _CONCENTRATED = 1e-3
 
+#: The largest off-diagonal standard deviation a kernel can have. Entries live in
+#: ``[0, 1]``, so their spread is at most 0.5 — the value two tight, mutually
+#: orthogonal clusters approach. A threshold at or above it is not a test: it fires
+#: on every kernel, including one that separates its classes perfectly.
+_MAX_SPREAD = 0.5
+
 #: Gradient variance below this costs more than ~1000 shots per gradient entry to
 #: resolve, which is where shot cost starts to dominate the training budget.
 #: Calibrated against hardware-efficient ansaetze from 2 to 10 qubits and 2 to 20
@@ -556,19 +562,26 @@ def _diagnose_kernel(
                 )
             )
 
-    if n_qubits is not None and spread < 2 * kernel_spread(n_qubits):
-        found.append(
-            Finding(
-                "KERNEL_AT_CONCENTRATION_SCALE",
-                "info",
-                f"spread {spread:.2e} is at or below the 2^-n scale predicted for {n_qubits} "
-                f"qubits ({kernel_spread(n_qubits):.2e}), which is what exponential "
-                "concentration looks like arriving.",
-                fix=f"On hardware this would need about {shots_to_resolve(n_qubits):,} shots. "
-                "Check with kernels.concentration_report before scaling the width up.",
-                value=spread,
+    if n_qubits is not None:
+        # Only where the threshold is a threshold. At two qubits and below, twice the
+        # predicted 2^-n scale is at or above _MAX_SPREAD, so the comparison is one no
+        # kernel can pass and the finding says nothing about the matrix in hand.
+        predicted = kernel_spread(n_qubits)
+        threshold = 2 * predicted
+        if threshold < _MAX_SPREAD and spread < threshold:
+            found.append(
+                Finding(
+                    "KERNEL_AT_CONCENTRATION_SCALE",
+                    "info",
+                    f"spread {spread:.2e} is at the concentration scale for {n_qubits} "
+                    f"qubits (2^-n is {predicted:.2e}; this fires below {threshold:.2e}), "
+                    "which is what exponential concentration looks like arriving.",
+                    fix=f"On hardware this would need about {shots_to_resolve(n_qubits):,} "
+                    "shots. Check with kernels.concentration_report before scaling the "
+                    "width up.",
+                    value=spread,
+                )
             )
-        )
 
     return found
 

@@ -266,6 +266,7 @@ def test_the_additive_identity_is_dropped_rather_than_carried():
 
 def test_subtraction_negates_the_right_hand_side():
     assert as_sum(qk.Z(0) - qk.Z(1)).terms == (qk.Z(0), -qk.Z(1))
+    assert as_sum(qk.Z(0) - qk.X(1)).terms == (qk.Z(0), -qk.X(1))
     assert as_sum((qk.Z(0) + qk.Z(1)) - qk.Z(0)).terms == (qk.Z(0), qk.Z(1), -qk.Z(0))
     assert as_sum(1 - (qk.Z(0) + qk.Z(1))).terms[0] == PauliString((), 1.0)
 

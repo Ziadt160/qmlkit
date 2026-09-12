@@ -26,7 +26,7 @@ import numpy.typing as npt
 
 from qmlkit.core.execute import BackendLike
 from qmlkit.encoding.feature_maps import FeatureMap
-from qmlkit.kernels.estimators import fidelity_kernel
+from qmlkit.kernels.estimators import fidelity_kernel, hadamard_test
 from qmlkit.utils.errors import unknown
 
 __all__ = [
@@ -89,6 +89,31 @@ def kernel_matrix(
     return np.array([[kernel(u, v) for v in b] for u in a], dtype=float)
 
 
+def _hadamard_kernel(
+    fmap: FeatureMap, x: Sequence[float], xp: Sequence[float], **kwargs: Any
+) -> float:
+    r"""``|<phi(x')|phi(x)>|^2`` from a Hadamard test — **two** circuits, not one.
+
+    A Hadamard test measures one *component* of a complex overlap: the real part, or
+    with an ``Sdg`` on the ancilla, the imaginary one. The kernel is the squared
+    modulus, so it needs both: :math:`\mathrm{Re}^2 + \mathrm{Im}^2`.
+
+    Squaring the real part alone is a different quantity that agrees with the kernel
+    whenever the overlap happens to be real — which is every product state, every
+    real-amplitude feature map, and every ``K(x, x) = 1`` diagonal entry. It also
+    leaves a Gram matrix that is still symmetric, still PSD and still unit-diagonal,
+    so nothing downstream can notice it is wrong.
+    """
+    real = hadamard_test(fmap, x, xp, part="real", **kwargs)
+    imag = hadamard_test(fmap, x, xp, part="imag", **kwargs)
+    return float(real * real + imag * imag)
+
+
+#: Circuits one pair costs, per estimator. The Hadamard test reads one component of
+#: the overlap per circuit, so the modulus is two runs; ``n_evaluations`` says so.
+_CIRCUITS_PER_PAIR = {"inversion": 1, "swap": 1, "hadamard": 2}
+
+
 class QuantumKernel:
     """A feature map, as a kernel you can hand to any kernel method.
 
@@ -101,8 +126,11 @@ class QuantumKernel:
     estimator
         How the overlap is measured. ``"inversion"`` (the default) runs the
         compute-uncompute circuit and reads the all-zeros probability; ``"swap"``
-        uses a swap test; ``"hadamard"`` a Hadamard test, squared. They agree on a
-        simulator and differ in width and circuit count on a device.
+        uses a swap test; ``"hadamard"`` runs **two** Hadamard tests and adds the
+        squares of the real and imaginary parts, because one Hadamard test measures
+        one component of a complex overlap and the kernel is its modulus. All three
+        agree on a simulator — :attr:`n_evaluations` is what differs, and on a device
+        so do the width and the connectivity each one needs.
     shots
         ``None`` reads the exact probability. A budget samples it, which is what a
         device does — and a sampled kernel is not positive semi-definite by
@@ -147,18 +175,18 @@ class QuantumKernel:
 
     # ------------------------------------------------------------------------
     def _estimate(self, x: npt.NDArray[Any], xp: npt.NDArray[Any]) -> float:
-        from qmlkit.kernels.estimators import hadamard_test, swap_test_kernel
+        from qmlkit.kernels.estimators import swap_test_kernel
 
         fns: dict[str, Callable[..., float]] = {
             "inversion": fidelity_kernel,
             "swap": swap_test_kernel,
-            "hadamard": lambda fm, a, b, **kw: hadamard_test(fm, a, b, **kw) ** 2,
+            "hadamard": _hadamard_kernel,
         }
         try:
             fn = fns[self.estimator]
         except KeyError:
             raise unknown("estimator", self.estimator, ("inversion", "swap", "hadamard")) from None
-        self._evaluations += 1
+        self._evaluations += _CIRCUITS_PER_PAIR[self.estimator]
         return float(
             fn(
                 self.feature_map,
@@ -417,11 +445,23 @@ def concentration_report(
 
 
 def geometric_difference(k_quantum: npt.NDArray[Any], k_classical: npt.NDArray[Any]) -> float:
-    r"""``g(K_c, K_q)`` — the statistic that says whether quantum *could* help.
+    r"""``g(K_C || K_Q)`` — the statistic that says whether quantum *could* help.
 
-    Large means the two kernels induce genuinely different geometries, so a
-    separation is at least possible. Small means the classical kernel already sees
-    everything the quantum one does, and there is nothing to gain (Huang et al. 2021).
+    .. math::
+
+        g = \sqrt{\lVert \sqrt{K_Q}\, K_C^{-1} \sqrt{K_Q} \rVert_\infty}
+
+    **The number to compare it against is** ``sqrt(N)``, for ``N`` samples — that is
+    the threshold in Huang et al. (2021), and it is the caller's to apply. A ``g``
+    well below ``sqrt(N)`` says the classical kernel already sees everything the
+    quantum one does, so no separation is available whatever a later accuracy table
+    claims. A ``g`` at or above it says a separation is *possible*, not that one
+    exists.
+
+    Identical kernels give exactly ``1``. The statistic is scale-sensitive, so it
+    carries the paper's meaning only when the two kernels are normalised alike —
+    which any two with a unit diagonal are, a fidelity kernel and an RBF kernel
+    included. ``center_kernel`` or ``normalize_kernel`` will put an odd one right.
     """
     kq = np.asarray(k_quantum, dtype=float)
     kc = np.asarray(k_classical, dtype=float)
@@ -431,7 +471,7 @@ def geometric_difference(k_quantum: npt.NDArray[Any], k_classical: npt.NDArray[A
     sqrt_kq = _sqrtm_psd(kq)
     kc_inv = np.linalg.pinv(kc + 1e-12 * np.eye(n))
     m = sqrt_kq @ kc_inv @ sqrt_kq
-    return float(np.sqrt(np.linalg.norm(m, ord=2) * n))
+    return float(np.sqrt(np.linalg.norm(m, ord=2)))
 
 
 def _sqrtm_psd(a: npt.NDArray[Any]) -> npt.NDArray[Any]:

@@ -50,17 +50,29 @@ def reduced_dm(
     n_qubits: int | None = None,
     backend: BackendLike = None,
 ) -> npt.NDArray[Any]:
-    """Trace out everything except ``wires``.
+    """Trace out everything except ``wires``, kept **in the order given**.
 
-    Qubit 0 is the most significant bit, matching the rest of the library.
+    Qubit 0 is the most significant bit, matching the rest of the library, and the
+    returned matrix carries its own bit order: qubit ``wires[0]`` is its most
+    significant. ``reduced_dm(psi, [1, 0])`` is therefore ``reduced_dm(psi, [0, 1])``
+    with its two subsystems exchanged — ``SWAP @ rho @ SWAP`` — and not the same
+    matrix. Everything basis-independent (trace, eigenvalues, purity, entropy) is
+    blind to the difference, which is why the contract has to be stated here rather
+    than left to be read off a test.
     """
     psi = _as_state(state, backend)
     n = n_qubits if n_qubits is not None else int(np.log2(psi.size))
     if 2**n != psi.size:
         raise ValueError(f"state of size {psi.size} is not {n} qubits")
-    keep = sorted(set(wires))
+    keep = [int(w) for w in wires]
     if any(not 0 <= w < n for w in keep):
         raise ValueError(f"wires {list(wires)} out of range for {n} qubits")
+    twice = next((w for w in keep if keep.count(w) > 1), None)
+    if twice is not None:
+        raise ValueError(
+            f"wires {list(wires)} names qubit {twice} twice: a subsystem holds each "
+            "qubit once, so there is no reduced state this could mean"
+        )
 
     tensor = psi.reshape((2,) * n)
     traced = [q for q in range(n) if q not in keep]
