@@ -187,6 +187,38 @@ class Backend:
             for group in group_qubit_wise_commuting(obs)
         )
 
+    def expectation_variance(self, spec: CircuitSpec, obs: Observable) -> float:
+        """Variance of a *single shot* of the estimator for ``obs``.
+
+        The estimator measures one circuit per qubit-wise-commuting group. Inside a
+        group every term is diagonal in the measured basis, so the group contributes
+        a diagonal operator whose variance comes straight from the outcome
+        probabilities; groups use independent shots, so the variances add. Divide by
+        the shot count for the squared standard error.
+
+        Exact, not a bound, and it reduces to ``c**2 - z**2`` on a single term. Needs
+        exact probabilities, so a sampling-only device cannot answer.
+        """
+        if not self.supports_exact:
+            raise ValueError(
+                f"the {self.name!r} backend cannot give an exact variance; it has no "
+                "shot-free probabilities to compute one from"
+            )
+        self._check_bound(spec)
+        total = 0.0
+        for group in group_qubit_wise_commuting(obs):
+            _, measured, rotated = self._group_circuit(spec, group)
+            if rotated is None:
+                continue  # identity terms are deterministic and contribute nothing
+            probabilities = np.asarray(self.probabilities(rotated), dtype=float)
+            diagonal = np.zeros_like(probabilities)
+            for term in measured:
+                zs = PauliString(tuple((q, "Z") for q, p in term.paulis if p != "I"), 1.0)
+                diagonal += float(term.coeff.real) * diagonal_eigenvalues(zs, spec.n_qubits)
+            mean = float(probabilities @ diagonal)
+            total += float(probabilities @ diagonal**2) - mean**2
+        return max(total, 0.0)
+
     def _group_circuit(
         self, spec: CircuitSpec, group: list[PauliString]
     ) -> tuple[float, list[PauliString], CircuitSpec | None]:

@@ -227,8 +227,15 @@ def register_baseline(
 
 
 def list_baselines(task: str | None = None) -> tuple[str, ...]:
-    """Registered baseline names, optionally filtered to one task."""
-    return tuple(sorted(s.name for s in _BASELINES.values() if task is None or s.task == task))
+    """Registered baseline names, optionally filtered to one task.
+
+    Deduplicated. The registry is keyed by task *and* name so that one name can serve
+    both tasks - ``rbf-kernel-ridge`` is registered for classification and for
+    regression - and listing the values unfiltered showed such a name once per task,
+    which reads as a duplicate registration rather than as one name doing two jobs.
+    """
+    names = {s.name for s in _BASELINES.values() if task is None or s.task == task}
+    return tuple(sorted(names))
 
 
 def get_baseline(name: str, task: str = "classification") -> BaselineSpec:

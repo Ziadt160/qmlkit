@@ -536,3 +536,326 @@ def test_detection_survives_a_stream_with_no_encoding(monkeypatch):
 
     monkeypatch.setattr("sys.stdout", NoEncoding())
     qk.draw(_bound()).encode("cp1252")
+
+
+# --------------------------------------------------------------------------- #
+# ENCODING_COMMUTES claimed a Fourier fact it had only inferred
+#
+# `Ry(x) Ry(t) Ry(x) Ry(t)` collapses on ONE WIRE WITH NOTHING IN BETWEEN. Any
+# entanglement breaks it, and the check was purely structural - it could see neither
+# an entangler in the trainable block nor an entangling feature map. It reported an
+# *error* on architectures whose measured band was 0..2L. A false positive in the
+# honesty layer is worse than a false negative: it teaches people to ignore the tool.
+# --------------------------------------------------------------------------- #
+def _reupload(fmap, block, n_layers=2):
+    return qk.reupload(fmap, n_layers=n_layers, block=block)
+
+
+def _live_frequencies(model, n_inputs, degree=6):
+    """The frequencies the model actually reaches, measured rather than inferred."""
+    weights = model.init(seed=0)
+
+    def response(x):
+        return qk.expval(model.bind(np.full(n_inputs, x), weights), qk.Z(0))
+
+    return sorted(k for k, power in qk.fourier.spectrum(response, degree).items() if power > 1e-6)
+
+
+def _flags_collapse(model):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return "ENCODING_COMMUTES" in qk.diagnose(model, seed=0, n_samples=6, probes=1).codes
+
+
+def test_a_genuine_collapse_is_still_caught():
+    """One wire, matching rotations, nothing in between: the identity really holds."""
+    model = _reupload(qk.AngleFeatureMap(1, rotation="ry", entangle=False), qk.RotationLayer("ry"))
+    assert len(_live_frequencies(model, 1)) == 1
+    assert _flags_collapse(model)
+
+
+def test_a_collapse_across_unentangled_wires_is_still_caught():
+    model = _reupload(qk.AngleFeatureMap(2, rotation="ry", entangle=False), qk.RotationLayer("ry"))
+    assert len(_live_frequencies(model, 2)) == 1
+    assert _flags_collapse(model)
+
+
+def test_an_entangler_in_the_block_defeats_the_collapse_and_is_not_reported():
+    model = _reupload(
+        qk.AngleFeatureMap(2, rotation="ry", entangle=False),
+        qk.RotationLayer("ry") + qk.EntanglerLayer("cx", "ring"),
+    )
+    assert len(_live_frequencies(model, 2)) > 1, "the entangler must break the collapse"
+    assert not _flags_collapse(model)
+
+
+def test_an_entangling_feature_map_also_defeats_it():
+    """The structural check could not see this one at all - the entanglement is
+    upstream of the trainable block, in the encoding itself."""
+    model = _reupload(qk.AngleFeatureMap(2, rotation="ry"), qk.RotationLayer("ry"))
+    assert len(_live_frequencies(model, 2)) > 1
+    assert not _flags_collapse(model)
+
+
+def test_a_non_commuting_block_is_never_reported():
+    model = _reupload(
+        qk.AngleFeatureMap(2, rotation="ry", entangle=False),
+        qk.RotationLayer(("rz", "ry", "rz")),
+    )
+    assert not _flags_collapse(model)
+
+
+def test_the_finding_agrees_with_the_measurement_it_asserts():
+    """The property that was actually violated: report if and only if it is true."""
+    cases = [
+        (qk.AngleFeatureMap(1, rotation="ry", entangle=False), qk.RotationLayer("ry"), 1),
+        (qk.AngleFeatureMap(2, rotation="ry", entangle=False), qk.RotationLayer("ry"), 2),
+        (qk.AngleFeatureMap(2, rotation="ry"), qk.RotationLayer("ry"), 2),
+        (
+            qk.AngleFeatureMap(2, rotation="ry", entangle=False),
+            qk.RotationLayer("ry") + qk.EntanglerLayer("cx", "ring"),
+            2,
+        ),
+    ]
+    for fmap, block, n_inputs in cases:
+        model = _reupload(fmap, block)
+        collapsed = len(_live_frequencies(model, n_inputs)) == 1
+        assert _flags_collapse(model) == collapsed
+
+
+# --------------------------------------------------------------------------- #
+# Two smaller ones from the same session
+# --------------------------------------------------------------------------- #
+def test_list_baselines_does_not_repeat_a_name_registered_for_both_tasks():
+    names = qk.list_baselines()
+    assert len(names) == len(set(names))
+    # the name that exposed it is registered for classification and regression alike
+    assert "rbf-kernel-ridge" in qk.list_baselines("classification")
+    assert "rbf-kernel-ridge" in qk.list_baselines("regression")
+
+
+def test_a_near_miss_metric_key_is_answered_not_silently_dropped():
+    """`get("precision")` returning None turned a typo into a numpy TypeError later."""
+    scores = qk.evaluate.classification(np.array([0, 1, 0, 1]), np.array([0, 1, 1, 1]))
+    with pytest.raises(KeyError, match="precision_macro"):
+        scores.get("precision")
+
+
+def test_an_explicit_default_is_still_honoured():
+    """The caller has said what they want; do not second-guess them."""
+    scores = qk.evaluate.classification(np.array([0, 1, 0, 1]), np.array([0, 1, 1, 1]))
+    assert scores.get("precision", 0.0) == 0.0
+    assert scores.get("nonsense", None) is None
+
+
+def test_a_real_key_still_reads_normally():
+    scores = qk.evaluate.classification(np.array([0, 1, 0, 1]), np.array([0, 1, 1, 1]))
+    assert scores.get("precision_macro") == scores["precision_macro"]
+
+
+# --------------------------------------------------------------------------- #
+# Adam
+#
+# The gap that mattered: the circuit-level optimisers were gradient-descent,
+# rotosolve and spsa, so anyone training a variational model outside the torch
+# bridge hand-rolled their own -- and a hand-rolled optimiser that diverges looks
+# exactly like a method that does not work.
+# --------------------------------------------------------------------------- #
+def test_one_step_matches_the_closed_form():
+    """Adam is four lines of algebra; assert them rather than trusting the loop."""
+    from qmlkit.optim import AdamState, adam_step
+
+    theta = np.array([1.0, 2.0, 3.0])
+    gradient = np.array([0.1, -0.2, 0.3])
+    lr, b1, b2, eps = 0.1, 0.9, 0.999, 1e-8
+
+    stepped, _ = adam_step(theta, gradient, AdamState.for_parameters(3), lr, b1, b2, eps)
+
+    m = (1 - b1) * gradient
+    v = (1 - b2) * gradient**2
+    expected = theta - lr * (m / (1 - b1)) / (np.sqrt(v / (1 - b2)) + eps)
+    assert stepped == pytest.approx(expected)
+
+
+def test_the_first_step_is_bias_corrected():
+    """Without correction the first steps are damped by ~(1 - beta) and Adam looks
+    like it is barely moving."""
+    from qmlkit.optim import AdamState, adam_step
+
+    gradient = np.array([1.0])
+    stepped, _ = adam_step(np.array([0.0]), gradient, AdamState.for_parameters(1), lr=0.1)
+    # corrected, the first step is almost exactly -lr * sign(grad)
+    assert stepped[0] == pytest.approx(-0.1, abs=1e-6)
+
+
+def test_the_state_is_not_mutated():
+    """Callers driving one step at a time keep trajectories; mutation loses them."""
+    from qmlkit.optim import AdamState, adam_step
+
+    state = AdamState.for_parameters(2)
+    before = (state.m.copy(), state.v.copy(), state.t)
+    adam_step(np.zeros(2), np.ones(2), state)
+    assert state.t == before[2]
+    assert state.m == pytest.approx(before[0])
+    assert state.v == pytest.approx(before[1])
+
+
+def test_the_step_counter_advances_with_the_returned_state():
+    from qmlkit.optim import AdamState, adam_step
+
+    state = AdamState.for_parameters(2)
+    for expected_t in (1, 2, 3):
+        _, state = adam_step(np.zeros(2), np.ones(2), state)
+        assert state.t == expected_t
+
+
+def test_a_mismatched_gradient_is_refused_by_name():
+    from qmlkit.optim import AdamState, adam_step
+
+    with pytest.raises(ValueError, match="3 entries but there are 2 parameters"):
+        adam_step(np.zeros(2), np.ones(3), AdamState.for_parameters(2))
+
+
+def test_adam_beats_plain_descent_when_the_scales_differ():
+    """The property Adam exists for, on a landscape where it is unambiguous.
+
+    A quadratic whose curvature spans four orders of magnitude: one learning rate
+    either crawls on the flat direction or diverges on the steep one. Dividing by the
+    running gradient magnitude makes the step per-parameter, which is the fix.
+    """
+    from qmlkit.optim import minimize_adam
+
+    curvature = np.array([1.0, 1e-4])
+
+    def loss(t):
+        return float(np.sum(curvature * t**2))
+
+    def grad(t):
+        return 2 * curvature * np.asarray(t, dtype=float)
+
+    start = np.array([1.0, 1.0])
+    _, adam_history = minimize_adam(loss, start, grad, n_steps=200, lr=0.05)
+
+    theta = start.copy()
+    for _ in range(200):
+        theta = theta - 0.05 * grad(theta)
+    descent_final = loss(theta)
+
+    assert adam_history[-1] < descent_final, "Adam should win where the scales differ"
+    assert adam_history[-1] < adam_history[0]
+
+
+def test_minimize_adam_lowers_a_real_expectation_value():
+    from qmlkit.optim import minimize_adam
+
+    ansatz = qk.hardware_efficient(3, 2)
+    spec, obs = ansatz.build(), qk.Z(0)
+    theta0 = ansatz.init("small", seed=0)
+    _, history = minimize_adam(
+        lambda t: qk.expval(spec, obs, theta=t),
+        theta0,
+        lambda t: qk.grad(spec, t, obs),
+        n_steps=30,
+    )
+    assert history[-1] < history[0]
+
+
+def test_the_callback_and_tolerance_are_honoured():
+    from qmlkit.optim import minimize_adam
+
+    seen = []
+    _, history = minimize_adam(
+        lambda t: float(np.sum(np.asarray(t) ** 2)),
+        np.array([1.0]),
+        lambda t: 2 * np.asarray(t, dtype=float),
+        n_steps=50,
+        callback=lambda step, theta, value: seen.append(step),
+    )
+    assert seen == list(range(50))
+    assert len(history) == 51
+
+    _, stopped = minimize_adam(
+        lambda t: float(np.sum(np.asarray(t) ** 2)),
+        np.array([1.0]),
+        lambda t: 2 * np.asarray(t, dtype=float),
+        n_steps=500,
+        tol=1e-6,
+    )
+    assert len(stopped) < 501, "a tolerance should stop before the full budget"
+
+
+def test_adam_is_reachable_by_name_like_every_other_optimiser():
+    from qmlkit.algorithms.vqe import OPTIMIZERS
+
+    assert "adam" in OPTIMIZERS
+    loss = lambda t: float(np.sum(np.asarray(t) ** 2))  # noqa: E731
+    grad = lambda t: 2 * np.asarray(t, dtype=float)  # noqa: E731
+    theta, history = OPTIMIZERS["adam"](loss, np.array([1.0, -1.0]), grad=grad, n_steps=40)
+    assert history[-1] < history[0]
+    assert theta.shape == (2,)
+
+
+# --------------------------------------------------------------------------- #
+# Shot-noise error bars for an observable with more than one term
+#
+# `sqrt((1 - z^2)/shots)` is the single-Pauli formula. Applied to a sum it reported
+# exactly 0.00000 once |<O>| reached 1 -- so every molecular Hamiltonian came back
+# with an error bar that looked converged and did not move with the shot count.
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    "observable",
+    [
+        qk.Z(0),
+        2.0 * qk.Z(0),
+        qk.Z(0) + qk.Z(1),
+        qk.Z(0) + 0.5 * qk.ZZ(0, 1),
+        qk.Z(0) + qk.X(1),
+    ],
+    ids=["single", "scaled", "sum", "weighted-sum", "two-bases"],
+)
+def test_the_reported_error_bar_matches_the_empirical_spread(observable):
+    """The only check that matters: does it predict how much the number moves?"""
+    spec = qk.angle_encode([0.7, 0.3])
+    shots = 2000
+    _, reported = qk.expectation(spec, observable, shots=shots, seed=0, return_std=True)
+    draws = [qk.expectation(spec, observable, shots=shots, seed=s) for s in range(200)]
+    empirical = float(np.std(draws))
+    assert reported == pytest.approx(empirical, rel=0.20)
+
+
+def test_a_multi_term_error_bar_is_not_zero():
+    """The specific failure: |<O>| >= 1 drove the old formula's variance negative."""
+    spec = qk.angle_encode([0.05, 0.05])  # both Z near +1, so <Z0+Z1> is near 2
+    value, reported = qk.expectation(spec, qk.Z(0) + qk.Z(1), shots=4000, seed=0, return_std=True)
+    assert abs(value) > 1.0, "the case only arises once the expectation exceeds one"
+    assert reported > 0.0
+
+
+def test_the_error_bar_shrinks_as_one_over_root_shots():
+    spec = qk.angle_encode([0.7, 0.3])
+    obs = qk.Z(0) + 0.5 * qk.ZZ(0, 1)
+    _, few = qk.expectation(spec, obs, shots=1000, seed=0, return_std=True)
+    _, many = qk.expectation(spec, obs, shots=100_000, seed=0, return_std=True)
+    assert few / many == pytest.approx(10.0, rel=0.05)
+
+
+def test_exact_mode_still_reports_no_error():
+    spec = qk.angle_encode([0.7, 0.3])
+    value, err = qk.expectation(spec, qk.Z(0) + qk.Z(1), return_std=True)
+    assert err == 0.0
+    assert value == pytest.approx(qk.expectation(spec, qk.Z(0) + qk.Z(1)))
+
+
+# --------------------------------------------------------------------------- #
+# purity was told which backend to use and ignored it
+# --------------------------------------------------------------------------- #
+def test_purity_on_a_mixed_state_backend_is_not_hard_coded_to_one():
+    cirq = pytest.importorskip("cirq")
+    spec = qk.angle_encode([0.7, 0.3])
+    backend = qk.get_backend("cirq-density", noise=cirq.depolarize(0.5))
+    assert qk.purity(spec, backend=backend) == pytest.approx(backend.purity(spec))
+    assert qk.purity(spec, backend=backend) < 0.9, "a heavily depolarised state is mixed"
+
+
+def test_purity_of_a_statevector_is_still_one():
+    assert qk.purity(qk.angle_encode([0.7, 0.3])) == pytest.approx(1.0)

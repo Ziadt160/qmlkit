@@ -45,18 +45,33 @@ from qmlkit.utils.errors import unknown
 __all__ = ["reupload", "ReuploadModel"]
 
 
-def _commutes_with_encoding(block: Block, feature_map: object) -> bool:
-    """True if every trainable rotation shares the encoding's generator.
+def _commutes_with_encoding(block: Block, feature_map: object) -> set[str] | None:
+    """The trainable gates when the uploads really do collapse, else ``None``.
 
     ``Ry(x) Ry(t1) Ry(x) Ry(t2) = Ry(2x + t1 + t2)`` — the uploads collapse into one
     rotation, the model reaches a single frequency, and the weights become a phase.
+
+    **That identity holds on one wire with nothing in between.** Entanglement breaks
+    it, so an ``EntanglerLayer`` anywhere in the block, or a feature map that entangles
+    on its own, means there is nothing to warn about — the model reaches ``0..2L``
+    rather than one frequency, and saying otherwise sends the caller to redesign a
+    circuit that was correct.
+
+    Returns the gates rather than a bool so the warning can name what it actually
+    found, instead of the ``rotations`` parameter the caller may never have used.
     """
     encoding = getattr(feature_map, "rotation", None)
     if encoding is None:
-        return False  # a multi-gate map (ZZ, Pauli) never fully commutes
+        return None  # a multi-gate map (ZZ, Pauli) never fully commutes
+    if getattr(feature_map, "entangle", False):
+        return None  # the encoding entangles, so the uploads cannot merge per wire
     gates: set[str] = set()
+    entangled = False
 
     def walk(b: Block) -> None:
+        nonlocal entangled
+        if isinstance(b, EntanglerLayer):
+            entangled = True
         if isinstance(b, RotationLayer):
             gates.update(b.gates)
         for attr in ("blocks", "block"):
@@ -68,7 +83,9 @@ def _commutes_with_encoding(block: Block, feature_map: object) -> bool:
                     walk(c)
 
     walk(block)
-    return bool(gates) and gates <= {encoding}
+    if entangled or not gates or not gates <= {encoding}:
+        return None
+    return gates
 
 
 def reupload(
@@ -116,12 +133,17 @@ def reupload(
         if entangler and n_qubits > 1:
             block = block + EntanglerLayer(entangler, pattern)
 
-    if _commutes_with_encoding(block, feature_map):
+    collapsing = _commutes_with_encoding(block, feature_map)
+    if collapsing is not None:
+        found = ", ".join(repr(g) for g in sorted(collapsing))
+        encoding_gate = getattr(feature_map, "rotation", "the encoding")
         warnings.warn(
-            f"the trainable block only uses {rotations}, which commutes with the "
-            f"encoding rotation: the uploads collapse into a single rotation, so the "
-            f"model reaches one frequency instead of 0..{n_layers} and its weights do "
-            'nothing beyond a phase. Use a non-commuting block such as ("rz", "ry", "rz").',
+            f"the trainable block only uses {found}, which commutes with the "
+            f"{encoding_gate!r} encoding rotation: the uploads collapse into a single "
+            f"rotation, so the model reaches one frequency instead of 0..{n_layers} and "
+            "its weights do nothing beyond a phase. Use a block whose generators differ "
+            "from the encoding's, or add an entangler, either of which breaks the "
+            "collapse.",
             UserWarning,
             stacklevel=2,
         )

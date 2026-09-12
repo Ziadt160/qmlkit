@@ -8,6 +8,111 @@ All notable changes to this project are documented here. The format follows
 
 First release.
 
+### Fixed - three silent wrong numbers, found by attacking the library
+
+An agent was asked to break qmlkit: to find a case where it returns a *wrong number*
+rather than an error. Its ground truth was a dense simulator it wrote itself, which
+reads only `spec.ops`, builds every gate matrix by hand, and never calls qmlkit
+execution code. It found ten defects; these three were the ones that corrupt a result
+without saying anything.
+
+**The torch backend computed a different circuit.** `_apply_torch` reimplements
+`np.moveaxis` and drops the `sorted(zip(destination, source))` numpy does, so for a
+two-qubit gate on wires `(a, b)` with `a > b` the *untouched* wires came out permuted.
+`Z(3)` on a four-qubit circuit read `-0.1288` where NumPy, Qiskit and Cirq all agreed
+on `-0.7374`. `method="backprop"` differentiates through the same function, so its
+gradients were wrong too, and `qk.conv_block(filter="su4")` reaches it without anyone
+hand-writing a circuit. `qk.selfcheck` catches this and names the cause exactly -
+nothing was running it.
+
+**`expectation(..., return_std=True)` reported a fabricated error bar.** It fed any
+observable into the single-Pauli formula `sqrt((1 - z^2)/shots)`, which for a sum is
+too tight, too loose, or - once `|<O>|` reaches 1 - *exactly zero*. Every molecular
+Hamiltonian came back with `+-0.00000`, an error bar that looks converged and does not
+move with the shot count. It is now computed rather than approximated: inside a
+qubit-wise-commuting group every term is diagonal in the measured basis, so the
+group's variance follows from the probabilities the exact path already reads, and
+groups measured on independent shots add. Checked against the empirical spread of 400
+repeated samplings, it agrees within 2% for single terms, sums, weighted sums and
+two-basis observables alike.
+
+**`purity(state, backend=<mixed-state backend>)` returned a hard-coded 1.0**, on the
+premise that a statevector is pure by construction - true, and not what was asked when
+the caller named a density-matrix backend. It reported 1.0 for a state whose purity
+was 0.309.
+
+### Added - property-based torture tests
+
+`tests/test_torture.py`: thirteen invariants that hold *by mathematics* rather than by
+design, checked over randomly generated circuits with Hypothesis, which shrinks a
+failure to the smallest circuit that still shows it. `hypothesis` had been a dev
+dependency and was unused.
+
+The properties are deliberately not comparisons against stored values: a test that
+pins today's output catches a change, a test that pins an invariant catches a mistake,
+and only the second is worth running against random input. All exact gradient routes
+agree; every backend agrees with the reference; batched equals looped; a tied weight's
+gradient is the sum over its occurrences; adjoints undo, states normalise, expectation
+is linear in the observable and inside its spectrum; Qiskit and Cirq round trips
+reproduce statevectors; sampling lands inside its error bars. Depth is tunable with
+`QMLKIT_TORTURE_EXAMPLES` - cheap in CI, and a campaign at 1,500 examples per property
+(~19,500 circuits) passes clean.
+
+One caveat worth recording: the backend-agreement property originally skipped torch,
+on the reasoning that a differentiable simulator is a different kind of backend. That
+exclusion is exactly what let the permutation bug above survive. It no longer skips it,
+and the reason is written into the test.
+
+### Added - Adam, selective classification, and Study 8
+
+**`adam`** joins `rotosolve`, `spsa` and `gradient-descent`. Its absence was found
+the hard way: an agent reproducing a published method outside the torch bridge had to
+hand-roll one, and its first run put the paper's method *below* the baseline - its own
+diverging optimiser, not the method. A hand-rolled optimiser that diverges looks
+exactly like a technique that does not work. `qmlkit.optim.minimize_adam`, with
+`adam_step` and `AdamState` public for when the loop is yours; keep the state between
+steps or Adam quietly becomes gradient descent with a decaying learning rate.
+
+**`qk.evaluate.selective` and `qk.evaluate.risk_coverage`** score a classifier that is
+allowed to decline. Selective accuracy - accuracy on the samples the model chose to
+answer - rises monotonically as it abstains more, reaching 1.000 on the single sample
+it is surest about, so quoting it against a model that answered everything compares
+two different questions rather than two models. `selective` reports coverage beside it
+and makes the *comparable* number the primary one, so `scores.score` cannot quietly
+become the flattering one. `risk_coverage` gives the whole trade plus AURC, which
+abstaining more cannot inflate.
+
+**Study 8** measures it on a real model: a `VQC` scoring 0.8947 answering everything
+climbs to a selective **0.9479** at threshold 0.80 while its comparable accuracy
+*falls* to **0.7982**. Abstention made the reported number better and the model worse,
+and only one of the two columns says so.
+
+### Fixed - a diagnostic that asserted what it had only inferred
+
+**`ENCODING_COMMUTES` reported an error on correct architectures.** The check was
+structural: matching rotations implied a collapse. But `Ry(x) Ry(t) Ry(x) Ry(t)`
+merges *on one wire with nothing in between* - any entanglement breaks it, and the
+check could see neither an entangler in the trainable block nor an entangling feature
+map. Measured against the library's own `fourier.spectrum`, it claimed one frequency
+where the band was `0..4`. It now uses the structural test as a trigger and confirms
+with the spectrum before reporting. A false positive in the honesty layer is worse
+than a false negative: it teaches people to ignore the tool.
+
+The same blindness sat in `reupload()`'s construction-time warning, whose message had
+a second defect - it interpolated the `rotations` *parameter* rather than the gates
+actually found, so passing an explicit block produced "the trainable block only uses
+('rz','ry','rz') ... Use a non-commuting block such as ("rz","ry","rz")", recommending
+the thing it was complaining about.
+
+**`list_baselines()` repeated a name registered for both tasks.** The registry is
+keyed by task and name deliberately, so `rbf-kernel-ridge` serves classification and
+regression; the listing read the values and never deduplicated.
+
+**`Scores.get("precision")` returned `None`.** `__getitem__` already answered a wrong
+key with a did-you-mean and `.get` bypassed it, so a near-miss became a silent `None`
+that surfaced later as a `TypeError` from inside numpy. An explicit default is still
+honoured without comment.
+
 ### Fixed - two defects found by using the library, not by testing it
 
 An independent agent was given a dataset and told to build the best classifier it

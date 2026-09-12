@@ -90,6 +90,14 @@ def _structural_backend(backend: BackendLike) -> tuple[BackendLike, str | None]:
     return "numpy", device.name
 
 
+#: Harmonics to look for when confirming a suspected collapse. A collapse claims the
+#: band is a single frequency; ``0..L`` for the depths this fires at sits well inside.
+_SPECTRUM_DEGREE = 8
+
+#: Power below which a harmonic is numerical dust rather than a frequency the model
+#: reaches. The collapsed case puts everything in one harmonic and ~1e-32 elsewhere.
+_SPECTRUM_FLOOR = 1e-10
+
 _SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
 
 
@@ -262,7 +270,35 @@ def _unmeasurable_parameters(
     return np.flatnonzero(~matters)
 
 
-def _encoding_collapses(ansatz: Ansatz) -> tuple[int, str] | None:
+def _reaches_one_frequency(ansatz: Ansatz, backend: BackendLike) -> bool:
+    """Measure whether the model really is a single sinusoid in its input.
+
+    The structural test below is necessary and *not* sufficient, so this confirms it
+    before anything is reported. Costs one spectrum: ``2 * degree + 1`` evaluations of
+    a circuit small enough that the question arises at all.
+
+    Returns ``False`` - do not report - if the measurement cannot be made, which is
+    the safe direction: a diagnostic that stays quiet when unsure is recoverable, one
+    that asserts at error severity when wrong is not.
+    """
+    from qmlkit.core.execute import expval
+    from qmlkit.fourier import spectrum
+
+    try:
+        weights = ansatz.init(seed=0)
+        n_inputs = int(ansatz.n_inputs)
+
+        def response(x: float) -> float:
+            return float(expval(ansatz.bind(np.full(n_inputs, x), weights), Z(0), backend=backend))
+
+        harmonics = spectrum(response, _SPECTRUM_DEGREE)
+    except Exception:  # pragma: no cover - a model this probe cannot drive
+        return False
+    live = [k for k, power in harmonics.items() if k != 0 and power > _SPECTRUM_FLOOR]
+    return len(live) <= 1
+
+
+def _encoding_collapses(ansatz: Ansatz, backend: BackendLike = None) -> tuple[int, str] | None:
     """``(n_uploads, rotation)`` when every trainable rotation shares the encoding's.
 
     ``Ry(x) Ry(t1) Ry(x) Ry(t2) = Ry(2x + t1 + t2)``: the uploads merge into one
@@ -270,6 +306,13 @@ def _encoding_collapses(ansatz: Ansatz) -> tuple[int, str] | None:
     phase. :func:`~qmlkit.ansatz.reupload.reupload` warns about this at
     construction; a model composed by hand out of blocks does not, and that is the
     case this catches.
+
+    **The rotations matching is not enough to conclude it.** That identity holds on a
+    single wire with nothing in between; any entanglement breaks it, whether it comes
+    from the trainable block or from the feature map itself, and no amount of reading
+    the structure reveals that. So the structural test is a trigger and the spectrum
+    is the evidence - this used to report an ``error`` on architectures whose measured
+    band was ``0..2L``.
     """
     encodings = [(b, n) for b, n in _walk(ansatz.block) if isinstance(b, EncodingLayer)]
     uploads = sum(n for _, n in encodings)
@@ -280,7 +323,11 @@ def _encoding_collapses(ansatz: Ansatz) -> tuple[int, str] | None:
         return None  # a multi-gate map (ZZ, Pauli) never fully commutes
     rotations = {g for b, _ in _walk(ansatz.block) if isinstance(b, RotationLayer) for g in b.gates}
     encoding = str(generators.pop())
-    return (uploads, encoding) if rotations and rotations <= {encoding} else None
+    if not (rotations and rotations <= {encoding}):
+        return None
+    if not _reaches_one_frequency(ansatz, backend):
+        return None
+    return uploads, encoding
 
 
 def _weight_gradient_variance(
@@ -361,7 +408,7 @@ def _diagnose_ansatz(
             )
         )
 
-    collapse = _encoding_collapses(ansatz)
+    collapse = _encoding_collapses(ansatz, backend)
     if collapse is not None:
         uploads, rotation = collapse
         found.append(

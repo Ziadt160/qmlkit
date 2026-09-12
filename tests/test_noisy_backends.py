@@ -307,7 +307,7 @@ def test_diagnose_still_finds_structure_through_a_mixed_state_backend():
     """The substitution must not cost the findings it was made to preserve."""
     if not is_available("cirq-density"):
         pytest.skip("cirq is not installed")
-    fmap = qk.AngleFeatureMap(2, rotation="ry")
+    fmap = qk.AngleFeatureMap(2, rotation="ry", entangle=False)
     model = qk.Ansatz(2, qk.repeat(3, qk.EncodingLayer(fmap) + qk.RotationLayer("ry")), n_inputs=2)
     on_reference = qk.diagnose(model, backend="numpy", seed=0, n_samples=6, probes=1)
     on_noisy = qk.diagnose(model, backend="cirq-density", seed=0, n_samples=6, probes=1)

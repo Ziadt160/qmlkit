@@ -243,3 +243,97 @@ def test_scores_for_dispatches_and_suggests():
     assert got.task == "regression"
     with pytest.raises(ValueError, match="classification"):
         evaluate.scores_for("classifcation", [0, 1], [0, 1])
+
+
+# --------------------------------------------------------------------------- #
+# Selective classification: the comparison that flatters
+#
+# An abstaining classifier's accuracy is measured on a subset it chose, so quoting
+# it against a model that answered everything is not a comparison. Raising the
+# abstention threshold raises selective accuracy monotonically until one sample is
+# left, which makes a perfect score close to free.
+# --------------------------------------------------------------------------- #
+def test_a_perfect_selective_score_is_labelled_as_bought_with_coverage():
+    truth = np.array([0, 1, 0, 1, 0, 1, 0, 1])
+    answered_only_when_right = np.array([0, 1, None, None, None, None, None, None], dtype=object)
+
+    scores = evaluate.selective(truth, answered_only_when_right)
+
+    assert scores["selective_accuracy"] == pytest.approx(1.0)
+    assert scores["coverage"] == pytest.approx(0.25)
+    # the number that IS comparable to a classifier with no reject option
+    assert scores["accuracy"] == pytest.approx(0.25)
+    assert scores.primary == "accuracy", "the comparable metric must be the quoted one"
+    assert any("not comparable" in note for note in scores.notes)
+    assert any("close to free" in note for note in scores.notes)
+
+
+def test_full_coverage_reduces_to_ordinary_accuracy():
+    truth = np.array([0, 1, 0, 1])
+    pred = np.array([0, 1, 1, 1])
+    selective = evaluate.selective(truth, pred)
+    plain = evaluate.classification(truth, pred)
+    assert selective["coverage"] == pytest.approx(1.0)
+    assert selective["selective_accuracy"] == pytest.approx(plain["accuracy"])
+    assert selective["accuracy"] == pytest.approx(plain["accuracy"])
+    assert selective.notes == (), "nothing is being bought, so nothing to warn about"
+
+
+def test_an_explicit_abstain_value_is_honoured():
+    truth = np.array([0, 1, 0, 1])
+    pred = np.array([0, 1, -1, -1])
+    scores = evaluate.selective(truth, pred, abstain=-1)
+    assert scores["coverage"] == pytest.approx(0.5)
+    assert scores["n_declined"] == pytest.approx(2.0)
+
+
+def test_declining_everything_scores_zero_rather_than_raising():
+    truth = np.array([0, 1, 0, 1])
+    scores = evaluate.selective(truth, np.array([None] * 4, dtype=object))
+    assert scores["coverage"] == pytest.approx(0.0)
+    assert scores["accuracy"] == pytest.approx(0.0)
+    assert any("declined every sample" in note for note in scores.notes)
+
+
+def test_selective_risk_is_one_minus_selective_accuracy():
+    truth = np.array([0, 1, 0, 1])
+    pred = np.array([0, 0, None, None], dtype=object)
+    scores = evaluate.selective(truth, pred)
+    assert scores["selective_risk"] == pytest.approx(1.0 - scores["selective_accuracy"])
+
+
+# --------------------------------------------------------------------------- #
+# The curve, because one point was chosen
+# --------------------------------------------------------------------------- #
+def test_risk_falls_as_coverage_falls_for_a_calibrated_model():
+    rng = np.random.default_rng(0)
+    truth = rng.integers(0, 2, 200)
+    confidence = rng.uniform(0, 1, 200)
+    pred = np.where(confidence > 0.35, truth, 1 - truth)  # right when confident
+
+    curve = evaluate.risk_coverage(truth, pred, confidence, n_points=10)
+
+    assert curve["coverage"][0] < curve["coverage"][-1]
+    assert curve["risk"][0] <= curve["risk"][-1], "a calibrated model errs where unsure"
+    assert 0.0 <= curve["aurc"] <= 1.0
+
+
+def test_aurc_punishes_a_model_that_is_wrong_when_confident():
+    rng = np.random.default_rng(1)
+    truth = rng.integers(0, 2, 200)
+    confidence = rng.uniform(0, 1, 200)
+    calibrated = np.where(confidence > 0.4, truth, 1 - truth)
+    inverted = np.where(confidence > 0.4, 1 - truth, truth)  # confidently wrong
+
+    good = evaluate.risk_coverage(truth, calibrated, confidence)["aurc"]
+    bad = evaluate.risk_coverage(truth, inverted, confidence)["aurc"]
+    assert good < bad, "AURC must separate a useful confidence from a misleading one"
+
+
+def test_the_curve_spans_the_whole_coverage_range():
+    truth = np.array([0, 1, 0, 1, 0, 1])
+    pred = np.array([0, 1, 0, 1, 1, 0])
+    confidence = np.linspace(1.0, 0.0, 6)
+    curve = evaluate.risk_coverage(truth, pred, confidence)
+    assert curve["coverage"][-1] == pytest.approx(1.0)
+    assert len(curve["coverage"]) == len(curve["risk"]) == len(curve["threshold"])

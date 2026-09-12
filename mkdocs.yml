@@ -116,6 +116,7 @@ nav:
       - 5. Clustering and generative: studies/05-beyond-classification.md
       - 6. Clinical decisions: studies/06-clinical.md
       - 7. Images and structure: studies/07-images-and-structure.md
+      - 8. A classifier that declines: studies/08-selective-classification.md
   - Guides:
       - guides/index.md
       - The parameter-shift rule: guides/parameter-shift.md

@@ -40,5 +40,6 @@ The heavier versions live in `examples/`, and every study here has one:
 | 4 | [`experiments.py`](https://github.com/Ziadt160/qmlkit/blob/main/examples/experiments.py) experiment 1 — H₂ across a range of bond lengths, checked against dense diagonalisation at each |
 | 6 | `experiments.py` experiment 3 — all 30 clinical features, compared across qubit counts |
 | 7 | `experiments.py` experiment 2 — real MNIST at 784 pixels and eight qubits, with three convolution filters compared |
+| 8 | [A classifier that declines to answer](08-selective-classification.md) — abstention makes the reported number rise while the comparable one falls |
 
 `experiments.py` takes about twenty minutes; the QCNN is most of it.

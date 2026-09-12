@@ -33,6 +33,44 @@ Measured on a 5-qubit hardware-efficient ansatz with a two-term observable:
 | 60 | **6.2 ms** | 24 ms | 109 ms | 213 ms | 226 ms |
 | 120 | **12.6 ms** | 50 ms | 404 ms | 823 ms | 870 ms |
 
+## Choosing a gradient is not choosing an optimiser
+
+`grad()` decides how the derivative is computed; what you do with it is separate.
+Four optimisers are registered, reachable by name wherever a `VQE`-style algorithm
+takes one:
+
+| name | needs a gradient | when |
+|---|---|---|
+| `adam` | yes | the default choice for a variational circuit of any depth |
+| `gradient-descent` | yes | when you want the plainest possible baseline to compare against |
+| `rotosolve` | no | shallow circuits where each angle drives one Pauli rotation — no learning rate to pick |
+| `spsa` | no | two evaluations per step whatever `P` is; the shot-budget option |
+
+`adam` is the one to reach for first. Parameter gradients in a deep ansatz differ in
+scale by orders of magnitude — a rotation near the readout moves the expectation far
+more than one behind a wall of entanglers — so a single learning rate either crawls
+on the small ones or diverges on the large. Adam divides by the running gradient
+magnitude, which makes the step size per-parameter.
+
+```python
+from qmlkit.optim import minimize_adam
+import qmlkit as qk
+
+ansatz = qk.hardware_efficient(3, 2)
+spec, obs = ansatz.build(), qk.Z(0)
+theta, history = minimize_adam(
+    lambda t: qk.expval(spec, obs, theta=t),
+    ansatz.init("small", seed=0),
+    lambda t: qk.grad(spec, t, obs),
+    n_steps=40,
+)
+print(f"{history[0]:+.4f} -> {history[-1]:+.4f}")
+```
+
+`adam_step` and `AdamState` are public for the case where the loop is yours. Keep the
+state between steps: dropping it turns Adam back into gradient descent with a
+decaying learning rate, which trains, converges, and is not what you asked for.
+
 ## What `method="auto"` decides
 
 ```python
