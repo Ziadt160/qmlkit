@@ -495,7 +495,7 @@ def baseline(
     are differences between models rather than between splits.
     """
     data = np.atleast_2d(np.asarray(X, dtype=float))
-    target = np.asarray(y).ravel()
+    target: npt.NDArray[Any] = np.asarray(y).ravel()
     if data.shape[0] != target.size:
         raise ValueError(f"X has {data.shape[0]} rows but y has {target.size}")
     resolved = _infer_task(target) if task == "auto" else task

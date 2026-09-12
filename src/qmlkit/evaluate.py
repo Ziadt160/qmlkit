@@ -176,7 +176,7 @@ def roc_auc(y_true: Any, y_score: Any) -> float:
     the trapezoid rule, and cheaper.
     """
     truth = _as_labels(y_true, "y_true").astype(int)
-    score = np.asarray(y_score, dtype=float).ravel()
+    score: npt.NDArray[Any] = np.asarray(y_score, dtype=float).ravel()
     _check_same_length(truth, score)
     n_pos = int((truth == 1).sum())
     n_neg = int(truth.size - n_pos)
@@ -202,8 +202,8 @@ def average_precision(y_true: Any, y_score: Any) -> float:
     The right summary when the positive class is rare: unlike ROC AUC, it does not
     flatter a model for correctly rejecting an abundant negative class.
     """
-    truth = _as_labels(y_true, "y_true").astype(int)
-    score = np.asarray(y_score, dtype=float).ravel()
+    truth: npt.NDArray[Any] = _as_labels(y_true, "y_true").astype(int)
+    score: npt.NDArray[Any] = np.asarray(y_score, dtype=float).ravel()
     _check_same_length(truth, score)
     n_pos = int((truth == 1).sum())
     if n_pos == 0:

@@ -43,6 +43,17 @@ already trained, on the first thing a new user does, on the platform where it br
 about to return and degrade to ASCII when it cannot, at identical column widths;
 `ascii=True`/`False` overrides the detection.
 
+**`mypy` failed on Python 3.10 only, and no local environment could show it.** NumPy
+2.3 gave `ndarray`'s shape parameter a default, so mypy stops comparing a
+`tuple[int, ...]` against a `tuple[int]`. NumPy 2.2 is the newest release that supports
+3.10 and has the parameter without the default, so six assignments that are fine
+everywhere else are errors there: a variable whose first binding is 1-D by inference,
+reassigned something of unconstrained rank. Found by CI, reproduced on a purpose-built
+3.10 + numpy 2.2 environment, fixed by annotating those variables `npt.NDArray[Any]` at
+their first binding - the shape-agnostic spelling used elsewhere, which says what was
+always true about them. Now clean on four combinations: 3.10/numpy 2.2, 3.10/numpy 1.26,
+3.14/numpy 2.5, and a no-torch install.
+
 **CI never installed `qiskit-aer`, so the backend that needs it was never tested.**
 The `full` job installed every extra except that one, and every test in
 `tests/test_noisy_backends.py` guards itself with `is_available` - so the whole

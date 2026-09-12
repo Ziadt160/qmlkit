@@ -189,7 +189,7 @@ class AdaptVQE:
         **optimizer_kwargs: Any,
     ) -> AdaptResult:
         operators: list[PauliString] = []
-        theta = np.zeros(0)
+        theta: npt.NDArray[Any] = np.zeros(0)
         history: list[float] = []
         picked_gradients: list[float] = []
 

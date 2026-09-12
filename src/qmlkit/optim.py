@@ -119,7 +119,7 @@ def minimize_rotosolve(
     and reports it as a result. :func:`supports_rotosolve` checks the first case;
     the second is a property of your loss, not of the circuit.
     """
-    theta = np.asarray(theta0, dtype=float).ravel().copy()
+    theta: npt.NDArray[Any] = np.asarray(theta0, dtype=float).ravel().copy()
     history = [float(f(theta))]
     for sweep in range(n_sweeps):
         theta = rotosolve_step(f, theta)
@@ -290,7 +290,7 @@ def minimize_qng(
 ) -> tuple[npt.NDArray[Any], list[float]]:
     """Minimise ``<obs>`` by quantum natural gradient descent."""
     obs = Z(0) if obs is None else obs
-    theta = np.asarray(theta0, dtype=float).ravel().copy()
+    theta: npt.NDArray[Any] = np.asarray(theta0, dtype=float).ravel().copy()
     history: list[float] = []
     for step in range(n_steps):
         value = expval(spec, obs, theta=theta, backend=backend)

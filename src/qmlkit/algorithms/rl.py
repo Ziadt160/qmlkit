@@ -58,7 +58,7 @@ class ContextualBandit:
 
     def __init__(self, seed: int | None = None) -> None:
         self._rng = np.random.default_rng(seed)
-        self._state = np.zeros(self.n_observations)
+        self._state: npt.NDArray[Any] = np.zeros(self.n_observations)
 
     def reset(self) -> npt.NDArray[Any]:
         self._state = self._rng.uniform(-1.0, 1.0, self.n_observations)
