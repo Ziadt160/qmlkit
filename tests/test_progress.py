@@ -129,10 +129,16 @@ def test_estimates_once_there_is_evidence() -> None:
         for _ in range(20):
             time.sleep(0.03)
             tracked.advance()
+        elapsed = tracked.elapsed
         left = tracked.remaining
+
     assert left is not None
-    # 20 of 200 done in ~0.6s, so ~5.4s left; generous bounds, this is wall clock
-    assert 2.0 < left < 20.0
+    # 20 of 200 are done, so the remaining 180 must be estimated at 9x what the 20
+    # took. Asserted as that ratio rather than as a wall-clock range: a loaded runner
+    # can make sleep(0.03) take as long as it likes and the extrapolation is still
+    # exactly right. The earlier version asserted `left < 20.0` and failed on macOS
+    # at 20.1 -- a suite whose colour depends on the runner's mood proves nothing.
+    assert left / elapsed == pytest.approx(9.0, rel=0.05)
 
 
 def test_no_estimate_without_a_total() -> None:
