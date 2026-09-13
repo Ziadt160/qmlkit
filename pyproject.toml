@@ -78,6 +78,7 @@ markers = [
   "spinqit: needs SpinQit (Python 3.8-3.10 only)",
   "qiskit: needs Qiskit",
   "cirq: needs Cirq",
+  "aer: needs Qiskit Aer",
   "noisy: needs a mixed-state simulator (cirq or qiskit-aer)",
   "torch: needs PyTorch",
   "pennylane: cross-validation against PennyLane",

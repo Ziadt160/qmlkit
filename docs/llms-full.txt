@@ -3684,10 +3684,45 @@ Once registered it is a keyword everywhere the library takes `method=`, includin
 
 # Backends and conventions
 
-One circuit, five backends, one answer. `tests/test_cross_backend.py` runs the same
+One circuit, eight backends, one answer. `tests/test_cross_backend.py` runs the same
 circuit zoo through every installed backend and asserts agreement with the NumPy
 reference on statevectors, probabilities, expectations over X/Y/Z and two-body terms,
 seeded sampling, and parameter-shift gradients.
+
+| | simulator | when |
+|---|---|---|
+| `numpy` | the built-in reference | the default. Exact, vectorised, fastest up to ~13 qubits |
+| `aer` | `AerSimulator(method="statevector")` | **above ~13 qubits** — C++, and it does not degrade the way a Python gate loop does |
+| `qiskit` | `quantum_info.Statevector` | Qiskit's reference. Exact, no extra install, and the slowest of the three |
+| `cirq` | `cirq.Simulator` | Cirq's reference |
+| `spinqit` | SpinQit's simulator | the diploma's own SDK; Python 3.10 only |
+| `torch` | a differentiable simulator | `backprop` only |
+| `cirq-density` · `qiskit-aer` | density matrices | noise, when you ask for it by name |
+
+### Which one, in practice
+
+The NumPy reference wins at the widths quantum machine learning actually runs at,
+because it carries the batch as a leading axis and contracts gate by gate rather than
+sample by sample. That advantage is a Python-level one, and it stops paying once the
+statevector gets big:
+
+| qubits | `numpy` | `qiskit` | `aer` |
+|---|---|---|---|
+| 10 | **0.46s** | 0.98s | 0.59s |
+| 12 | **0.92s** | 1.60s | 0.97s |
+| 14 | 1.52s | 2.16s | **1.27s** |
+| 16 | 9.87s | 13.03s | **0.60s** |
+| 18 | 25.91s | 35.99s | **0.66s** |
+
+*(a Gram matrix on a `ZZFeatureMap`; single machine, exact throughout.)*
+
+The crossover is around **13 qubits** and it is abrupt, because it is the same one
+that turns off NumPy's batching — `NumpyBackend.batch_max_qubits` is 10, and above it
+the reference falls back to a loop while Aer stays in C++. If you are working wider
+than a dozen qubits, `backend="aer"` is the answer; below it, the default already is.
+
+`aer` is deliberately a separate name rather than a silent upgrade to `qiskit`, so the
+simulator that produced a number stays visible in the code that produced it.
 
 ```python
 import qmlkit as qk
@@ -4587,7 +4622,7 @@ orders, and over a three-qubit custom gate.
 
 | Backend | A registered gate |
 |---|---|
-| `numpy` · `qiskit` · `cirq` | **works**, to machine precision |
+| `numpy` · `qiskit` · `cirq` · `aer` | **works**, to machine precision |
 | `cirq-density` · `qiskit-aer` | **works** — they inherit the same translation |
 | `spinqit` | refuses. Its builder takes named gates, not an arbitrary matrix |
 | `torch` | refuses for `backprop`. It differentiates *through* the gate, which needs a torch-native form; your `matrix=` is NumPy and no gradient flows through it. `parameter-shift` works, because a shift rule never inspects a state |

@@ -73,6 +73,11 @@ register_backend(
     "cirq-density", _lazy("cirq_density_backend", "CirqDensityBackend"), "cirq", "cirq"
 )
 register_backend("qiskit-aer", _lazy("qiskit_aer_backend", "QiskitAerBackend"), "qiskit_aer", "aer")
+# Aer's *statevector* method: the same answer as ``qiskit``, from the C++ simulator
+# rather than ``quantum_info.Statevector``. Registered under its own name instead of
+# silently upgrading ``qiskit``, because which simulator produced a number belongs in
+# the code that produced it.
+register_backend("aer", _lazy("aer_backend", "AerBackend"), "qiskit_aer", "aer")
 
 #: The backends that accept a ``noise`` argument. Noise never selects a simulator for
 #: you: a mixed-state run costs more, refuses the state-based gradients, and answers a

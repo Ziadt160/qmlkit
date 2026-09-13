@@ -18,7 +18,7 @@ import qmlkit as qk
 from qmlkit.core.backends.registry import available_backends, is_available
 
 #: every backend except the reference itself
-OTHER_BACKENDS = ["spinqit", "qiskit", "cirq"]
+OTHER_BACKENDS = ["spinqit", "qiskit", "cirq", "aer"]
 
 #: Per-backend numerical tolerance.
 #:
@@ -27,7 +27,7 @@ OTHER_BACKENDS = ["spinqit", "qiskit", "cirq"]
 #: lands ~5.6e-11 off the analytic cos(0.7) - so it gets a looser bound. This is a
 #: property of that simulator, not a translation error, and it is worth knowing
 #: before anyone reports a "gradient mismatch" that is really accumulated noise.
-TOLERANCE = {"spinqit": 1e-7, "qiskit": 1e-9, "cirq": 1e-9}
+TOLERANCE = {"spinqit": 1e-7, "qiskit": 1e-9, "cirq": 1e-9, "aer": 1e-9}
 
 pytestmark = pytest.mark.parametrize(
     "backend_name",
@@ -185,7 +185,12 @@ def test_backend_roundtrips_to_its_native_circuit(backend_name):
     """The translation is public API: users can inspect and reuse the native circuit."""
     spec = _bind("layered_ansatz")
     be = qk.get_backend(backend_name)
-    exporter = {"qiskit": "to_qiskit", "cirq": "to_cirq", "spinqit": "to_spinqit"}[backend_name]
+    exporter = {
+        "qiskit": "to_qiskit",
+        "aer": "to_qiskit",
+        "cirq": "to_cirq",
+        "spinqit": "to_spinqit",
+    }[backend_name]
     native = getattr(be, exporter)(spec)
     assert native is not None
 

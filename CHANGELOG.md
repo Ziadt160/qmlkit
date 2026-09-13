@@ -40,6 +40,40 @@ backend differentiates *through* each gate, which a NumPy `matrix=` cannot suppo
 Both now say so, and name the alternative, instead of telling the caller to edit a
 table.
 
+### Added - `backend="aer"`, and the library now works above 13 qubits
+
+Qiskit ships two statevector simulators and this library was reaching the slower one.
+`quantum_info.Statevector` is the pure-Python reference; `AerSimulator` is the C++ one,
+and nothing was using it.
+
+Adding it was not the interesting part. The first version was **32x slower** than the
+backend it was meant to beat, and profiling said why: `transpile()` cost **57 ms
+against 1.1 ms** for the simulation it was preparing. Aer runs this library's gate set
+directly — including the `UnitaryGate` a registered gate arrives as — so the transpiler
+had nothing to contribute and fifty times the price. Removing it is the whole
+optimisation.
+
+What that buys is a different ceiling rather than a percentage:
+
+| qubits | `numpy` | `qiskit` | `aer` |
+|---|---|---|---|
+| 10 | **0.46s** | 0.98s | 0.59s |
+| 12 | **0.92s** | 1.60s | 0.97s |
+| 14 | 1.52s | 2.16s | **1.27s** |
+| 16 | 9.87s | 13.03s | **0.60s** |
+| 18 | 25.91s | 35.99s | **0.66s** |
+
+The crossover sits near **13 qubits** and it is sharp, because it is the same boundary
+that turns off the NumPy backend's batching (`batch_max_qubits`, 10): above it the
+reference falls back to a Python loop while Aer stays in C++. At 18 qubits that is
+**25.91s against 0.66s**.
+
+It is registered as its own name rather than as a silent upgrade to `qiskit`, because
+which simulator produced a number belongs in the code that produced it. It inherits
+circuit translation, qubit order, the registered-gate matrix fallback and every
+measurement semantic from `QiskitBackend` and the base class unchanged, and it joins
+`tests/test_cross_backend.py` like any other backend.
+
 ### Fixed - the slow backends were the silent ones
 
 `qk.progress()` tracked the pair-at-a-time kernel loop and `HybridModel.fit`, which

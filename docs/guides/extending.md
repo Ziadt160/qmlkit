@@ -127,7 +127,7 @@ orders, and over a three-qubit custom gate.
 
 | Backend | A registered gate |
 |---|---|
-| `numpy` · `qiskit` · `cirq` | **works**, to machine precision |
+| `numpy` · `qiskit` · `cirq` · `aer` | **works**, to machine precision |
 | `cirq-density` · `qiskit-aer` | **works** — they inherit the same translation |
 | `spinqit` | refuses. Its builder takes named gates, not an arbitrary matrix |
 | `torch` | refuses for `backprop`. It differentiates *through* the gate, which needs a torch-native form; your `matrix=` is NumPy and no gradient flows through it. `parameter-shift` works, because a shift rule never inspects a state |
