@@ -46,7 +46,12 @@ jobs:
 
   deploy:
     name: Publish to GitHub Pages
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # A manual run has to be able to publish, or `workflow_dispatch` is a build
+    # button with no effect - which is exactly when it is reached for, because the
+    # push trigger did not fire.
+    if: >-
+      github.ref == 'refs/heads/main'
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: build
     runs-on: ubuntu-latest
     permissions:
