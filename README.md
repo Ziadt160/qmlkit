@@ -67,6 +67,7 @@ import that was present locally and absent in CI.
 **[Documentation](https://ziadt160.github.io/qmlkit/)** — eight tutorials, guides and a generated API reference.
 **[Case studies](https://ziadt160.github.io/qmlkit/studies/)** — eight whole problems, raw data to defensible number. In most of them the number is that the quantum model lost.
 **[Validation](https://ziadt160.github.io/qmlkit/about/validation/)** — how any of this is known to be correct, including the reference that shares no code with the library it checks.
+**[Coming from PennyLane](https://ziadt160.github.io/qmlkit/guides/from-pennylane/)** — borrow the three loops worth borrowing without migrating anything.
 **[HANDOFF.md](https://github.com/Ziadt160/qmlkit/blob/main/HANDOFF.md)** — status, conventions, known traps, and what to do next, if you are picking this up.
 
 ## Two lines
@@ -235,6 +236,132 @@ pages and the package, committed, and checked in CI, so neither can drift.
 [Working with a coding agent](https://ziadt160.github.io/qmlkit/guides/agents/) is
 the long version; [`AGENTS.md`](https://github.com/Ziadt160/qmlkit/blob/main/AGENTS.md) is for working *on* qmlkit.
 
+## Checked against a reference that shares nothing
+
+Everything below compares qmlkit against something that inherited its conventions —
+five backends against each other, or PennyLane, whose names this library's gate table
+was written by reading. Those all agree when a convention is wrong *everywhere*, and
+once they did: the torch backend reimplemented `np.moveaxis` without numpy's
+`sorted(zip(destination, source))`, so a two-qubit gate on descending wires permuted
+the wires it was not acting on. `Z(3)` read `-0.1288` against `-0.7374`. Nothing
+raised, `backprop` differentiated through it, and four references agreed with it.
+
+`tests/densesim.py` is 206 lines that inherited none of it — hand-written gate
+matrices, hand-derived derivatives, an explicit bit-index loop where the library uses
+`tensordot`, its own product rule, reading `spec.ops` and calling no backend. It is
+what found that bug, and four properties in `tests/test_torture.py` run it against
+randomly generated circuits.
+
+**When correctness actually matters, at least one reference must share no code and no
+conventions with the thing being checked.**
+
+## Cross-validated against PennyLane
+
+A second, independently written implementation catches what an internal suite cannot.
+`tests/test_pennylane_parity.py` is **301 executed parity cases** across every layer
+both libraries implement, and it runs in CI like any other test:
+
+```bash
+pip install pennylane
+pytest tests/test_pennylane_parity.py
+```
+
+| Layer | What is compared | Agreement |
+|---|---|---|
+| Gates | 55 matrix comparisons over all 20 gates — the 7 parametric at 6 angles each, the 13 constant once — plus 21 closed-form `dU/dθ` against a differenced PennyLane matrix | `1e-12` |
+| Circuits | 40 **randomly generated** circuits over the full gate set, 1–5 qubits — statevectors, probabilities, and random multi-term observables | `1e-12` |
+| Gradients | 5 ansätze × 4 observables; all four exact methods; PennyLane's own four methods back against ours; randomised circuits | `1e-10` |
+| Encodings | angle (X/Y/Z), amplitude, basis, IQP | `1e-12` |
+| Templates | `BasicEntanglerLayers`, `StronglyEntanglingLayers` | `1e-12` |
+| Kernels | full Gram matrices, fidelity and swap-test estimators | `1e-10` |
+| Quantum info | reduced DMs, von Neumann entropy, purity, mutual information, fidelity — over random states | `1e-10` |
+| Fourier | re-uploading spectra at depths 1–4 | `1e-10` |
+| Geometry | Fubini–Study metric (full and diagonal), QFIM | `1e-12` |
+| Optimisers | Rotosolve and QNG trajectories, step by step | `1e-10` |
+
+The randomised tests are the ones that matter. Hand-picked cases confirm what the
+author already believed; a fuzzer explores the space, and every bug found in this
+project so far has been of the plausible-wrong-number kind that only a second opinion
+catches — including two in this library's own parameter-shift implementation, and two
+in its own tests.
+
+Beyond parity, `tests/test_torture.py` states **17 invariants that hold by mathematics
+rather than by example** and lets Hypothesis hunt for circuits that break them: the four
+exact gradient routes agree, a tied weight's gradient sums over its occurrences, batched
+equals looped, `adjoint()` undoes, expectation lies inside the observable's spectrum. A
+default run generates 1,825 cases; `QMLKIT_TORTURE_EXAMPLES=1500` before a release is
+about 19,500 circuits. When one fails, Hypothesis shrinks it to the smallest circuit
+that still shows it.
+
+**Four real convention differences surfaced.** None is a bug in either library, and
+each is pinned by its own test so it stays deliberate:
+
+| Difference | Detail |
+|---|---|
+| IQP angle convention | PennyLane's `IQPEmbedding` emits `RZ(x_i)` / `MultiRZ(x_i x_j)`; qmlkit follows Qiskit and emits `Rz(2φ)`. Halving the data map reconciles them exactly |
+| Amplitude encoding phase | qmlkit builds it from uniformly-controlled rotations and drops one overall factor. Unobservable — but it stops being global inside a *controlled* block, which the docstring warns about |
+| Two-qubit "ring" | A ring on two qubits would revisit the same pair, so qmlkit collapses it to one `CX`; PennyLane's templates emit both `CNOT(0,1)` and `CNOT(1,0)` |
+| `approx="block-diag"` | PennyLane blocks the metric by *layer* and zeroes cross-layer entries. qmlkit computes the exact metric — free on a simulator — so the same keyword does not port |
+
+That last one is not just cosmetic. On a 3-qubit, 2-layer problem at equal step count
+and step size, qmlkit's QNG reaches `-2.9999999` where PennyLane's default
+`block-diag` QNG stalls at `-2.22`. Pointed at the exact metric (`approx=None`),
+PennyLane's optimiser traces qmlkit's trajectory to `1e-8`.
+
+One place qmlkit is measurably more accurate: `state_fidelity` hits the analytic
+`|⟨a|b⟩|²` to `1e-16`, while `qml.math.fidelity` takes matrix square roots of rank-1
+density matrices and loses about eight digits.
+
+## Speed
+
+`examples/benchmark_pennylane.py` times identical work on both libraries — against
+PennyLane's **fastest** configuration, not its reference one. `pennylane-lightning`
+ships with every PennyLane install, so `lightning.qubit` is always available, and
+`qml.adjoint_metric_tensor` is an `O(P)` route sitting next to the `O(P²)` Hadamard-test
+`qml.metric_tensor`. Benchmarking against the slow option when the fast one is one
+string away would flatter the author.
+
+| Operation | qmlkit | PennyLane (best) | | vs `default.qubit` |
+|---|---|---|---|---|
+| Expectation, 12 qubits | 3.9 ms | 4.6 ms `lightning` | 1.2× | 2.9× |
+| Gradient, 8 qubits, `P=96` | 11.0 ms | 11.3 ms `lightning-adjoint` | 1.02× | 6.1× |
+| Parameter-shift, 6 qubits, `P=72` | 300 ms | 347 ms `lightning` | 1.2× | 3.9× |
+| 20×20 kernel Gram matrix | 3.2 ms | 219 ms `default` | **69×** | 69× |
+| Exact metric tensor, `P=24` | 6.8 ms | 715 ms `adjoint_metric` | **105×** | 276× |
+
+qmlkit is ahead on 13 of 14 cases, median **1.7×**.
+
+**The comparison is deliberately the unflattering one.** `pennylane-lightning` is a
+dependency of PennyLane, so the C++ `lightning.qubit` is in every install whether the
+user asked for it or not, and `qml.adjoint_metric_tensor` is an `O(P)` algorithm sitting
+right beside the `O(P^2)` Hadamard-test route. Timing against `default.qubit` and the
+`O(P^2)` metric would be timing an opponent nobody runs. This file used to do exactly
+that and reported 6.1x; the flattering column is still printed above, so the size of
+the difference is visible rather than taken on trust. Re-run on a second machine the
+summary comes out 14 of 14 at 1.78x, because the 8-qubit gradient row is a dead tie
+that falls either way, and the table quotes the worse run.
+
+`examples/benchmark_pennylane.py` checks that both libraries produce the *same number*
+before quoting any speedup. An acceleration that changes the answer is not an
+acceleration.
+
+**What that means.** The first three rows are dispatch and interpreter overhead rather
+than arithmetic: qmlkit does less per call, so it leads at small register sizes and the
+gap closes as `2ⁿ` starts to dominate — the 8-qubit gradient is a tie. Anyone quoting
+the `default.qubit` column as qmlkit's speed advantage is quoting the wrong number.
+
+Two results are real. The **kernel Gram matrix** is ~69×: every entry is the same circuit
+at different angles, so the whole matrix is one batched evaluation, while PennyLane makes
+one QNode call per pair — per-call overhead dominates so completely there that `lightning`
+is actually *slower* than `default.qubit`. And the **metric tensor** is different in kind: closed-form
+differentiation of the state, `P` derivative states from one forward sweep, agreeing with
+PennyLane's own routes to `1.7e-16` and *widening* with parameter count (49× at `P=12`,
+105× at `P=24`) rather than narrowing — the only row here that gets *better* the bigger
+the problem gets, and the one worth planning around.
+
+JAX is not installed on the benchmark machine, so jit-compiled PennyLane is untested and
+unclaimed; it would narrow the overhead rows further.
+
 ## Install
 
 ```bash
@@ -381,132 +508,6 @@ Three findings from building it, all now handled:
 SpinQit's simulator also carries a precision floor near `1e-10` rather than machine
 precision, so it is compared at a looser tolerance. `verify_conventions()` re-checks
 bit order and gate definitions against a live install in one call.
-
-### Checked against a reference that shares nothing
-
-Everything below compares qmlkit against something that inherited its conventions —
-five backends against each other, or PennyLane, whose names this library's gate table
-was written by reading. Those all agree when a convention is wrong *everywhere*, and
-once they did: the torch backend reimplemented `np.moveaxis` without numpy's
-`sorted(zip(destination, source))`, so a two-qubit gate on descending wires permuted
-the wires it was not acting on. `Z(3)` read `-0.1288` against `-0.7374`. Nothing
-raised, `backprop` differentiated through it, and four references agreed with it.
-
-`tests/densesim.py` is 206 lines that inherited none of it — hand-written gate
-matrices, hand-derived derivatives, an explicit bit-index loop where the library uses
-`tensordot`, its own product rule, reading `spec.ops` and calling no backend. It is
-what found that bug, and four properties in `tests/test_torture.py` run it against
-randomly generated circuits.
-
-**When correctness actually matters, at least one reference must share no code and no
-conventions with the thing being checked.**
-
-### Cross-validated against PennyLane
-
-A second, independently written implementation catches what an internal suite cannot.
-`tests/test_pennylane_parity.py` is **301 executed parity cases** across every layer
-both libraries implement, and it runs in CI like any other test:
-
-```bash
-pip install pennylane
-pytest tests/test_pennylane_parity.py
-```
-
-| Layer | What is compared | Agreement |
-|---|---|---|
-| Gates | 55 matrix comparisons over all 20 gates — the 7 parametric at 6 angles each, the 13 constant once — plus 21 closed-form `dU/dθ` against a differenced PennyLane matrix | `1e-12` |
-| Circuits | 40 **randomly generated** circuits over the full gate set, 1–5 qubits — statevectors, probabilities, and random multi-term observables | `1e-12` |
-| Gradients | 5 ansätze × 4 observables; all four exact methods; PennyLane's own four methods back against ours; randomised circuits | `1e-10` |
-| Encodings | angle (X/Y/Z), amplitude, basis, IQP | `1e-12` |
-| Templates | `BasicEntanglerLayers`, `StronglyEntanglingLayers` | `1e-12` |
-| Kernels | full Gram matrices, fidelity and swap-test estimators | `1e-10` |
-| Quantum info | reduced DMs, von Neumann entropy, purity, mutual information, fidelity — over random states | `1e-10` |
-| Fourier | re-uploading spectra at depths 1–4 | `1e-10` |
-| Geometry | Fubini–Study metric (full and diagonal), QFIM | `1e-12` |
-| Optimisers | Rotosolve and QNG trajectories, step by step | `1e-10` |
-
-The randomised tests are the ones that matter. Hand-picked cases confirm what the
-author already believed; a fuzzer explores the space, and every bug found in this
-project so far has been of the plausible-wrong-number kind that only a second opinion
-catches — including two in this library's own parameter-shift implementation, and two
-in its own tests.
-
-Beyond parity, `tests/test_torture.py` states **17 invariants that hold by mathematics
-rather than by example** and lets Hypothesis hunt for circuits that break them: the four
-exact gradient routes agree, a tied weight's gradient sums over its occurrences, batched
-equals looped, `adjoint()` undoes, expectation lies inside the observable's spectrum. A
-default run generates 1,825 cases; `QMLKIT_TORTURE_EXAMPLES=1500` before a release is
-about 19,500 circuits. When one fails, Hypothesis shrinks it to the smallest circuit
-that still shows it.
-
-**Four real convention differences surfaced.** None is a bug in either library, and
-each is pinned by its own test so it stays deliberate:
-
-| Difference | Detail |
-|---|---|
-| IQP angle convention | PennyLane's `IQPEmbedding` emits `RZ(x_i)` / `MultiRZ(x_i x_j)`; qmlkit follows Qiskit and emits `Rz(2φ)`. Halving the data map reconciles them exactly |
-| Amplitude encoding phase | qmlkit builds it from uniformly-controlled rotations and drops one overall factor. Unobservable — but it stops being global inside a *controlled* block, which the docstring warns about |
-| Two-qubit "ring" | A ring on two qubits would revisit the same pair, so qmlkit collapses it to one `CX`; PennyLane's templates emit both `CNOT(0,1)` and `CNOT(1,0)` |
-| `approx="block-diag"` | PennyLane blocks the metric by *layer* and zeroes cross-layer entries. qmlkit computes the exact metric — free on a simulator — so the same keyword does not port |
-
-That last one is not just cosmetic. On a 3-qubit, 2-layer problem at equal step count
-and step size, qmlkit's QNG reaches `-2.9999999` where PennyLane's default
-`block-diag` QNG stalls at `-2.22`. Pointed at the exact metric (`approx=None`),
-PennyLane's optimiser traces qmlkit's trajectory to `1e-8`.
-
-One place qmlkit is measurably more accurate: `state_fidelity` hits the analytic
-`|⟨a|b⟩|²` to `1e-16`, while `qml.math.fidelity` takes matrix square roots of rank-1
-density matrices and loses about eight digits.
-
-### Speed
-
-`examples/benchmark_pennylane.py` times identical work on both libraries — against
-PennyLane's **fastest** configuration, not its reference one. `pennylane-lightning`
-ships with every PennyLane install, so `lightning.qubit` is always available, and
-`qml.adjoint_metric_tensor` is an `O(P)` route sitting next to the `O(P²)` Hadamard-test
-`qml.metric_tensor`. Benchmarking against the slow option when the fast one is one
-string away would flatter the author.
-
-| Operation | qmlkit | PennyLane (best) | | vs `default.qubit` |
-|---|---|---|---|---|
-| Expectation, 12 qubits | 3.9 ms | 4.6 ms `lightning` | 1.2× | 2.9× |
-| Gradient, 8 qubits, `P=96` | 11.0 ms | 11.3 ms `lightning-adjoint` | 1.02× | 6.1× |
-| Parameter-shift, 6 qubits, `P=72` | 300 ms | 347 ms `lightning` | 1.2× | 3.9× |
-| 20×20 kernel Gram matrix | 3.2 ms | 219 ms `default` | **69×** | 69× |
-| Exact metric tensor, `P=24` | 6.8 ms | 715 ms `adjoint_metric` | **105×** | 276× |
-
-qmlkit is ahead on 13 of 14 cases, median **1.7×**.
-
-**The comparison is deliberately the unflattering one.** `pennylane-lightning` is a
-dependency of PennyLane, so the C++ `lightning.qubit` is in every install whether the
-user asked for it or not, and `qml.adjoint_metric_tensor` is an `O(P)` algorithm sitting
-right beside the `O(P^2)` Hadamard-test route. Timing against `default.qubit` and the
-`O(P^2)` metric would be timing an opponent nobody runs. This file used to do exactly
-that and reported 6.1x; the flattering column is still printed above, so the size of
-the difference is visible rather than taken on trust. Re-run on a second machine the
-summary comes out 14 of 14 at 1.78x, because the 8-qubit gradient row is a dead tie
-that falls either way, and the table quotes the worse run.
-
-`examples/benchmark_pennylane.py` checks that both libraries produce the *same number*
-before quoting any speedup. An acceleration that changes the answer is not an
-acceleration.
-
-**What that means.** The first three rows are dispatch and interpreter overhead rather
-than arithmetic: qmlkit does less per call, so it leads at small register sizes and the
-gap closes as `2ⁿ` starts to dominate — the 8-qubit gradient is a tie. Anyone quoting
-the `default.qubit` column as qmlkit's speed advantage is quoting the wrong number.
-
-Two results are real. The **kernel Gram matrix** is ~69×: every entry is the same circuit
-at different angles, so the whole matrix is one batched evaluation, while PennyLane makes
-one QNode call per pair — per-call overhead dominates so completely there that `lightning`
-is actually *slower* than `default.qubit`. And the **metric tensor** is different in kind: closed-form
-differentiation of the state, `P` derivative states from one forward sweep, agreeing with
-PennyLane's own routes to `1.7e-16` and *widening* with parameter count (49× at `P=12`,
-105× at `P=24`) rather than narrowing — the only row here that gets *better* the bigger
-the problem gets, and the one worth planning around.
-
-JAX is not installed on the benchmark machine, so jit-compiled PennyLane is untested and
-unclaimed; it would narrow the overhead rows further.
 
 ## What it does today
 

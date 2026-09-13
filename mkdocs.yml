@@ -119,6 +119,7 @@ nav:
       - 8. A classifier that declines: studies/08-selective-classification.md
   - Guides:
       - guides/index.md
+      - Coming from PennyLane: guides/from-pennylane.md
       - The parameter-shift rule: guides/parameter-shift.md
       - Choosing a gradient method: guides/choosing-a-gradient.md
       - Backends and conventions: guides/backends.md

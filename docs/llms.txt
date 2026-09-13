@@ -74,6 +74,7 @@ What is worth knowing before writing any of it:
 ## Guides
 
 - [Guides](https://ziadt160.github.io/qmlkit/guides/): The tutorials show you how. These explain why, and are meant to be read out of order when a particular question comes up.
+- [Coming from PennyLane](https://ziadt160.github.io/qmlkit/guides/from-pennylane/): You do not have to migrate anything to use this library, and the cheapest way to start is not to.
 - [The parameter-shift rule](https://ziadt160.github.io/qmlkit/guides/parameter-shift/): It is correct — for a gate whose generator has a single frequency, differentiated one occurrence at a time.
 - [Choosing a gradient method](https://ziadt160.github.io/qmlkit/guides/choosing-a-gradient/): Six methods, and qk.grad(spec, theta, obs) with no method picks a sensible one.
 - [Backends and conventions](https://ziadt160.github.io/qmlkit/guides/backends/): One circuit, five backends, one answer. tests/testcrossbackend.py runs the same circuit zoo through every installed backend and asserts agreement with the NumPy reference on statevectors, probabilities, expectations over X/Y/Z and two-body terms, seeded sampling, and parameter-shift gradients.
