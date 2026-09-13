@@ -441,14 +441,15 @@ unclaimed; it would narrow the overhead rows further.
 
 ## What it does today
 
-`0.1.0` is the foundation layer:
-
 - **A backend-neutral circuit IR.** A circuit is data — a list of `Op`. Backends
   compile it; gradients, resource counting and drawing all read it.
-- **Four backends behind one protocol** — NumPy (exact reference), SpinQit,
-  Qiskit and Cirq — with a cross-backend equivalence suite proving they agree.
-  A backend supplies a statevector; sampling, basis rotation and expectation
-  semantics are defined once in the base class.
+- **Seven backends behind one protocol** — five pure-state (NumPy exact
+  reference, SpinQit, Qiskit, Cirq, Torch) and two mixed-state (`cirq-density`,
+  `qiskit-aer`) — with a cross-backend equivalence suite proving they agree.
+  A backend supplies a statevector; sampling, basis rotation, qubit-wise-commuting
+  grouping, expectation and the whole batch stack are defined once in the base
+  class, which is what makes agreement between backends a property rather than a
+  coincidence.
 - **Pauli observables** — `Z(0)`, `ZZ(0, 1)`, weighted sums — with one
   `expectation()` that is correct for any register width.
 - **The full encoding layer** — basis, angle, amplitude, Hamiltonian and data
@@ -643,7 +644,7 @@ qk.shots_for_precision(0.01)      # what a target precision actually costs
 | 4 · Torch bridge: `QuantumLayer`, `VQC`, `VQRegressor` | **done** |
 | 5 · Quantum kernels, `QSVC`/`QSVR` | **done** |
 | 6 · QCNN, QLSTM, MPS; QCBM, qGAN, QBM | **done** |
-| 7 · Docs, tutorials, `v0.1.0` on PyPI | docs and tutorials **done**; PyPI pending |
+| 7 · Docs, tutorials, PyPI | **done** — `pip install qmlkit` |
 
 Beyond `0.1.0`, in the order they are likely to matter: a *mitigation verdict* (whether error mitigation improved an
 estimate or only traded bias for variance, on identical seeds with the shot cost

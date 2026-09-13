@@ -17,6 +17,7 @@ prints rather than the one the author would have preferred.
 | [5. Clustering and generative models](05-beyond-classification.md) | Unsupervised, and a Born machine | The metrics that exist because accuracy does not apply |
 | [6. Clinical decisions](06-clinical.md) | 569 breast-cancer biopsies, 30 features | When a false negative is not the same error as a false positive |
 | [7. Images and structure](07-images-and-structure.md) | Handwritten digits, a QCNN | Putting the structure of the data into the circuit |
+| [8. A classifier that declines to answer](08-selective-classification.md) | Abstention on breast-cancer biopsies | The reported number rises while the comparable one falls |
 
 Every code block on these pages runs in CI (`tests/test_docs.py`), so the numbers are
 produced by the code beside them and cannot drift from it.
@@ -32,7 +33,8 @@ whether a result means anything:
 4. **What does the metric actually say?** — `evaluate`, with its notes
 5. **Is the number right, and reproducible?** — `selfcheck` and `fingerprint`
 
-The heavier versions live in `examples/`, and every study here has one:
+Four of them have a heavier version in `examples/`, run at full size rather than
+trimmed to fit a page:
 
 | Study | Full-size version |
 |---|---|
@@ -40,6 +42,5 @@ The heavier versions live in `examples/`, and every study here has one:
 | 4 | [`experiments.py`](https://github.com/Ziadt160/qmlkit/blob/main/examples/experiments.py) experiment 1 — H₂ across a range of bond lengths, checked against dense diagonalisation at each |
 | 6 | `experiments.py` experiment 3 — all 30 clinical features, compared across qubit counts |
 | 7 | `experiments.py` experiment 2 — real MNIST at 784 pixels and eight qubits, with three convolution filters compared |
-| 8 | [A classifier that declines to answer](08-selective-classification.md) — abstention makes the reported number rise while the comparable one falls |
 
 `experiments.py` takes about twenty minutes; the QCNN is most of it.

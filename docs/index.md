@@ -72,7 +72,7 @@ approximated.
 
 - :material-book-open-page-variant: **[Case studies](studies/index.md)**
 
-    Seven whole problems, raw data to defensible number. In most of them the number
+    Eight whole problems, raw data to defensible number. In most of them the number
     is that the quantum model lost.
 
 </div>

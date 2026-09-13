@@ -220,6 +220,8 @@ It is JSON-serialisable, so it is cheap enough to attach to every result file.
 
 The order these run in is the order the questions arise:
 
+| When | What to call |
+|---|---|
 | Before training | `qk.imbalance.imbalance_report(y)` · `qk.plan(model, ...)` · `qk.diagnose(ansatz)` |
 | During | `class_weight="balanced"` · `stratified_folds(y)` |
 | After | `qk.evaluate.classification(...)` · `qk.baseline(X, y, model=...)` |
