@@ -82,16 +82,29 @@ class CirqBackend(Backend):
         qubits = self.qubits(spec.n_qubits)
         moments = []
         for op in spec.ops:
-            try:
-                factory = self._factories[op.gate]
-            except KeyError:
-                raise NotImplementedError(
-                    f"gate {op.gate!r} has no Cirq mapping; add it to _gate_factories()"
-                ) from None
             angles = [self._angle(p, op.gate) for p in op.params]
-            gate = factory(*angles)
+            factory = self._factories.get(op.gate)
+            if factory is not None:
+                gate = factory(*angles)
+            else:
+                gate = self._as_matrix_gate(op.gate, angles)
             moments.append(gate.on(*[qubits[q] for q in op.qubits]))
         return cirq.Circuit(moments)
+
+    def _as_matrix_gate(self, gate: str, angles: list[float]) -> Any:
+        """A gate Cirq has no name for, emitted as its matrix.
+
+        What makes ``register_gate`` mean the same thing here as on the NumPy
+        reference. Unlike the Qiskit path this needs no basis reversal: Cirq is
+        big-endian like qmlkit, and ``MatrixGate.on(a, b)`` reads its operands in the
+        same order the matrix does. Asserted against the reference rather than
+        assumed — that claim is exactly the kind that is right until it is not.
+        """
+        from qmlkit.core.gates import gate_matrix
+
+        matrix = np.asarray(gate_matrix(gate, angles), dtype=complex)
+        k = int(round(float(np.log2(matrix.shape[0]))))
+        return self._cirq.MatrixGate(matrix, name=gate, qid_shape=(2,) * k)
 
     def qubits(self, n: int) -> list[cirq.LineQubit]:
         return self._cirq.LineQubit.range(n)

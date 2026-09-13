@@ -4,6 +4,51 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed - a registered gate now reaches every backend that can take one
+
+`register_gate` is advertised as an extension point, and the documentation said a gate
+you add gets correct gradients, resource counting and a torch layer without your
+writing any of it. On the NumPy reference that was true. On every other backend the
+gate raised:
+
+```text
+NotImplementedError: gate 'xy' has no Qiskit mapping; add it to _GATE_METHODS
+```
+
+An extension point whose failure mode is *edit the library's own source* is not an
+extension point. The registry was a NumPy-only feature while the docs promised
+otherwise.
+
+A gate the SDK has no name for is now emitted as its matrix — `UnitaryGate` on Qiskit,
+`MatrixGate` on Cirq — built from the `matrix=` supplied at registration, so the two
+density-matrix backends inherit it as well. Statevectors agree with the NumPy reference
+to machine precision and parameter-shift gradients agree to eight decimals.
+
+The subtlety is qubit order, and it is the kind that does not raise. qmlkit is
+big-endian and Qiskit is little-endian, so `to_qiskit` already maps qubit `i` to
+`n-1-i`; a raw matrix carries its qubit order in its *basis* rather than its wire list,
+so the basis needs reversing too, or a two-qubit gate on `(a, b)` quietly acts as
+though it were on `(b, a)`. Cirq needs no reversal at all. `tests/test_cross_backend.py`
+asserts that against the NumPy reference over ascending, descending and non-adjacent
+wire orders and over a three-qubit custom gate, rather than reasoning about it.
+
+`spinqit` and `torch` still refuse, for reasons that are real rather than missing work:
+SpinQit's builder takes named gates rather than an arbitrary matrix, and the torch
+backend differentiates *through* each gate, which a NumPy `matrix=` cannot support.
+Both now say so, and name the alternative, instead of telling the caller to edit a
+table.
+
+### Added - the extension guide covers the parts that have no registry
+
+`docs/guides/extending.md` listed four registries; there are eight, and it now lists
+all of them with what registering actually buys. It gains three sections: how far a
+registered gate travels across backends, **a new optimiser** (`OPTIMIZERS` is an open
+dict, so an optimiser is a function and needs no registration), and **a new algorithm**
+— the one extension point with no registry, deliberately, because an algorithm is the
+outermost layer and nothing inside the library needs to find it by name.
+
 ## [0.2.0] - 2026-09-13
 
 **Upgrading from 0.1.0? This release contains eleven correctness fixes as well as the

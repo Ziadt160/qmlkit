@@ -92,7 +92,14 @@ def _gate_tensor(torch: Any, gate: str, angles: list[Any]) -> Any:
             ],
             dim=0,
         )
-    raise NotImplementedError(f"gate {gate!r} has no torch tensor form")
+    raise NotImplementedError(
+        f"gate {gate!r} has no torch tensor form. This backend exists to backpropagate "
+        "through the circuit, which needs every gate built from torch operations; a "
+        "gate added with register_gate supplies a NumPy matrix, and no gradient flows "
+        "through one of those. Use method='parameter-shift' - it never inspects a "
+        "state, so it works on any backend and on a registered gate that declares its "
+        "generator frequencies - or give this gate a torch-native form."
+    )
 
 
 def _apply_torch(torch: Any, state: Any, matrix: Any, qubits: tuple[int, ...]) -> Any:

@@ -141,7 +141,11 @@ class SpinQitBackend(Backend):
             gate = self._gates[gate_name]
         except KeyError:
             raise NotImplementedError(
-                f"gate {gate_name!r} has no SpinQit mapping; add it to _gate_table()"
+                f"gate {gate_name!r} has no SpinQit mapping. SpinQit's builder takes "
+                "named gates rather than an arbitrary matrix, so a gate added with "
+                "register_gate cannot be emitted here the way it can on the numpy, "
+                "qiskit and cirq backends. Run this circuit on one of those, or "
+                "decompose the gate into the built-in set."
             ) from None
         wires = q[qubits[0]] if len(qubits) == 1 else tuple(q[i] for i in qubits)
         if angles:

@@ -1,15 +1,22 @@
 # Extending qmlkit
 
-Every extension point is a registry. Register something and it becomes reachable by
-name everywhere the library takes one — no subclassing, no plugin manifest, no
-coordination with anything else.
+Almost every extension point is a registry. Register something and it becomes reachable
+by name everywhere the library takes one — no subclassing, no plugin manifest, no
+coordination with anything else, and no fork.
 
-| I want to change | Use |
-|---|---|
-| The circuit shape | `register_ansatz` — or just build an `Ansatz` inline |
-| A gate the library lacks | `register_gate` |
-| How gradients are estimated | `register_gradient` |
-| Where circuits run | `register_backend` |
+| I want to change | Use | And it becomes reachable from |
+|---|---|---|
+| The circuit shape | `register_ansatz` — or build an `Ansatz` inline | `get_ansatz`, `qk.search`'s `ansatz=` axis, `compare_ansatze` |
+| A gate the library lacks | `register_gate` | every circuit, every backend, every gradient method |
+| The two-qubit block inside a QCNN | `register_conv_filter` | `conv_block`, `qcnn_ansatz`, `mps_ansatz`, `tree_tensor_network` |
+| How data becomes angles | `register_feature_map` | `qk.search`'s `feature_map=` axis |
+| How gradients are estimated | `register_gradient` | `method=` anywhere, including `QuantumLayer` |
+| Where circuits run | `register_backend` | `backend=`, `QMLKIT_BACKEND`, `backend_report()` |
+| What the classical bar is | `register_baseline` | `qk.baseline`'s comparison table |
+| Reading circuits in from elsewhere | `register_importer` | `get_importer`, `list_importers` |
+
+Two things are extended **without** a registry, and that is deliberate — see
+[a new optimiser](#a-new-optimiser) and [a new algorithm](#a-new-algorithm).
 
 ## A new ansatz
 
@@ -89,6 +96,44 @@ frequencies matter.
     The registry is process-wide, so a gate registered in a test is visible to every
     later test. If you register throwaway gates, snapshot the registry rather than
     reading it live — the parity suite learned this the hard way.
+
+### How far does your gate travel?
+
+The obvious worry: Qiskit and Cirq have their own gate tables, and your gate is not in
+either. So what happens when you ask for `backend="qiskit"`?
+
+It works. Neither SDK has heard of your gate, so it is emitted **as its matrix** —
+`UnitaryGate` on Qiskit, `MatrixGate` on Cirq — built by calling the `matrix=` you
+registered. Nothing else about your circuit changes, and the result agrees with the
+NumPy reference to machine precision.
+
+```python
+# docs: skip
+qk.register_gate(qk.GateDef("xy", n_qubits=2, n_params=1, matrix=xy, frequencies=(1.0,)))
+
+qk.statevector(spec, backend="qiskit")   # UnitaryGate, exact
+qk.statevector(spec, backend="cirq")     # MatrixGate,  exact
+qk.grad(spec, theta, qk.Z(1), method="parameter-shift", backend="qiskit")
+```
+
+The subtlety this hides is qubit order, and it is the kind that does not raise. qmlkit
+is big-endian and Qiskit is little-endian, so `to_qiskit` already maps qubit `i` to
+`n-1-i` — but a raw matrix carries its qubit order in its *basis* rather than in its
+wire list, so the basis has to be reversed as well or a two-qubit gate on `(a, b)`
+quietly acts as though it were on `(b, a)`. Cirq needs no reversal at all, being
+big-endian like qmlkit. Rather than reason about that, the cross-backend suite asserts
+it against the NumPy reference over ascending, descending and non-adjacent wire
+orders, and over a three-qubit custom gate.
+
+| Backend | A registered gate |
+|---|---|
+| `numpy` · `qiskit` · `cirq` | **works**, to machine precision |
+| `cirq-density` · `qiskit-aer` | **works** — they inherit the same translation |
+| `spinqit` | refuses. Its builder takes named gates, not an arbitrary matrix |
+| `torch` | refuses for `backprop`. It differentiates *through* the gate, which needs a torch-native form; your `matrix=` is NumPy and no gradient flows through it. `parameter-shift` works, because a shift rule never inspects a state |
+
+Both refusals say that, and what to do instead, rather than telling you to edit the
+library.
 
 ## A new gradient estimator
 
@@ -246,3 +291,109 @@ states the four gaps in the order they would bite: **batched submission** (now l
 in place — `expectation_over_slots` is the call a provider would turn into a job),
 **transpilation and routing**, **error mitigation**, and **asynchronous jobs**. The
 last is the one that would still change the `Backend` protocol.
+
+## A new optimiser
+
+There is no `register_optimizer`, because there is nothing to look up — `OPTIMIZERS` is
+an open dict and an optimiser is just a function:
+
+```python
+# docs: skip
+from qmlkit.algorithms.vqe import OPTIMIZERS
+
+def my_optimiser(loss, theta0, *, grad, n_steps=200, lr=0.1):
+    theta = np.asarray(theta0, dtype=float).copy()
+    history = [float(loss(theta))]
+    for _ in range(n_steps):
+        theta = theta - lr * grad(theta)      # qk.grad, exact, not a difference
+        history.append(float(loss(theta)))
+    return theta, history                     # the contract: (theta, history)
+
+OPTIMIZERS["mine"] = my_optimiser
+VQE(hamiltonian, n_qubits=3, optimizer="mine").run(n_steps=50, lr=0.05)
+```
+
+The contract is `fn(loss, theta0, **kw) -> (theta, history)`. `VQE`, `QAOA` and
+`AdaptVQE` all take `optimizer=` as either a name from that dict **or the function
+itself**, so you do not have to register anything to use one.
+
+!!! warning "If your optimiser needs the gradient, the caller has to inject it"
+    Each solver decides which optimisers get `grad=` passed in. Naming only some of
+    them there is how `optimizer="adam"` came to raise `TypeError: _adam() missing 1
+    required keyword-only argument: 'grad'` from all three algorithms that advertised
+    it — a documented option that had never run. `tests/test_optimizer_wiring.py` now
+    parametrises over `OPTIMIZERS` itself, so a new entry cannot be added without
+    being covered.
+
+Each optimiser also spells its own iteration count (`n_sweeps`, `n_iterations`,
+`n_steps`), because `run(**optimizer_kwargs)` passes them straight through.
+
+## A new algorithm
+
+There is no `register_algorithm` either, and this one is worth explaining because it
+looks like an omission.
+
+A registry exists so the library can look something up **on your behalf** — a gate name
+inside a circuit, a `method=` string, a `backend=` string. An algorithm is the outermost
+layer. Nothing inside qmlkit needs to find your VQE by name; you call it. So an
+algorithm is not a plugin, it is a loop:
+
+> Each one is a *loop* over machinery that already exists — ansatz, gradients,
+> optimisers, observables — so each is thin, and every structural choice it makes is an
+> argument rather than something baked in.
+>
+> — `qmlkit/algorithms/__init__.py`
+
+`VQE` is 200 lines and the shape is worth copying:
+
+```python
+# docs: skip
+@dataclass(frozen=True)
+class MyResult:
+    value: float
+    theta: np.ndarray
+    history: list[float]
+    exact: float | None = None          # what it was checked against
+
+class MyAlgorithm:
+    def __init__(self, hamiltonian, n_qubits, *, ansatz=None,
+                 optimizer="rotosolve", backend=None, shots=None):
+        self.ansatz = ansatz or qk.hardware_efficient(n_qubits, 2)   # default, not hardcode
+
+    def cost(self, theta): ...              # one qk.expectation call
+    def gradient_of_cost(self, theta): ...  # one qk.grad call
+    def run(self, seed=None, compare_exact=None, **optimizer_kwargs) -> MyResult: ...
+```
+
+Four things make it belong here rather than merely work:
+
+**Take the structure as an argument, and actually use it.** `tests/test_injection.py`
+injects two ansätze of *different parameter counts* and asserts the model's count
+follows — because a constructor that accepts `ansatz=` and quietly ignores it looks
+identical from the outside.
+
+**Check yourself against something exact while you still can.** `VQE`, `QAOA` and
+`AdaptVQE` diagonalise densely when it is affordable (12 qubits or fewer by default)
+and report `error_vs_exact`. A variational algorithm converging confidently on the
+wrong answer is the ordinary failure here, not the exotic one.
+
+**Refuse, or warn, when a component's assumptions do not hold.** `QAOA` consults
+`supports_rotosolve(spec)` and warns when the optimiser is invalid for the circuit it
+just built: Rotosolve assumes each angle drives a single sinusoid, and QAOA's cost angle
+drives one `rz` per edge — five frequencies on a five-edge problem, measured. It
+converges immediately, on the wrong point, and reports it as a result.
+
+**Use the exact gradient.** `qk.grad` already gives you one on any circuit and
+observable. Finite differences are for debugging and tests, and say so in their own
+docstring.
+
+### Where to put it
+
+If it is your own research, **it does not need to be in the library at all** — import
+qmlkit, write your loop, keep it in your project. That is what the three layers are
+for, and nothing is gained by vendoring it in.
+
+If it is genuinely general, it goes in `src/qmlkit/algorithms/`, exported from that
+package's `__init__`, with a reference page entry and a changelog entry. And register
+the *pieces* it introduces — a gate, an ansatz shape, a filter, an estimator — because
+those are the parts other people's code will want to reach by name.

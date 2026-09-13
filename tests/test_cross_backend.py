@@ -214,3 +214,76 @@ def test_controlled_y_matches_the_standard_gate(backend_name):
     got = qk.get_backend(backend_name).statevector(spec)
     a, b = _global_phase_aligned(expected, got)
     assert np.allclose(a, b, atol=TOLERANCE[backend_name])
+
+
+# --------------------------------------------------------------------------- #
+# a gate the SDKs have never heard of
+# --------------------------------------------------------------------------- #
+def _xy_matrix(t: float) -> np.ndarray:
+    """The XY interaction. Chosen because it is genuinely not in any SDK's table."""
+    c, s = np.cos(t / 2), np.sin(t / 2)
+    return np.array(
+        [[1, 0, 0, 0], [0, c, -1j * s, 0], [0, -1j * s, c, 0], [0, 0, 0, 1]], dtype=complex
+    )
+
+
+def _ccphase_matrix(t: float) -> np.ndarray:
+    """A three-qubit gate, so the emission is tested wider than a pair."""
+    m = np.eye(8, dtype=complex)
+    m[7, 7] = np.exp(1j * t)
+    return m
+
+
+@pytest.fixture
+def custom_gates():
+    """Register two gates the SDKs have no name for, and take them away again.
+
+    The registries are process-wide, so a test that leaves one behind changes what
+    every later test sees - the parity fuzzer snapshots at import for exactly this
+    reason.
+    """
+    from qmlkit.core.gates import _REGISTRY
+
+    qk.register_gate(qk.GateDef("xy_test", 2, 1, _xy_matrix, frequencies=(1.0,)))
+    qk.register_gate(qk.GateDef("ccp_test", 3, 1, _ccphase_matrix, frequencies=(1.0,)))
+    try:
+        yield
+    finally:
+        _REGISTRY.pop("xy_test", None)
+        _REGISTRY.pop("ccp_test", None)
+
+
+#: Wire orders chosen to break a naive translation: ascending, descending, and
+#: non-adjacent. A gate emitted as a raw matrix carries its qubit order in its
+#: *basis*, so getting this wrong is silent - the circuit still runs.
+CUSTOM_CASES = [
+    ("xy_test", (0, 1)),
+    ("xy_test", (2, 0)),
+    ("xy_test", (3, 1)),
+    ("xy_test", (1, 2)),
+    ("ccp_test", (2, 0, 3)),
+    ("ccp_test", (0, 1, 2)),
+]
+
+
+@pytest.mark.parametrize(("gate", "wires"), CUSTOM_CASES)
+def test_a_registered_gate_reaches_every_backend(custom_gates, backend_name, gate, wires):
+    """`register_gate` has to mean the same thing on every backend, or it means little.
+
+    Before this, a gate registered at run time raised `NotImplementedError` telling
+    the caller to edit the library's own source - so the registry the documentation
+    advertised as an extension point was a NumPy-only feature.
+    """
+    from qmlkit.core.ir import CircuitSpec, Op
+
+    # Hadamards first, so every amplitude is populated and a mis-ordered gate shows.
+    spec = CircuitSpec(
+        n_qubits=4,
+        ops=(*(Op("h", (q,)) for q in range(4)), Op(gate, tuple(wires), (0.7,))),
+    )
+    reference = qk.get_backend("numpy").statevector(spec)
+    got = qk.get_backend(backend_name).statevector(spec)
+    a, b = _global_phase_aligned(reference, got)
+    assert np.allclose(a, b, atol=TOLERANCE[backend_name]), (
+        f"{backend_name} disagrees on {gate} at wires {wires}"
+    )

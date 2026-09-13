@@ -81,16 +81,42 @@ class QiskitBackend(Backend):
         qc = QuantumCircuit(n)
 
         for op in spec.ops:
-            try:
-                method = _GATE_METHODS[op.gate]
-            except KeyError:
-                raise NotImplementedError(
-                    f"gate {op.gate!r} has no Qiskit mapping; add it to _GATE_METHODS"
-                ) from None
             angles = [self._angle(p, op.gate) for p in op.params]
             wires = [n - 1 - q for q in op.qubits]  # qmlkit qubit -> qiskit qubit
-            getattr(qc, method)(*angles, *wires)
+            method = _GATE_METHODS.get(op.gate)
+            if method is not None:
+                getattr(qc, method)(*angles, *wires)
+            else:
+                qc.append(self._as_unitary(op.gate, angles), wires)
         return qc
+
+    @staticmethod
+    def _as_unitary(gate: str, angles: list[float]) -> Any:
+        """A gate Qiskit has no name for, emitted as its matrix.
+
+        This is what makes ``register_gate`` mean the same thing on every backend.
+        A gate registered at run time cannot appear in a hand-written name table, and
+        refusing it here made the registry a NumPy-only feature while the
+        documentation promised otherwise.
+
+        The reversal is the subtle part. :meth:`to_qiskit` already maps qmlkit qubit
+        ``i`` to Qiskit qubit ``n-1-i``, and a raw matrix carries its qubit order in
+        its *basis* rather than in its wire list — so the basis has to be reversed as
+        well, or a two-qubit gate on ``(a, b)`` silently acts as though it were on
+        ``(b, a)``. That is asserted against the NumPy reference over randomised
+        circuits rather than reasoned about here.
+        """
+        from qiskit.circuit.library import UnitaryGate
+
+        from qmlkit.core.gates import gate_matrix
+
+        matrix = np.asarray(gate_matrix(gate, angles), dtype=complex)
+        k = int(round(float(np.log2(matrix.shape[0]))))
+        if k > 1:
+            order = tuple(reversed(range(k)))
+            axes = order + tuple(i + k for i in order)
+            matrix = matrix.reshape((2,) * (2 * k)).transpose(axes).reshape(2**k, 2**k)
+        return UnitaryGate(matrix, label=gate)
 
     @staticmethod
     def _angle(p: Any, gate: str) -> float:

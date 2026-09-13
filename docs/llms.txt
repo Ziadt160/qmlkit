@@ -81,7 +81,7 @@ What is worth knowing before writing any of it:
 - [Running under noise](https://ziadt160.github.io/qmlkit/guides/noise/): qmlkit is simulator-only, but a simulator does not have to be a perfect one.
 - [Evaluating a model honestly](https://ziadt160.github.io/qmlkit/guides/evaluation/): Three things go wrong between a trained model and a reported result, and none of them raises an exception.
 - [Watching a run](https://ziadt160.github.io/qmlkit/guides/watching-a-run/): qk.plan says what a run will cost before it starts. qk.diagnose says what went wrong after it finishes.
-- [Extending qmlkit](https://ziadt160.github.io/qmlkit/guides/extending/): Every extension point is a registry. Register something and it becomes reachable by name everywhere the library takes one — no subclassing, no plugin manifest, no coordination with anything else.
+- [Extending qmlkit](https://ziadt160.github.io/qmlkit/guides/extending/): Almost every extension point is a registry. Register something and it becomes reachable by name everywhere the library takes one — no subclassing, no plugin manifest, no coordination with anything else, and no fork.
 - [Working with a coding agent](https://ziadt160.github.io/qmlkit/guides/agents/): Most code written against a library now is written by a model, and a model does not read this page before it types.
 
 ## Reference
