@@ -28,14 +28,24 @@ three against PennyLane's own answer before quoting a number:
 
 | Loop | Why it moves | Measured |
 |---|---|---|
-| **Kernel Gram matrix** | every entry is the *same circuit* at different angles, so the whole matrix is one batched evaluation rather than one QNode call per pair | **69×** |
-| **Batched gradients** | a training batch is the same circuit at one parameter vector per sample | **19.8×** on a full training step at 4 qubits |
-| **Fubini–Study metric** | closed-form differentiation of the state against `O(P)` adjoint or `O(P²)` Hadamard tests | **105×** at `P=24`, and it *widens* with parameter count |
+| **Kernel Gram matrix** | the inversion test's `P(0…0)` *is* the state overlap, so a statevector backend runs one circuit per row and takes one matrix product — linear in the dataset rather than quadratic | **17×** at 20 points, and it widens with the dataset |
+| **Batched gradients** | a training batch is the same circuit at one parameter vector per sample, and the batched kernel is a BLAS `gemm` | **5.4×** on a batch of 32 |
+| **Fubini–Study metric** | closed-form differentiation of the state against `O(P)` adjoint or `O(P²)` Hadamard tests | **50×** at `P=12`, and it *widens* with parameter count |
 
-Per-call overhead dominates the Gram matrix so completely that `lightning.qubit` is
-*slower* than `default.qubit` there. The metric tensor is the one that is algorithmic
-rather than overhead, agrees with PennyLane's own routes to `1.7e-16`, and is the only
-row that gets better the bigger the problem is.
+All three are algorithmic rather than overhead, which is what makes them worth
+stealing: each agrees with PennyLane's own answer to ~`1e-16`, and each gets *better*
+the bigger the problem is.
+
+**Every PennyLane column there is its fastest route, and getting that right changed two
+of the three numbers.** The Gram row is timed against `default.qubit` *broadcasting* a
+stacked array rather than one QNode call per pair, and the gradient row against a single
+broadcast backward pass rather than a loop over `lightning.qubit`. Timed the naive way
+those rows read 69× and 41×; they are 17× and 5.4× against what PennyLane can actually
+do. A loop of QNode calls is what a newcomer writes, not the library's speed.
+
+One more caveat: the state-overlap shortcut needs a statevector, so a *device* still
+pays the pairwise count. `QuantumKernel.circuits_on_hardware` reports that number, and
+it is the one to budget a hardware run from.
 
 Everywhere else the gap is 1.0–1.2×. See [Validation](../about/validation.md) for the
 whole table, including the row where PennyLane wins.

@@ -149,35 +149,53 @@ for n_qubits, n_layers in ((4, 2), (4, 6), (6, 6)):
     )
 
 # --------------------------------------------------------------------------- #
-header("4. A kernel Gram matrix", ("default.qubit", "lightning.qubit"))
+header("4. A kernel Gram matrix", ("pair loop", "broadcast"))
+# `default.qubit` broadcasts when it is handed a stacked array, which turns the whole
+# upper triangle into one call instead of m(m-1)/2 of them. An earlier version of this
+# file timed only the pair loop and reported 69x on this row, which is the number a
+# newcomer would see and not the one PennyLane is capable of. Both are printed.
+#
+# qmlkit does not run the composed circuit at all: P(0...0) of U(x')^dag U(x)|0> *is*
+# |<psi(x')|psi(x)>|**2, so a statevector backend evaluates m states and takes one
+# matrix product. That is the row's real advantage, and it is an algorithmic one.
 # --------------------------------------------------------------------------- #
 for n_samples in (10, 20):
     n_qubits = 3
     X = np.random.default_rng(0).uniform(0, np.pi, (n_samples, n_qubits))
     fmap = qk.AngleFeatureMap(n_qubits, entangle=False)
+    upper_i, upper_j = np.triu_indices(n_samples, 1)
 
-    def gram_with(device: str, X=X, n=n_samples, nq=n_qubits):
-        dev = qml.device(device, wires=nq)
-
-        @qml.qnode(dev)
+    def overlap_on(device: str, nq=n_qubits):
+        @qml.qnode(qml.device(device, wires=nq))
         def overlap(a_, b_):
             qml.AngleEmbedding(a_, wires=range(nq), rotation="Y")
             qml.adjoint(qml.AngleEmbedding)(b_, wires=range(nq), rotation="Y")
             return qml.probs(wires=range(nq))
 
-        def run():
-            K = np.eye(n)
-            for i in range(n):
-                for j in range(i + 1, n):
-                    K[i, j] = K[j, i] = float(overlap(X[i], X[j])[0])
-            return K
+        return overlap
 
-        return run
+    def pair_loop(X=X, n=n_samples):
+        overlap = overlap_on("default.qubit")
+        K = np.eye(n)
+        for i in range(n):
+            for j in range(i + 1, n):
+                K[i, j] = K[j, i] = float(overlap(X[i], X[j])[0])
+        return K
 
+    def broadcast(X=X, n=n_samples, iu=upper_i, ju=upper_j):
+        overlap = overlap_on("default.qubit")
+        K = np.eye(n)
+        values = np.asarray(overlap(qml.numpy.array(X[iu]), qml.numpy.array(X[ju])))[:, 0]
+        K[iu, ju] = values
+        K[ju, iu] = values
+        return K
+
+    ours = qk.QuantumKernel(fmap)(X)
+    assert np.allclose(ours, broadcast()), "the Gram matrices disagree"
     record(
         f"{n_samples}x{n_samples} Gram, {n_qubits} qubits",
         best(lambda f=fmap, x=X: qk.QuantumKernel(f)(x), 3),
-        {name: best(gram_with(name), 3) for name in ("default.qubit", "lightning.qubit")},
+        {"pair loop": best(pair_loop, 3), "broadcast": best(broadcast, 3)},
     )
 
 # --------------------------------------------------------------------------- #
@@ -234,17 +252,25 @@ print(f"  metric tensor alone: {min(metric_rows):.0f}x to {max(metric_rows):.0f}
 print(
     "\n  What this says, plainly:\n"
     "\n"
-    "  Sections 1-4 are dispatch and interpreter overhead, not arithmetic. Against\n"
+    "  Sections 1-3 are dispatch and interpreter overhead, not arithmetic. Against\n"
     "  `default.qubit` qmlkit looks 3-7x faster; against `lightning.qubit`, which every\n"
     "  PennyLane install already has, most of that margin disappears and the gradient is\n"
     "  roughly a tie. qmlkit stays ahead at small register sizes because it does less per\n"
     "  call, and the gap closes as 2^n starts to dominate. Anyone quoting the\n"
     "  `default.qubit` column as qmlkit's speed advantage is quoting the wrong number.\n"
     "\n"
-    "  Section 5 is different in kind. Closed-form differentiation of the state beats both\n"
-    "  of PennyLane's routes by a wide margin, it agrees with them to ~1e-16, and unlike\n"
-    "  the overhead gaps it *widens* with parameter count rather than narrowing. That is\n"
-    "  the one speed claim in this file worth making.\n"
+    "  Sections 4 and 5 are different in kind: both are algorithmic, and both survive the\n"
+    "  fair comparison. The Gram matrix is one circuit per row rather than one per pair,\n"
+    "  because the inversion test's P(0...0) *is* |<psi(x')|psi(x)>|**2 and a simulator\n"
+    "  can hand back the state -- linear in the dataset rather than quadratic, and note\n"
+    "  how far the 'pair loop' column sits from the 'broadcast' one. The metric tensor is\n"
+    "  closed-form differentiation of the state, agreeing with PennyLane's own routes to\n"
+    "  ~1e-16, and unlike the overhead gaps it *widens* with parameter count. Those are\n"
+    "  the two speed claims in this file worth making.\n"
+    "\n"
+    "  The Gram shortcut needs a statevector, so a device still pays the pairwise count.\n"
+    "  QuantumKernel.circuits_on_hardware reports that number; n_evaluations reports what\n"
+    "  actually ran here. Budget a hardware run from the first.\n"
     "\n"
     "  Single machine, single thread, small registers, exact simulation throughout. JAX is\n"
     "  not installed here, so jit-compiled PennyLane is untested and unclaimed. Nothing\n"

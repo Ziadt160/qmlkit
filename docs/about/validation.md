@@ -178,35 +178,47 @@ the user asked for it or not; and `qml.adjoint_metric_tensor` is an `O(P)` state
 algorithm sitting right next to the `O(P²)` Hadamard-test `qml.metric_tensor`. Timing
 against `default.qubit` and the `O(P²)` route would be timing an opponent nobody runs.
 
-This section used to do exactly that, and reported a median of 6.1×. The real figure
-is **1.7×**, it is the one below, and the flattering column is printed beside it so
-the difference is visible rather than taken on trust.
+This section has had to correct itself twice, which is the useful part of it. It once
+timed `default.qubit` when `lightning.qubit` ships with PennyLane, and reported a median
+of 6.1×. It then timed a Gram matrix against a pair-at-a-time QNode loop and reported
+**69×** on that row — when `default.qubit` *broadcasts* a stacked array and does the
+same work in one call. Both were flattering; both were caught by someone re-running the
+comparison rather than trusting the table. The figure is **1.7×**, it is the one below,
+and the naive column is printed beside it so the size of the difference stays visible.
 
-| Operation | qmlkit | PennyLane (best) | | vs `default.qubit` |
+| Operation | qmlkit | PennyLane (best) | | vs the naive route |
 |---|---|---|---|---|
-| Expectation, 12 qubits | 3.9 ms | 4.6 ms `lightning` | 1.2× | 2.9× |
-| Gradient, 8 qubits, `P=96` | 11.0 ms | 11.3 ms `lightning-adjoint` | 1.02× | 6.1× |
-| Parameter-shift, 6 qubits, `P=72` | 300 ms | 347 ms `lightning` | 1.2× | 3.9× |
-| 20×20 kernel Gram matrix | 3.2 ms | 219 ms `default` | **69×** | 69× |
-| Exact metric tensor, `P=24` | 6.8 ms | 715 ms `adjoint_metric` | **105×** | 276× |
+| Expectation, 12 qubits | 3.8 ms | 4.7 ms `lightning` | 1.2× | 3.0× |
+| Gradient, 8 qubits, `P=96` | 10.9 ms | 10.8 ms `lightning-adjoint` | 1.01× *slower* | 6.0× |
+| Parameter-shift, 6 qubits, `P=72` | 303 ms | 333 ms `lightning` | 1.1× | 3.7× |
+| 20×20 kernel Gram matrix | 0.31 ms | 3.1 ms `broadcast` | **10×** | 654× |
+| Exact metric tensor, `P=24` | 6.7 ms | 691 ms `adjoint_metric` | **103×** | 271× |
 
-qmlkit is ahead on 13 of 14 cases, median **1.7×**. Re-run on a second machine it
-comes out 14 of 14 at 1.78×, because the 8-qubit gradient row is a dead tie that falls
-either way — the table above quotes the worse of the two runs.
+qmlkit is ahead on 14 of 14 cases, median **1.7×**. The 8-qubit gradient row is a dead
+tie that falls either way between machines; the table quotes the run where it falls
+against qmlkit.
 
 `examples/benchmark_pennylane.py` checks that both libraries produce the *same number*
 before it reports a speedup, and prints the agreement alongside. An acceleration that
 changes the answer is not an acceleration.
 
-Read that in three parts. The expectation, gradient and parameter-shift rows are
-dispatch and interpreter overhead rather than arithmetic — qmlkit does less per call,
-leads at small registers, and ties by 8 qubits. The kernel Gram matrix is ~69×
-because the whole matrix is one batched evaluation against one QNode call per pair;
-per-call overhead dominates there so completely that `lightning` is actually slower
-than `default.qubit`. The metric tensor is different in kind:
-closed-form differentiation of the state, agreeing with PennyLane's own routes to
-`1.7e-16`, and *widening* with parameter count (49× at `P=12`, 105× at `P=24`) rather
-than narrowing.
+Read that in two parts. The expectation, gradient and parameter-shift rows are dispatch
+and interpreter overhead rather than arithmetic — qmlkit does less per call, leads at
+small registers, and ties by 8 qubits. Those margins shrink as `2ⁿ` grows, and nothing
+should be planned around them.
+
+The last two rows are algorithmic, and they survive the fair comparison. A Gram matrix
+costs one circuit per *row* rather than one per *pair*, because the inversion test's
+`P(0…0)` is exactly `|⟨ψ(x′)|ψ(x)⟩|²` and a simulator can hand back the state — linear
+in the dataset instead of quadratic, so the margin *grows* with it (10× at 20 points,
+53× at 128). That shortcut needs a statevector, so a device still pays the pairwise
+count and `QuantumKernel.circuits_on_hardware` reports it; budget a hardware run from
+that number rather than from `n_evaluations`. A PennyLane user who hand-rolls the same
+state-overlap trick comes within 0.86× of it, which is the honest framing: the algorithm
+is the win, and what qmlkit contributes is that `QuantumKernel(fmap)(X)` already does
+it. The metric tensor is closed-form differentiation of the state, agreeing with
+PennyLane's own routes to `1.7e-16` and *widening* with parameter count (50× at `P=12`,
+103× at `P=24`) rather than narrowing.
 
 Single machine, single thread, small registers, exact simulation throughout. JAX is not
 installed on the benchmark machine, so jit-compiled PennyLane is untested and unclaimed.

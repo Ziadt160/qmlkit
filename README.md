@@ -321,25 +321,27 @@ ships with every PennyLane install, so `lightning.qubit` is always available, an
 `qml.metric_tensor`. Benchmarking against the slow option when the fast one is one
 string away would flatter the author.
 
-| Operation | qmlkit | PennyLane (best) | | vs `default.qubit` |
+| Operation | qmlkit | PennyLane (best) | | vs the naive route |
 |---|---|---|---|---|
-| Expectation, 12 qubits | 3.9 ms | 4.6 ms `lightning` | 1.2× | 2.9× |
-| Gradient, 8 qubits, `P=96` | 11.0 ms | 11.3 ms `lightning-adjoint` | 1.02× | 6.1× |
-| Parameter-shift, 6 qubits, `P=72` | 300 ms | 347 ms `lightning` | 1.2× | 3.9× |
-| 20×20 kernel Gram matrix | 3.2 ms | 219 ms `default` | **69×** | 69× |
-| Exact metric tensor, `P=24` | 6.8 ms | 715 ms `adjoint_metric` | **105×** | 276× |
+| Expectation, 12 qubits | 3.8 ms | 4.7 ms `lightning` | 1.2× | 3.0× |
+| Gradient, 8 qubits, `P=96` | 10.9 ms | 10.8 ms `lightning-adjoint` | 1.01× *slower* | 6.0× |
+| Parameter-shift, 6 qubits, `P=72` | 303 ms | 333 ms `lightning` | 1.1× | 3.7× |
+| 20×20 kernel Gram matrix | 0.31 ms | 3.1 ms `broadcast` | **10×** | 654× |
+| Exact metric tensor, `P=24` | 6.7 ms | 691 ms `adjoint_metric` | **103×** | 271× |
 
-qmlkit is ahead on 13 of 14 cases, median **1.7×**.
+qmlkit is ahead on 14 of 14 cases, median **1.7×**.
 
 **The comparison is deliberately the unflattering one.** `pennylane-lightning` is a
 dependency of PennyLane, so the C++ `lightning.qubit` is in every install whether the
-user asked for it or not, and `qml.adjoint_metric_tensor` is an `O(P)` algorithm sitting
-right beside the `O(P^2)` Hadamard-test route. Timing against `default.qubit` and the
-`O(P^2)` metric would be timing an opponent nobody runs. This file used to do exactly
-that and reported 6.1x; the flattering column is still printed above, so the size of
-the difference is visible rather than taken on trust. Re-run on a second machine the
-summary comes out 14 of 14 at 1.78x, because the 8-qubit gradient row is a dead tie
-that falls either way, and the table quotes the worse run.
+user asked for it or not; `qml.adjoint_metric_tensor` is an `O(P)` algorithm sitting
+right beside the `O(P^2)` Hadamard-test route; and `default.qubit` *broadcasts* when it
+is handed a stacked array, which turns a Gram matrix into one call rather than one per
+pair. Timing against the slow option in any of those three would be timing an opponent
+nobody runs. This file has done exactly that twice — it reported 6.1× before
+`lightning` was used, and **69× on the Gram row before the broadcast path was**. The
+naive column is still printed above, so the size of the difference stays visible rather
+than being taken on trust. The 8-qubit gradient is a dead tie that falls either way
+between machines, and the table quotes the run where it falls against qmlkit.
 
 `examples/benchmark_pennylane.py` checks that both libraries produce the *same number*
 before quoting any speedup. An acceleration that changes the answer is not an
@@ -348,16 +350,17 @@ acceleration.
 **What that means.** The first three rows are dispatch and interpreter overhead rather
 than arithmetic: qmlkit does less per call, so it leads at small register sizes and the
 gap closes as `2ⁿ` starts to dominate — the 8-qubit gradient is a tie. Anyone quoting
-the `default.qubit` column as qmlkit's speed advantage is quoting the wrong number.
+the naive column as qmlkit's speed advantage is quoting the wrong number.
 
-Two results are real. The **kernel Gram matrix** is ~69×: every entry is the same circuit
-at different angles, so the whole matrix is one batched evaluation, while PennyLane makes
-one QNode call per pair — per-call overhead dominates so completely there that `lightning`
-is actually *slower* than `default.qubit`. And the **metric tensor** is different in kind: closed-form
-differentiation of the state, `P` derivative states from one forward sweep, agreeing with
-PennyLane's own routes to `1.7e-16` and *widening* with parameter count (49× at `P=12`,
-105× at `P=24`) rather than narrowing — the only row here that gets *better* the bigger
-the problem gets, and the one worth planning around.
+Two results are algorithmic, and those are the ones worth planning around. The **kernel
+Gram matrix** costs one circuit per *row* rather than one per *pair*, because the
+inversion test's `P(0…0)` is exactly `|⟨ψ(x′)|ψ(x)⟩|²` and a simulator can hand back the
+state — linear in the dataset instead of quadratic, which is 10× against PennyLane
+broadcasting and widens as the dataset grows (53× at 128 points). That shortcut needs a
+statevector, so a device still pays the pairwise count and `circuits_on_hardware` reports
+it. And the **metric tensor** is closed-form differentiation of the state, `P` derivative
+states from one forward sweep, agreeing with PennyLane's own routes to `1.7e-16` and
+*widening* with parameter count (50× at `P=12`, 103× at `P=24`) rather than narrowing.
 
 JAX is not installed on the benchmark machine, so jit-compiled PennyLane is untested and
 unclaimed; it would narrow the overhead rows further.
@@ -561,9 +564,16 @@ bit order and gate definitions against a live install in one call.
   and sampling error stay separable; the gradients that need a pure state refuse.
 - **Batched execution** — one circuit at many parameter vectors in one pass. A
   compute-uncompute kernel and a training batch are both *one circuit structure at many
-  angle vectors*, which is what makes this possible: **19.8× on a full training step**
-  at 4 qubits, **69× on a 20×20 Gram matrix**. Batching is switched off above a
-  measured crossover (`NumpyBackend.batch_max_qubits`, 10) rather than assumed to help.
+  angle vectors*, which is what makes this possible: **20.4× on a full training step**
+  at 4 qubits, **176× on a 20×20 Gram matrix**. The batched kernel is a BLAS `gemm`,
+  not an `einsum` — `np.einsum` without `optimize=` never reaches BLAS, which cost 5×
+  here until it was measured. Batching is switched off above a measured crossover
+  (`NumpyBackend.batch_max_qubits`, 11) rather than assumed to help.
+- **A Gram matrix costs one circuit per row**, not one per pair: the inversion test's
+  `P(0…0)` *is* `|⟨ψ(x′)|ψ(x)⟩|²`, and a simulator can hand back the state. Linear
+  rather than quadratic in the dataset. It is a simulator-only shortcut, so the count
+  stays two numbers — `n_evaluations` for what ran, `circuits_on_hardware` for what a
+  device would pay.
 - **Watching a run** — `qk.progress()` gives a live line with an honest ETA, and
   `run.save_html()` writes the whole run out as one self-contained page. See
   [Watching a run](https://ziadt160.github.io/qmlkit/guides/watching-a-run/).

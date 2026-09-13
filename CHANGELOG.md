@@ -6,6 +6,45 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed - the REINFORCE test was seeded everywhere except where it mattered
+
+`test_policy_gradient_learns_a_bandit_with_a_known_optimum` seeded the bandit and the
+training loop and then built an **unseeded** `QuantumPolicy`, so the starting
+parameters came from fresh OS entropy on every run. Across 40 trials the margin over
+the assertion threshold ranged from +0.06 to +0.26 — usually comfortable, occasionally
+not, and the failure looked like a regression when it was a coin landing badly.
+
+Now three seeds, each of which must learn. A single seeded run would have removed the
+flake while testing less: it would assert that one lucky start learns.
+
+### Fixed - two benchmark rows were timing a Python loop and calling it PennyLane
+
+`default.qubit` **broadcasts** when it is handed a stacked array. Two rows never gave
+it the chance, and both were quoted in the README, the validation page and the
+migration guide:
+
+| row | timed against | reported | against PennyLane's fast route |
+|---|---|---|---|
+| 20x20 kernel Gram | one QNode call per pair | 69x | **10x** |
+| gradients for a batch of 32 | a loop over `lightning.qubit` adjoint | 41x | **5.4x** |
+
+The gradient one is the subtler of the two: the rows are independent parameter
+vectors, so `d(sum_i f(t_i))/dt_i` is exactly each row's own gradient and one backward
+pass produces all 32 — 19 ms against the loop's 107 ms. Both scripts now use those
+routes, and `examples/benchmark_pennylane.py` prints the naive column beside the fair
+one so the gap between "what a newcomer writes" and "what PennyLane can do" stays
+visible instead of being folded into a headline.
+
+The table's summary is unchanged at a median of **1.7x** and now reads 14 of 14
+rather than 13 of 14, because the kernel row moved and the 8-qubit gradient tie fell
+the other way. That row is a genuine tie and the documented figure quotes the run
+where it falls against qmlkit.
+
+This is the second time this comparison has had to correct itself — the first was
+timing `default.qubit` when `lightning.qubit` ships with PennyLane, which had inflated
+the median to 6.1x. Both were found by re-running it rather than trusting the table,
+which is now said out loud on the validation page.
+
 ### Changed - the batched NumPy kernel now goes through BLAS, and is 5x faster
 
 `_apply_batch` applied a gate to a stack of states with `np.einsum` on generated

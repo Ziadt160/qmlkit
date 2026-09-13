@@ -24,18 +24,26 @@ statevector gets big:
 
 | qubits | `numpy` | `qiskit` | `aer` |
 |---|---|---|---|
-| 10 | **0.46s** | 0.98s | 0.59s |
-| 12 | **0.92s** | 1.60s | 0.97s |
-| 14 | 1.52s | 2.16s | **1.27s** |
-| 16 | 9.87s | 13.03s | **0.60s** |
-| 18 | 25.91s | 35.99s | **0.66s** |
+| 10 | **0.05s** | 0.17s | 0.13s |
+| 12 | 0.16s | 0.28s | **0.16s** |
+| 14 | 0.33s | 0.63s | **0.21s** |
+| 16 | 0.91s | 4.58s | **0.28s** |
+| 18 | 2.87s | 17.47s | **0.60s** |
 
-*(a Gram matrix on a `ZZFeatureMap`; single machine, exact throughout.)*
+*(a 40×40 Gram matrix on a `ZZFeatureMap(reps=2)`; single machine, exact throughout,
+all three agreeing to 2e-16.)*
 
-The crossover is around **13 qubits** and it is abrupt, because it is the same one
-that turns off NumPy's batching — `NumpyBackend.batch_max_qubits` is 10, and above it
-the reference falls back to a loop while Aer stays in C++. If you are working wider
-than a dozen qubits, `backend="aer"` is the answer; below it, the default already is.
+The crossover is around **12 qubits**, and what sets it is the *Python* cost of the
+reference against Aer's C++ kernel: below it the reference is batched and gate-bound,
+above it the statevector is large enough that the C++ inner loop wins outright. If you
+are working wider than a dozen qubits, `backend="aer"` is the answer; below it, the
+default already is.
+
+`NumpyBackend.batch_max_qubits` (11) is a *different* boundary — it is where NumPy
+stops carrying the batch as a leading axis and falls back to one sample at a time. The
+two sit next to each other and an earlier version of this page claimed they were the
+same one. They move independently: making the batched kernel a BLAS `gemm` moved
+`batch_max_qubits` from 10 to 11 without touching where Aer takes over.
 
 `aer` is deliberately a separate name rather than a silent upgrade to `qiskit`, so the
 simulator that produced a number stays visible in the code that produced it.

@@ -75,15 +75,27 @@ def overlap(a, b):
     return qml.probs(wires=range(N_QUBITS))
 
 
+_UPPER_I, _UPPER_J = np.triu_indices(len(X), 1)
+
+
 def pennylane_gram():
+    """The *broadcast* route, which is the honest opponent.
+
+    `default.qubit` vectorises when it is handed a stacked array, so the whole upper
+    triangle is one call rather than m(m-1)/2 of them. Timing the pair loop instead
+    reports something like 200x here, and that is a measurement of Python call
+    overhead rather than of either library.
+    """
     K = np.eye(len(X))
-    for i in range(len(X)):
-        for j in range(i + 1, len(X)):
-            K[i, j] = K[j, i] = float(overlap(X[i], X[j])[0])
+    values = np.asarray(overlap(qml.numpy.array(X[_UPPER_I]), qml.numpy.array(X[_UPPER_J])))[:, 0]
+    K[_UPPER_I, _UPPER_J] = values
+    K[_UPPER_J, _UPPER_I] = values
     return K
 
 
-# the same feature map, read out of the PennyLane circuit's own convention
+# the same feature map, read out of the PennyLane circuit's own convention.
+# qmlkit does not run the composed circuit at all: P(0...0) of U(x')^dag U(x)|0> *is*
+# |<psi(x')|psi(x)>|**2, so it evaluates one state per row and takes a matrix product.
 kernel = qk.QuantumKernel(qk.AngleFeatureMap(N_QUBITS, entangle=False))
 report(
     f"{len(X)}x{len(X)} kernel Gram matrix",
@@ -100,21 +112,30 @@ spec = ansatz.build()
 thetas = rng.uniform(-np.pi, np.pi, (32, ansatz.n_params))
 
 
-@qml.qnode(qml.device("lightning.qubit", wires=N_QUBITS), diff_method="adjoint")
+@qml.qnode(qml.device("default.qubit", wires=N_QUBITS))
 def circuit(t):
+    # `t[..., i]` rather than `t[i]`, which is all it takes to make the same QNode
+    # accept a stacked array and broadcast over it
     for layer in range(N_LAYERS):
         for w in range(N_QUBITS):
-            qml.RY(t[layer * 2 * N_QUBITS + w * 2], wires=w)
-            qml.RZ(t[layer * 2 * N_QUBITS + w * 2 + 1], wires=w)
+            qml.RY(t[..., layer * 2 * N_QUBITS + w * 2], wires=w)
+            qml.RZ(t[..., layer * 2 * N_QUBITS + w * 2 + 1], wires=w)
         for w in range(N_QUBITS - 1):
             qml.CNOT(wires=[w, w + 1])
     return qml.expval(qml.PauliZ(0))
 
 
 def pennylane_batch_grad():
-    return np.stack(
-        [np.asarray(qml.grad(circuit)(qml.numpy.array(t, requires_grad=True))) for t in thetas]
-    )
+    """Every row's gradient in one broadcast pass, which is PennyLane's fast route.
+
+    The rows are independent parameter vectors, so `d(sum_i f(t_i))/dt_i` is exactly
+    each row's own gradient and one backward pass produces all 32. Looping
+    `lightning.qubit` with `diff_method="adjoint"` instead — which this file used to do,
+    and which reported 40.9x — measures 107 ms against this route's 19 ms. Five times
+    the wall clock is not a fact about either library.
+    """
+    stacked = qml.numpy.array(thetas, requires_grad=True)
+    return np.asarray(qml.grad(lambda t: qml.numpy.sum(circuit(t)))(stacked))
 
 
 report(
@@ -164,7 +185,7 @@ print(
 
   What this is not: a claim that qmlkit is faster than PennyLane in general. It is
   not -- see examples/benchmark_pennylane.py, where the honest median against
-  PennyLane's fastest configuration is 1.6x and several rows are a tie. These three
+  PennyLane's fastest configuration is 1.7x and several rows are a tie. These three
   loops are the ones where the gap is real, and they happen to be the ones a QML
   workload spends its time in.
 
