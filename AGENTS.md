@@ -9,15 +9,37 @@ each convention exists, and what to do next. Read it before anything non-trivial
 This page is the short list of things that will break the build if you get them
 wrong.
 
+## The map
+
+19,000 lines over 79 modules, 196 names in the top-level `__all__`. Two halves:
+
+```
+src/qmlkit/
+  core/          the IR, and only the IR: ir · builder · gates · observables · execute
+  core/backends/ seven of them. base.py supplies the semantics; a backend supplies
+                 statevector() and inherits sampling, grouping, expectation, batching
+  ansatz/  encoding/  gradients/  kernels/  nn/      the ML layer
+  algorithms/    VQE · ADAPT · QAOA · chemistry · autoencoder · clustering · rl
+  *.py           the honesty layer — diagnostics · baselines · budget · evaluate ·
+                 imbalance · provenance · search · progress · report · metrics
+  utils/errors.py  how every "unknown X" error in the library is built
+  _aliases.py      PennyLane and Qiskit names, answered with the qmlkit one
+```
+
+The top-level modules are the point of the project. `core/` is machinery in service
+of them.
+
 ## Commands
 
 ```bash
 pip install -e ".[dev,torch,qiskit,cirq,sklearn,pennylane]"
 pytest -q                                  # the whole suite
-pytest -q -m "not pennylane"               # faster, skips the 301 parity cases
-ruff check src tests && mypy               # both must be clean
+pytest -q -m "not pennylane"               # faster, skips the parity cases
+ruff check src tests && ruff format --check src tests && mypy
 python scripts/generate_llms_txt.py        # after any docs or public-API change
+python -m mkdocs build --strict            # after any docs change; CI runs it
 python scripts/verify_install.py           # the core really does import with only NumPy
+QMLKIT_TORTURE_EXAMPLES=1500 pytest tests/test_torture.py   # ~10 min, before a release
 ```
 
 SpinQit needs its own interpreter — it ships wheels for Python 3.8–3.10 only and
@@ -62,6 +84,43 @@ C:/Users/pc/miniconda3/envs/spinq_env/python.exe -m pytest -m spinqit
   asserts the mapping covers every built-in gate, so a new one cannot escape
   cross-validation. Every bug found in this project has been the
   plausible-wrong-number kind that only a second implementation catches.
+
+## Where a change has to land
+
+The library is built on registries, so adding something is usually one call — and
+then three or four places that will not fail loudly if you forget them.
+
+| Adding | Also touch |
+|---|---|
+| **A gate** | `frequencies` on the `GateDef` or differentiation is refused; `dmatrix` or adjoint is refused; the PennyLane mapping in `tests/test_pennylane_parity.py`, which asserts it covers every built-in gate |
+| **An ansatz or conv filter** | `register_*`, and check it is not inert — an all-`rz` filter does nothing at all from `|0…0⟩`, which is why `test_no_shipped_filter_is_inert` exists |
+| **A backend** | `supports_exact` and `supports_statevector` are a contract, not metadata. Then **sweep the public API against it**: adding the noisy backends broke `diagnose`, `expressibility`, `entangling_capability`, `fidelity_samples`, `metric_tensor` and `qng_step`, and the suite did not notice |
+| **A diagnostic finding** | Write the test so it asserts the finding is **true**, not that it fired. The old tests asserted firing, which is how three wrong findings survived. A false positive here is worse than a false negative: it teaches people to ignore the tool |
+| **Anything public** | `docs/llms.txt` regenerated, a reference page entry, and a CHANGELOG entry |
+| **A version bump** | `pyproject.toml` **and** `src/qmlkit/__init__.py`. A third hardcoded copy in `scripts/verify_install.py` once failed the release gate |
+
+**Releasing is a subtree split, and the tag does not go where you think.** The
+published repo is a split of this directory; `release.yml` exists only there, so
+tagging upstream triggers nothing. `RELEASING.md` has the procedure. A PyPI version
+number can never be reused, so tags stay unpushed until the release is wanted.
+
+## Writing
+
+The prose is a deliberate artefact. Match it rather than inventing a second voice.
+
+- **Claims enter through the failure they prevent**, never through the feature name.
+  The order is: here is a way to be wrong, here is why it does not raise, here is the
+  call. Almost nothing opens with "qmlkit provides".
+- **Every number carries its provenance.** "Measured on a 5-qubit hardware-efficient
+  ansatz"; "measured: five frequencies". A bare number reads as an unsupported claim.
+- **Caveats get their own sentence, in the same voice as the claims**, usually last and
+  usually against the author's interest — "JAX is not installed on the benchmark
+  machine, so jit-compiled PennyLane is untested and unclaimed."
+- **Headings are assertions, not labels**: "Data re-uploading is a pattern, not a
+  structure"; "Noise, when you ask for it by name". Label headings mark reference
+  sections, and the contrast is the point.
+- A long sentence that does the analysis, then a short one that lands it. British
+  spelling. Second person about the reader's actions, never their level.
 
 ## Design commitments
 

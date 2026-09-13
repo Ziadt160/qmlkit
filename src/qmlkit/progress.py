@@ -281,6 +281,8 @@ def progress(live: bool = True, stream: IO[str] | None = None) -> Iterator[Progr
         Where the live line goes. Defaults to ``sys.stderr``, so piping a script's
         stdout to a file does not collect progress redraws.
 
+    Notes
+    -----
     Nothing outside this block is affected: with no active reporter, the tracking
     calls inside the library cost one comparison against ``None``.
     """

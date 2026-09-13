@@ -1,9 +1,15 @@
 # qmlkit
 
-> A backend-agnostic quantum machine learning library: reusable feature maps, a
-> composable ansatz vocabulary, quantum kernels, PyTorch layers, and one `grad()`
-> that points at any circuit and observable. The same circuit runs on the built-in
-> NumPy reference, SpinQit, Qiskit or Cirq.
+> A quantum machine learning library built to refuse a plausible wrong number. In
+> this field a mistake usually does not raise — a collapsed re-uploading model, a
+> concentrated kernel and a lead inside the fold spread all run and all return
+> numbers in the right range — so `diagnose`, `baseline`, `plan`, `selfcheck` and
+> `progress` are the point of the library rather than an add-on.
+>
+> Underneath: reusable feature maps, a composable ansatz vocabulary, quantum
+> kernels, PyTorch layers, and one `grad()` that points at any circuit and
+> observable. The same circuit runs on the built-in NumPy reference, SpinQit,
+> Qiskit, Cirq or Torch, and on two mixed-state backends under noise.
 
 Install with `pip install qmlkit`. The core depends on NumPy and nothing else;
 every SDK is an optional extra (`qmlkit[torch]`, `[qiskit]`, `[cirq]`, `[spinqit]`,
@@ -38,7 +44,7 @@ What is worth knowing before writing any of it:
 
 ## Start here
 
-- [Home](https://ziadt160.github.io/qmlkit/): A quantum machine learning library where a circuit is data, not a backend object.
+- [Home](https://ziadt160.github.io/qmlkit/): A quantum machine learning library built to refuse a plausible wrong number.
 - [Install](https://ziadt160.github.io/qmlkit/install/): That is the whole install. qmlkit depends on NumPy and nothing else — the NumPy backend is the reference implementation, and every core feature works with no optional package present.
 
 ## Tutorials
@@ -73,6 +79,7 @@ What is worth knowing before writing any of it:
 - [Backends and conventions](https://ziadt160.github.io/qmlkit/guides/backends/): One circuit, five backends, one answer. tests/testcrossbackend.py runs the same circuit zoo through every installed backend and asserts agreement with the NumPy reference on statevectors, probabilities, expectations over X/Y/Z and two-body terms, seeded sampling, and parameter-shift gradients.
 - [Running under noise](https://ziadt160.github.io/qmlkit/guides/noise/): qmlkit is simulator-only, but a simulator does not have to be a perfect one.
 - [Evaluating a model honestly](https://ziadt160.github.io/qmlkit/guides/evaluation/): Three things go wrong between a trained model and a reported result, and none of them raises an exception.
+- [Watching a run](https://ziadt160.github.io/qmlkit/guides/watching-a-run/): qk.plan says what a run will cost before it starts. qk.diagnose says what went wrong after it finishes.
 - [Extending qmlkit](https://ziadt160.github.io/qmlkit/guides/extending/): Every extension point is a registry. Register something and it becomes reachable by name everywhere the library takes one — no subclassing, no plugin manifest, no coordination with anything else.
 - [Working with a coding agent](https://ziadt160.github.io/qmlkit/guides/agents/): Most code written against a library now is written by a model, and a model does not read this page before it types.
 

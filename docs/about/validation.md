@@ -2,18 +2,73 @@
 
 How any of this is known to be correct.
 
-A library's own test suite can only catch the bugs its author thought of. qmlkit
-therefore leans on three independent checks, each of which can fail for reasons the
-others cannot.
+A library's own test suite can only catch the bugs its author thought of. Worse, a
+suite of *agreeing* implementations can only catch the bugs they do not share — five
+backends and a second library once agreed, unanimously, with a wrong number.
 
-| | |
-|---|---|
-| **Cross-backend equivalence** | The same circuit through five backends, compared to the NumPy reference |
-| **Cross-library parity** | 301 cases against PennyLane, and every metric in `qk.evaluate` against scikit-learn — both independently written implementations |
-| **Executable documentation** | Every snippet on this site runs in CI |
+So qmlkit leans on five checks, ordered here by how much each one can prove:
 
-Plus the ordinary suite: **1202 tests, 94% combined coverage** measured in CI,
-`ruff` and `mypy --strict` clean.
+| | | |
+|---|---|---|
+| 1 | **An independent reference** | `tests/densesim.py` — 206 lines sharing no code and no conventions with the library it checks |
+| 2 | **Cross-library parity** | 301 executed cases against PennyLane, and every metric in `qk.evaluate` against scikit-learn |
+| 3 | **Property-based testing** | 17 mathematical invariants over Hypothesis-generated circuits — 1,825 per default run, ~19,500 before a release |
+| 4 | **Cross-backend equivalence** | One circuit zoo through every installed SDK, compared to the NumPy reference |
+| 5 | **Executable documentation** | Every snippet on this site is run by the test suite |
+
+Plus the ordinary suite: **1,434 tests passing of 1,563 collected**, 0 failures, 94%
+combined coverage measured in CI, `ruff` and `mypy --strict` clean over the whole
+package.
+
+Every one of the 115 skips is accounted for and none of them is silent: 65 constant
+gates tested at a single angle rather than six, 27 needing SpinQit's Python 3.10, 17
+documentation pages with no runnable Python, 4 SpinQit-only, and 2 where the
+observable is wider than the circuit. CI asserts each optional SDK actually imported
+before running its jobs, because a suite guarded by `importorskip` and never given its
+dependency turns the job green by skipping.
+
+## The reference that shares nothing
+
+This is the check that matters most, and it is the newest.
+
+Everything else here compares qmlkit against something that inherited its conventions —
+five backends against each other, or against PennyLane, which qmlkit's gate table was
+written by reading. Those agree when a convention is wrong *everywhere*. `densesim.py`
+inherited none of them: hand-written gate matrices, hand-derived derivative matrices,
+an explicit bit-index loop where the library uses `tensordot`, its own product rule.
+It reads `spec.ops` and nothing else — no backend, no gradient routine, no execution
+code.
+
+It earned its place immediately. The torch backend had reimplemented `np.moveaxis`
+without numpy's `sorted(zip(destination, source))`, so a two-qubit gate on descending
+wires permuted the wires it was not acting on. `Z(3)` read `-0.1288` against `-0.7374`.
+Nothing raised, `method="backprop"` differentiated through it, and it was reachable
+from a built-in `conv_block(filter="su4")`. Four other references agreed with it,
+because not one of them was independent of the convention that caused it.
+
+The lesson generalises past this project: **when correctness actually matters, at least
+one reference must share no code and no conventions with the thing being checked.**
+
+Four properties in `tests/test_torture.py` run it against randomly generated circuits —
+statevectors, expectations, gradients, and every installed backend at once.
+
+## Property-based testing
+
+`tests/test_torture.py` states 17 invariants that hold by mathematics rather than by
+example, and lets Hypothesis look for circuits that break them: the four exact gradient
+routes agree; a tied weight's gradient sums over its occurrences; batched equals looped;
+`adjoint()` undoes; expectation lies inside the observable's spectrum; Qiskit and Cirq
+round-trips reproduce the statevector; sampling lands within five standard errors.
+
+A default run generates **1,825 cases**. Before a release:
+
+```bash
+QMLKIT_TORTURE_EXAMPLES=1500 pytest tests/test_torture.py
+```
+
+which is about 19,500 circuits and ten minutes. When something fails, Hypothesis
+shrinks it to the smallest circuit that still shows it and replays that case
+thereafter. No CI job runs the deep campaign — it is a release step, done by hand.
 
 ## Parity with PennyLane
 
@@ -24,7 +79,7 @@ pytest tests/test_pennylane_parity.py
 
 | Layer | Compared | Agreement |
 |---|---|---|
-| Gates | all 20 gate matrices at 6 angles, and every closed-form `dU/dθ` against a differenced PennyLane matrix | `1e-12` |
+| Gates | 55 matrix comparisons over all 20 gates — the 7 parametric ones at 6 angles each, the 13 constant ones once — plus 21 closed-form `dU/dθ` against a differenced PennyLane matrix | `1e-12` |
 | Circuits | 40 **randomly generated** circuits over the full gate set, 1–5 qubits — statevectors, probabilities, random multi-term observables | `1e-12` |
 | Gradients | 5 ansätze × 4 observables; all four exact methods; PennyLane's own four back against ours; fuzzed circuits | `1e-10` |
 | Encodings | angle (X/Y/Z), amplitude, basis, IQP | `1e-12` |
@@ -85,15 +140,22 @@ decision rather than an accident.
 
 ## Cross-backend equivalence
 
-`tests/test_cross_backend.py` runs one circuit zoo through every installed backend,
-asserting agreement on statevectors, probabilities, expectations over X/Y/Z and
-two-body terms, seeded sampling, and parameter-shift gradients. The zoo deliberately
-targets where SDKs differ: endianness, controlled-gate qubit order, idle qubits,
-basis rotations.
+`tests/test_cross_backend.py` runs one circuit zoo through Qiskit, Cirq and — on Python
+3.10 — SpinQit, asserting agreement with the NumPy reference on statevectors,
+probabilities, expectations over X/Y/Z and two-body terms, seeded sampling, and
+parameter-shift gradients. The zoo deliberately targets where SDKs differ: endianness,
+controlled-gate qubit order, idle qubits, basis rotations.
 
-It found three real upstream discrepancies, all handled — including **SpinQit's `CY`
-applying `−iY` instead of `Y`** to the control-1 subspace, which is a relative phase
-and therefore physically observable. Details in [Backends and
+**It does not cover the torch backend, and that omission has already cost something.**
+Torch was excluded on the reasoning that a differentiable simulator is a different kind
+of backend — and torch is exactly where the worst defect in 0.1.1 lived. An agreement
+test that skips a participant tests nothing about that participant. Torch agreement is
+now asserted instead by `tests/test_grad_batch.py` and by the property suite, which
+iterates `available_backends()` and explicitly declines to skip it.
+
+The zoo found three real upstream discrepancies, all handled — including **SpinQit's
+`CY` applying `−iY` instead of `Y`** to the control-1 subspace, which is a relative
+phase and therefore physically observable. Details in [Backends and
 conventions](../guides/backends.md).
 
 ## Executable documentation
@@ -110,11 +172,15 @@ call signature, and a hand-typed number that did not match what the code printed
 `examples/benchmark_pennylane.py` times identical work on both libraries, against
 PennyLane's **fastest** configuration rather than its reference one.
 
-This section previously reported a median 6.1× against `default.qubit` alone. That was
-not a fair comparison: `pennylane-lightning` is a dependency of PennyLane, so the C++
-`lightning.qubit` is present in every install, and `qml.adjoint_metric_tensor` is an
-`O(P)` statevector algorithm sitting right next to the `O(P²)` Hadamard-test
-`qml.metric_tensor`. The numbers below are against both, summarised on the faster.
+That choice is the point, and it costs us most of the headline. `pennylane-lightning`
+is a dependency of PennyLane, so the C++ `lightning.qubit` is in every install whether
+the user asked for it or not; and `qml.adjoint_metric_tensor` is an `O(P)` statevector
+algorithm sitting right next to the `O(P²)` Hadamard-test `qml.metric_tensor`. Timing
+against `default.qubit` and the `O(P²)` route would be timing an opponent nobody runs.
+
+This section used to do exactly that, and reported a median of 6.1×. The real figure
+is **1.7×**, it is the one below, and the flattering column is printed beside it so
+the difference is visible rather than taken on trust.
 
 | Operation | qmlkit | PennyLane (best) | | vs `default.qubit` |
 |---|---|---|---|---|
@@ -124,7 +190,13 @@ not a fair comparison: `pennylane-lightning` is a dependency of PennyLane, so th
 | 20×20 kernel Gram matrix | 3.2 ms | 219 ms `default` | **69×** | 69× |
 | Exact metric tensor, `P=24` | 6.8 ms | 715 ms `adjoint_metric` | **105×** | 276× |
 
-qmlkit is ahead on 13 of 14 cases, median **1.7×**.
+qmlkit is ahead on 13 of 14 cases, median **1.7×**. Re-run on a second machine it
+comes out 14 of 14 at 1.78×, because the 8-qubit gradient row is a dead tie that falls
+either way — the table above quotes the worse of the two runs.
+
+`examples/benchmark_pennylane.py` checks that both libraries produce the *same number*
+before it reports a speedup, and prints the agreement alongside. An acceleration that
+changes the answer is not an acceleration.
 
 Read that in three parts. The expectation, gradient and parameter-shift rows are
 dispatch and interpreter overhead rather than arithmetic — qmlkit does less per call,

@@ -1,11 +1,44 @@
 # qmlkit
 
-A quantum machine learning library where **a circuit is data, not a backend object**.
+A quantum machine learning library built to **refuse a plausible wrong number**.
 
-That one decision is why a single gradient implementation serves five backends, why
-inventing an ansatz takes one line and inherits correct gradients for free, and why
-weight tying is expressible at all. Everything downstream — differentiation, resource
-counting, drawing, translation to SpinQit or Qiskit or Cirq — reads the same structure.
+What makes this field difficult is not writing the circuit. It is that a mistake here
+usually does not raise: a re-uploading model whose trainable rotations commute with its
+encoding trains happily and reaches one Fourier frequency instead of eight; a kernel
+concentrates until every pair of points looks alike and still returns a Gram matrix; a
+quantum model beats its classical baseline by less than the spread between folds and
+gets written up as a result. All three run. All three return numbers in the right
+range. All three are wrong.
+
+So the tools that catch those are not an afterthought — they are the library:
+
+```python
+# docs: requires torch
+import qmlkit as qk
+
+print(qk.plan(qk.hardware_efficient(3, 2)))       # what the run will cost, first
+print(qk.diagnose(qk.hardware_efficient(3, 2)))   # what does not raise
+```
+
+[`diagnose`](guides/agents.md) names the failure and the edit that fixes it,
+[`baseline`](guides/evaluation.md) puts the classical bar on identical folds and
+refuses to call a lead inside the fold spread a result, [`progress`](guides/watching-a-run.md)
+says how much of a run is left, and `selfcheck` compares every exact gradient route
+against every other. The same instinct runs through the rest: `adjoint`
+[refuses on a noisy backend](guides/noise.md) rather than quietly differentiating a
+noiseless one, and an unknown gate is refused by name rather than approximated.
+
+## Why one `diagnose` can read any model
+
+Because **a circuit is data, not a backend object**.
+
+That one decision is what makes the layer above possible: `diagnose` walks
+`spec.ops`, so it works on any ansatz, on any backend, whether or not the library has
+ever seen the gates in it. The same structure serves a single gradient implementation
+across every backend, lets inventing an ansatz take one line and inherit correct
+gradients for free, and makes weight tying expressible at all — a parameter that fills
+several slots, differentiated one occurrence at a time, which is the thing a shift rule
+gets silently wrong when circuits are opaque objects.
 
 ```python
 import numpy as np
@@ -20,32 +53,6 @@ print(f"<O>       = {qk.expval(spec, observable, theta=theta):+.6f}")
 print(f"gradient  = {np.round(qk.grad(spec, theta, observable)[:4], 4)} ...")
 print(f"cost      = 1 pass (adjoint) vs {qk.gradient_cost(spec, 'parameter-shift')} circuits (parameter-shift)")
 ```
-
-## And where the circuit is not the hard part
-
-Structure is what makes the library composable. It is not what makes quantum machine
-learning difficult. What makes it difficult is that a mistake here usually does not
-raise: a re-uploading model whose trainable rotations commute with its encoding
-trains happily and reaches one Fourier frequency instead of eight; a kernel
-concentrates until every pair of points looks alike and still returns a Gram matrix;
-a quantum model beats its classical baseline by less than the spread between folds
-and gets written up as a result.
-
-So a second set of tools sits beside the first, and they are not an afterthought:
-
-```python
-# docs: requires torch
-print(qk.diagnose(qk.hardware_efficient(3, 2)))   # what does not raise
-print(qk.plan(qk.hardware_efficient(3, 2)))       # what the run will cost, first
-```
-
-[`diagnose`](guides/agents.md) names the failure and the edit that fixes it,
-[`baseline`](guides/evaluation.md) puts the classical bar on identical folds and
-refuses to call a lead inside the fold spread a result, and `selfcheck` compares
-every exact gradient route against every other. The same instinct runs through the
-rest: `adjoint` [refuses on a noisy backend](guides/noise.md) rather than quietly
-differentiating a noiseless one, and an unknown gate is refused by name rather than
-approximated.
 
 ## Where to start
 

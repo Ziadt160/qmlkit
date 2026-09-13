@@ -35,10 +35,16 @@ SITE = "https://ziadt160.github.io/qmlkit"
 #: The things a reader cannot infer from the API and will otherwise get wrong.
 #: Every line here is either a constraint that propagates or a trap already paid for.
 PREAMBLE = """\
-> A backend-agnostic quantum machine learning library: reusable feature maps, a
-> composable ansatz vocabulary, quantum kernels, PyTorch layers, and one `grad()`
-> that points at any circuit and observable. The same circuit runs on the built-in
-> NumPy reference, SpinQit, Qiskit or Cirq.
+> A quantum machine learning library built to refuse a plausible wrong number. In
+> this field a mistake usually does not raise — a collapsed re-uploading model, a
+> concentrated kernel and a lead inside the fold spread all run and all return
+> numbers in the right range — so `diagnose`, `baseline`, `plan`, `selfcheck` and
+> `progress` are the point of the library rather than an add-on.
+>
+> Underneath: reusable feature maps, a composable ansatz vocabulary, quantum
+> kernels, PyTorch layers, and one `grad()` that points at any circuit and
+> observable. The same circuit runs on the built-in NumPy reference, SpinQit,
+> Qiskit, Cirq or Torch, and on two mixed-state backends under noise.
 
 Install with `pip install qmlkit`. The core depends on NumPy and nothing else;
 every SDK is an optional extra (`qmlkit[torch]`, `[qiskit]`, `[cirq]`, `[spinqit]`,

@@ -13,21 +13,42 @@ range. All three are wrong.
 So the parts of qmlkit that catch those are not an add-on:
 
 ```python
-qk.diagnose(model)   # the failures that return a number instead of raising
-qk.baseline(X, y)    # the classical bar, on identical folds, before you start
-qk.plan(model)       # what the run costs in circuits, before you pay for it
-qk.selfcheck(...)    # every exact gradient route, compared against every other
+qk.plan(model)             # what the run costs in circuits, before you pay for it
+qk.baseline(X, y)          # the classical bar, on identical folds, before you start
+qk.diagnose(model)         # the failures that return a number instead of raising
+qk.diagnose(model, X, y)   # ...and whether the quantum layer earned its place
+qk.selfcheck(spec, theta)  # every exact gradient route, compared against every other
+qk.progress()              # what the run is doing, and how much of it is left
 ```
 
-and the same principle runs through the rest: `adjoint` refuses on a noisy backend
-rather than silently differentiating a noiseless one, an unknown gate is refused by
-name rather than approximated, and `qk.baseline` will not call a lead inside the fold
+That is one arc, in the order the questions arise: before, during, after. `plan` and
+`baseline` run before you spend anything. `progress` is the only one of the six that
+exists because of a question every library in this field gets asked and none of them
+answers — *how much is left* — and it is the reason a kernel Gram matrix is no longer
+a silent call that returns when it returns.
+
+`selfcheck` is the one people skip and shouldn't. It computes your gradient by all four
+exact routes — adjoint, backprop, Hadamard test, parameter-shift — and runs your
+expectation through every installed SDK against the NumPy reference. Those four routes
+share almost no code, so agreement to machine precision is strong evidence that all of
+them are right, and disagreement localises the bug to a method or a backend rather than
+leaving you with one number and no second opinion.
+
+The same principle runs through the rest: `adjoint` refuses on a noisy backend rather
+than silently differentiating a noiseless one, an unknown gate is refused by name rather
+than approximated, a gate that declares no generator frequencies has its differentiation
+*refused* rather than guessed, and `qk.baseline` will not call a lead inside the fold
 spread a result.
 
 Underneath that it is the ML layer quantum SDKs leave out — feature maps, an ansatz
 vocabulary, quantum kernels, torch layers, and a general-purpose parameter-shift
 gradient you can point at *any* circuit and observable — running unchanged on
-**SpinQit**, **Qiskit**, **Cirq**, **PyTorch**, or the built-in NumPy reference.
+**SpinQit**, **Qiskit**, **Cirq**, **PyTorch**, or the built-in NumPy reference, and on
+two mixed-state backends when you want to ask what noise would have done. Seven in all,
+behind one protocol: a backend supplies a statevector, and sampling, basis rotation,
+qubit-wise-commuting grouping, expectation and the whole batch stack are derived once
+in the base class — which is what makes agreement between backends a property rather
+than a coincidence.
 
 **Simulator-only** for the whole `0.x` line. Expectations are exact unless you ask for
 shots, and two mixed-state backends take a noise model when you want to ask what a
@@ -35,9 +56,17 @@ device would have done. Exact here means no shot noise and no finite-difference 
 not bit-identical arithmetic; expectations and gradients agree with the analytic value
 to machine precision.
 
-The core depends on **NumPy and nothing else**, and CI enforces it.
+The core depends on **NumPy and nothing else** — so `pip install qmlkit` resolves in
+seconds, picks no fight with the versions already in your environment, and works
+somewhere with no wheel for a C++ simulator. CI enforces it by installing nothing else
+in the `core` jobs, and by building a wheel and importing it in a clean virtualenv,
+because an editable install imports from `src/` and would keep working even if a module
+never made it into the package. That promise has been broken once, by a `scipy.special`
+import that was present locally and absent in CI.
 
-**[Documentation](https://ziadt160.github.io/qmlkit/)** — tutorials, guides and a generated API reference.
+**[Documentation](https://ziadt160.github.io/qmlkit/)** — eight tutorials, guides and a generated API reference.
+**[Case studies](https://ziadt160.github.io/qmlkit/studies/)** — eight whole problems, raw data to defensible number. In most of them the number is that the quantum model lost.
+**[Validation](https://ziadt160.github.io/qmlkit/about/validation/)** — how any of this is known to be correct, including the reference that shares no code with the library it checks.
 **[HANDOFF.md](https://github.com/Ziadt160/qmlkit/blob/main/HANDOFF.md)** — status, conventions, known traps, and what to do next, if you are picking this up.
 
 ## Two lines
@@ -353,12 +382,30 @@ SpinQit's simulator also carries a precision floor near `1e-10` rather than mach
 precision, so it is compared at a looser tolerance. `verify_conventions()` re-checks
 bit order and gate definitions against a live install in one call.
 
+### Checked against a reference that shares nothing
+
+Everything below compares qmlkit against something that inherited its conventions —
+five backends against each other, or PennyLane, whose names this library's gate table
+was written by reading. Those all agree when a convention is wrong *everywhere*, and
+once they did: the torch backend reimplemented `np.moveaxis` without numpy's
+`sorted(zip(destination, source))`, so a two-qubit gate on descending wires permuted
+the wires it was not acting on. `Z(3)` read `-0.1288` against `-0.7374`. Nothing
+raised, `backprop` differentiated through it, and four references agreed with it.
+
+`tests/densesim.py` is 206 lines that inherited none of it — hand-written gate
+matrices, hand-derived derivatives, an explicit bit-index loop where the library uses
+`tensordot`, its own product rule, reading `spec.ops` and calling no backend. It is
+what found that bug, and four properties in `tests/test_torture.py` run it against
+randomly generated circuits.
+
+**When correctness actually matters, at least one reference must share no code and no
+conventions with the thing being checked.**
+
 ### Cross-validated against PennyLane
 
-A library's own test suite can only catch the bugs its author thought of. Agreeing
-with a second, independently written implementation catches the rest.
-`tests/test_pennylane_parity.py` is **301 parity cases** across every layer both
-libraries implement, and it runs in CI like any other test:
+A second, independently written implementation catches what an internal suite cannot.
+`tests/test_pennylane_parity.py` is **301 executed parity cases** across every layer
+both libraries implement, and it runs in CI like any other test:
 
 ```bash
 pip install pennylane
@@ -367,7 +414,7 @@ pytest tests/test_pennylane_parity.py
 
 | Layer | What is compared | Agreement |
 |---|---|---|
-| Gates | all 20 gate matrices at 6 angles, and every closed-form `dU/dθ` against a differenced PennyLane matrix | `1e-12` |
+| Gates | 55 matrix comparisons over all 20 gates — the 7 parametric at 6 angles each, the 13 constant once — plus 21 closed-form `dU/dθ` against a differenced PennyLane matrix | `1e-12` |
 | Circuits | 40 **randomly generated** circuits over the full gate set, 1–5 qubits — statevectors, probabilities, and random multi-term observables | `1e-12` |
 | Gradients | 5 ansätze × 4 observables; all four exact methods; PennyLane's own four methods back against ours; randomised circuits | `1e-10` |
 | Encodings | angle (X/Y/Z), amplitude, basis, IQP | `1e-12` |
@@ -381,7 +428,16 @@ pytest tests/test_pennylane_parity.py
 The randomised tests are the ones that matter. Hand-picked cases confirm what the
 author already believed; a fuzzer explores the space, and every bug found in this
 project so far has been of the plausible-wrong-number kind that only a second opinion
-catches.
+catches — including two in this library's own parameter-shift implementation, and two
+in its own tests.
+
+Beyond parity, `tests/test_torture.py` states **17 invariants that hold by mathematics
+rather than by example** and lets Hypothesis hunt for circuits that break them: the four
+exact gradient routes agree, a tied weight's gradient sums over its occurrences, batched
+equals looped, `adjoint()` undoes, expectation lies inside the observable's spectrum. A
+default run generates 1,825 cases; `QMLKIT_TORTURE_EXAMPLES=1500` before a release is
+about 19,500 circuits. When one fails, Hypothesis shrinks it to the smallest circuit
+that still shows it.
 
 **Four real convention differences surfaced.** None is a bug in either library, and
 each is pinned by its own test so it stays deliberate:
@@ -419,9 +475,21 @@ string away would flatter the author.
 | 20×20 kernel Gram matrix | 3.2 ms | 219 ms `default` | **69×** | 69× |
 | Exact metric tensor, `P=24` | 6.8 ms | 715 ms `adjoint_metric` | **105×** | 276× |
 
-qmlkit is ahead on 13 of 14 cases, and the honest median is **1.7×**, not the 6.1× an
-earlier version of this file reported against `default.qubit` alone. The 8-qubit
-gradient is a tie either way.
+qmlkit is ahead on 13 of 14 cases, median **1.7×**.
+
+**The comparison is deliberately the unflattering one.** `pennylane-lightning` is a
+dependency of PennyLane, so the C++ `lightning.qubit` is in every install whether the
+user asked for it or not, and `qml.adjoint_metric_tensor` is an `O(P)` algorithm sitting
+right beside the `O(P^2)` Hadamard-test route. Timing against `default.qubit` and the
+`O(P^2)` metric would be timing an opponent nobody runs. This file used to do exactly
+that and reported 6.1x; the flattering column is still printed above, so the size of
+the difference is visible rather than taken on trust. Re-run on a second machine the
+summary comes out 14 of 14 at 1.78x, because the 8-qubit gradient row is a dead tie
+that falls either way, and the table quotes the worse run.
+
+`examples/benchmark_pennylane.py` checks that both libraries produce the *same number*
+before quoting any speedup. An acceleration that changes the answer is not an
+acceleration.
 
 **What that means.** The first three rows are dispatch and interpreter overhead rather
 than arithmetic: qmlkit does less per call, so it leads at small register sizes and the
@@ -434,7 +502,8 @@ one QNode call per pair — per-call overhead dominates so completely there that
 is actually *slower* than `default.qubit`. And the **metric tensor** is different in kind: closed-form
 differentiation of the state, `P` derivative states from one forward sweep, agreeing with
 PennyLane's own routes to `1.7e-16` and *widening* with parameter count (49× at `P=12`,
-105× at `P=24`) rather than narrowing. That is the one speed claim here worth making.
+105× at `P=24`) rather than narrowing — the only row here that gets *better* the bigger
+the problem gets, and the one worth planning around.
 
 JAX is not installed on the benchmark machine, so jit-compiled PennyLane is untested and
 unclaimed; it would narrow the overhead rows further.
@@ -489,8 +558,49 @@ unclaimed; it would narrow the overhead rows further.
 - **Noise, named explicitly** — `cirq-density` and `qiskit-aer` evolve a density
   matrix and take a noise model. `shots=None` still means shot-free, so decoherence
   and sampling error stay separable; the gradients that need a pure state refuse.
-- **Batched execution** — one circuit at many parameter vectors in a single pass;
-  3.6–24× on the training forward pass up to 10 qubits.
+- **Batched execution** — one circuit at many parameter vectors in one pass. A
+  compute-uncompute kernel and a training batch are both *one circuit structure at many
+  angle vectors*, which is what makes this possible: **19.8× on a full training step**
+  at 4 qubits, **69× on a 20×20 Gram matrix**. Batching is switched off above a
+  measured crossover (`NumpyBackend.batch_max_qubits`, 10) rather than assumed to help.
+- **Watching a run** — `qk.progress()` gives a live line with an honest ETA, and
+  `run.save_html()` writes the whole run out as one self-contained page. See
+  [Watching a run](https://ziadt160.github.io/qmlkit/guides/watching-a-run/).
+
+## Algorithms
+
+Each one is a *loop* over machinery that already exists — so each is thin, and every
+structural choice it makes is an argument you pass rather than something baked in. All
+of them share one open `OPTIMIZERS` dict (`rotosolve`, `spsa`, `gradient-descent`,
+`adam`), and a custom optimiser is a function, not an adapter class.
+
+| | |
+|---|---|
+| **`VQE`** | with `ADAPT-VQE`, which grows the ansatz one operator at a time |
+| **`QAOA`** | returns the *bitstring*, its probability, the cut value and the approximation ratio — not just an energy |
+| **Chemistry** | `molecular_hamiltonian`, `h2_curve`, and a real restricted Hartree–Fock loop with STO-3G integrals computed here, so the core stays NumPy-only |
+| **`QuantumAutoencoder`** | trained on trash *fidelity*, not trash purity — see below |
+| **`QMeans`** | Lloyd's algorithm with a quantum kernel distance, deliberately unchanged otherwise |
+| **`QuantumPolicy`** | REINFORCE with exact circuit gradients, no finite differences |
+
+Three things in there are worth knowing before you need them.
+
+**`VQE`, `QAOA` and `AdaptVQE` check themselves against dense diagonalisation** whenever
+it is affordable (12 qubits or fewer, by default) and report `error_vs_exact`. A
+variational algorithm that converges confidently on the wrong energy is the normal
+failure, not the exotic one.
+
+**`QAOA` warns when Rotosolve is invalid for the circuit it just built.** Rotosolve
+assumes each angle drives a single sinusoid; QAOA's cost angle drives one `rz` per
+edge, which measures as five frequencies on a five-edge problem. It converges
+immediately, on the wrong point, and reports it as a result.
+
+**ADAPT ships two operator pools, and the general one is wrong for chemistry.** A
+molecular Hamiltonian conserves particle number, so any generator that does not has
+*exactly zero* gradient at Hartree–Fock — measured on H₂, every operator in the default
+pool scores `0.00e+00`, ADAPT correctly concludes nothing helps, and hands back an
+empty circuit. Use `chemistry_operator_pool`. That is physics, not a bug, and a test
+pins it.
 
 ## Gradients
 

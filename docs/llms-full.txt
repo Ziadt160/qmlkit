@@ -1,9 +1,15 @@
 # qmlkit
 
-> A backend-agnostic quantum machine learning library: reusable feature maps, a
-> composable ansatz vocabulary, quantum kernels, PyTorch layers, and one `grad()`
-> that points at any circuit and observable. The same circuit runs on the built-in
-> NumPy reference, SpinQit, Qiskit or Cirq.
+> A quantum machine learning library built to refuse a plausible wrong number. In
+> this field a mistake usually does not raise — a collapsed re-uploading model, a
+> concentrated kernel and a lead inside the fold spread all run and all return
+> numbers in the right range — so `diagnose`, `baseline`, `plan`, `selfcheck` and
+> `progress` are the point of the library rather than an add-on.
+>
+> Underneath: reusable feature maps, a composable ansatz vocabulary, quantum
+> kernels, PyTorch layers, and one `grad()` that points at any circuit and
+> observable. The same circuit runs on the built-in NumPy reference, SpinQit,
+> Qiskit, Cirq or Torch, and on two mixed-state backends under noise.
 
 Install with `pip install qmlkit`. The core depends on NumPy and nothing else;
 every SDK is an optional extra (`qmlkit[torch]`, `[qiskit]`, `[cirq]`, `[spinqit]`,
@@ -43,12 +49,45 @@ What is worth knowing before writing any of it:
 
 # qmlkit
 
-A quantum machine learning library where **a circuit is data, not a backend object**.
+A quantum machine learning library built to **refuse a plausible wrong number**.
 
-That one decision is why a single gradient implementation serves five backends, why
-inventing an ansatz takes one line and inherits correct gradients for free, and why
-weight tying is expressible at all. Everything downstream — differentiation, resource
-counting, drawing, translation to SpinQit or Qiskit or Cirq — reads the same structure.
+What makes this field difficult is not writing the circuit. It is that a mistake here
+usually does not raise: a re-uploading model whose trainable rotations commute with its
+encoding trains happily and reaches one Fourier frequency instead of eight; a kernel
+concentrates until every pair of points looks alike and still returns a Gram matrix; a
+quantum model beats its classical baseline by less than the spread between folds and
+gets written up as a result. All three run. All three return numbers in the right
+range. All three are wrong.
+
+So the tools that catch those are not an afterthought — they are the library:
+
+```python
+# docs: requires torch
+import qmlkit as qk
+
+print(qk.plan(qk.hardware_efficient(3, 2)))       # what the run will cost, first
+print(qk.diagnose(qk.hardware_efficient(3, 2)))   # what does not raise
+```
+
+[`diagnose`](guides/agents.md) names the failure and the edit that fixes it,
+[`baseline`](guides/evaluation.md) puts the classical bar on identical folds and
+refuses to call a lead inside the fold spread a result, [`progress`](guides/watching-a-run.md)
+says how much of a run is left, and `selfcheck` compares every exact gradient route
+against every other. The same instinct runs through the rest: `adjoint`
+[refuses on a noisy backend](guides/noise.md) rather than quietly differentiating a
+noiseless one, and an unknown gate is refused by name rather than approximated.
+
+## Why one `diagnose` can read any model
+
+Because **a circuit is data, not a backend object**.
+
+That one decision is what makes the layer above possible: `diagnose` walks
+`spec.ops`, so it works on any ansatz, on any backend, whether or not the library has
+ever seen the gates in it. The same structure serves a single gradient implementation
+across every backend, lets inventing an ansatz take one line and inherit correct
+gradients for free, and makes weight tying expressible at all — a parameter that fills
+several slots, differentiated one occurrence at a time, which is the thing a shift rule
+gets silently wrong when circuits are opaque objects.
 
 ```python
 import numpy as np
@@ -63,32 +102,6 @@ print(f"<O>       = {qk.expval(spec, observable, theta=theta):+.6f}")
 print(f"gradient  = {np.round(qk.grad(spec, theta, observable)[:4], 4)} ...")
 print(f"cost      = 1 pass (adjoint) vs {qk.gradient_cost(spec, 'parameter-shift')} circuits (parameter-shift)")
 ```
-
-## And where the circuit is not the hard part
-
-Structure is what makes the library composable. It is not what makes quantum machine
-learning difficult. What makes it difficult is that a mistake here usually does not
-raise: a re-uploading model whose trainable rotations commute with its encoding
-trains happily and reaches one Fourier frequency instead of eight; a kernel
-concentrates until every pair of points looks alike and still returns a Gram matrix;
-a quantum model beats its classical baseline by less than the spread between folds
-and gets written up as a result.
-
-So a second set of tools sits beside the first, and they are not an afterthought:
-
-```python
-# docs: requires torch
-print(qk.diagnose(qk.hardware_efficient(3, 2)))   # what does not raise
-print(qk.plan(qk.hardware_efficient(3, 2)))       # what the run will cost, first
-```
-
-[`diagnose`](guides/agents.md) names the failure and the edit that fixes it,
-[`baseline`](guides/evaluation.md) puts the classical bar on identical folds and
-refuses to call a lead inside the fold spread a result, and `selfcheck` compares
-every exact gradient route against every other. The same instinct runs through the
-rest: `adjoint` [refuses on a noisy backend](guides/noise.md) rather than quietly
-differentiating a noiseless one, and an unknown gate is refused by name rather than
-approximated.
 
 ## Where to start
 
@@ -4162,6 +4175,136 @@ The order these run in is the order the questions arise:
 
 
 ==============================================================================
+# Guides / Watching a run    (source: docs/guides/watching-a-run.md)
+==============================================================================
+
+# Watching a run
+
+`qk.plan` says what a run will cost before it starts. `qk.diagnose` says what went
+wrong after it finishes. In between there was nothing, and in between is where the
+hours go.
+
+A quantum kernel on a few hundred points is tens of thousands of circuits. Every
+library in this field runs them behind a single call that returns when it returns,
+and *how much is left* is one of the most common questions asked about all of them.
+
+```python
+# docs: run
+import numpy as np
+import qmlkit as qk
+
+rng = np.random.default_rng(0)
+X = rng.uniform(0, np.pi, (24, 2))
+kernel = qk.QuantumKernel(qk.ZZFeatureMap(2), shots=64, seed=0)
+
+with qk.progress(live=False) as run:      # live=True draws the line below
+    gram = kernel(X)
+
+print(run.report())
+```
+
+```text
+kernel gram  3,412/12,720   27%   14.2s elapsed  ~37s left
+```
+
+Nothing is printed unless you enter `qk.progress()`, and the live line goes to stderr,
+so piping a script's stdout to a file does not collect redraws.
+
+## Where the time actually went
+
+```python
+# docs: skip
+print(run.report())
+```
+
+```text
+Run finished in 51.4s
+kernel gram               12,720 items    47.9s    3.77 ms/item
+fit VQC                      600 items     3.2s    5.33 ms/item
+  (untracked)                              0.3s   - setup, data handling, and anything outside a task
+```
+
+The `(untracked)` row is there because the first thing a timing breakdown usually gets
+wrong is implying that the parts it measured are the whole run. On a short run it is
+often the largest row, and that is worth seeing.
+
+## Three properties, in this order
+
+**It does not change any number.** A seeded kernel and a seeded circuit produce
+bit-identical results watched and unwatched, and a test asserts exactly that. A
+reporter that perturbed a result would be a worse defect than the silence it replaces.
+
+**It is free when nobody is watching.** With no active reporter, the tracking calls
+inside the library cost one comparison against `None`, and the live line redraws at
+most ten times a second however fast the loop runs.
+
+**It does not claim to know what it does not.** An estimate from four items in half a
+second says more about scheduling noise than about the run, so it prints `estimating`
+until there is evidence — the same rule the rest of the library follows about reporting
+a measurement.
+
+## The trajectory, not just the timings
+
+`HybridModel.fit` — so `VQC` and `VQRegressor` — logs three series per epoch without
+being asked:
+
+| | |
+|---|---|
+| **loss** | whether it is learning |
+| **gradient norm** | whether it *can*. A plateau and a solved problem look identical in loss |
+| **parameter norm** | whether the weights are running away, which looks like nothing at all in a loss curve |
+
+Computing the two norms costs a pass over the parameters, so it happens only when
+something is watching. Anything else can log its own:
+
+```python
+# docs: skip
+with qk.progress() as run:
+    run.note(dataset="breast-cancer", seed=0)   # facts about the run
+    for step, value in enumerate(history):
+        run.log("validation auc", value, step)
+```
+
+## One file, no server
+
+```python
+# docs: skip
+run.save_html("run.html")
+```
+
+Timings, every logged series as a chart, and the versions and settings the run was
+made with — in a single self-contained page with no assets directory and nothing to
+fetch.
+
+It is deliberately a *file* rather than a dashboard. A dashboard you have to start,
+connect to and keep alive is a dependency, a port and a process; a page you can open,
+email, and leave next to the result in a directory is none of those and outlives all of
+them. The charts are inline SVG for the same reason: nothing to pin, nothing to break
+in two years.
+
+A flat series is labelled `flat — never moved` rather than drawn as a straight line at
+an arbitrary height, because a loss curve that never moved is the run you most want to
+look at, and a picture that hides it is worse than no picture.
+
+## Counting your own loop
+
+```python
+# docs: skip
+for row in qk.track(rows, "rows"):
+    ...
+```
+
+`qk.track` counts an iterable as it is consumed and takes its total from `len` when
+there is one. Inside the library, `qmlkit.progress.task` is the equivalent — it hands
+back a silent stand-in when nothing is watching, so a loop never has to branch on
+whether anyone is there.
+
+Already instrumented: the pair-at-a-time kernel Gram matrix — the path that takes hours,
+used for sampled kernels, non-inversion estimators, and any backend without a
+statevector — and `HybridModel.fit`.
+
+
+==============================================================================
 # Guides / Extending qmlkit    (source: docs/guides/extending.md)
 ==============================================================================
 
@@ -4853,6 +4996,18 @@ The guide is [Evaluating a quantum model honestly](../guides/evaluation.md).
 
 ## `qmlkit.nn.losses`
 
+## `qmlkit.progress`
+
+See [Watching a run](../guides/watching-a-run.md) for the guide.
+
+## `qmlkit.report`
+
+## `qmlkit.utils.errors`
+
+How every "unknown gate / backend / ansatz / method" message in the library is built.
+Worth reading before adding one, since the shape of the message is the contract:
+what was wrong, what was probably meant, and what is allowed.
+
 
 ==============================================================================
 # About / Validation    (source: docs/about/validation.md)
@@ -4862,18 +5017,73 @@ The guide is [Evaluating a quantum model honestly](../guides/evaluation.md).
 
 How any of this is known to be correct.
 
-A library's own test suite can only catch the bugs its author thought of. qmlkit
-therefore leans on three independent checks, each of which can fail for reasons the
-others cannot.
+A library's own test suite can only catch the bugs its author thought of. Worse, a
+suite of *agreeing* implementations can only catch the bugs they do not share — five
+backends and a second library once agreed, unanimously, with a wrong number.
 
-| | |
-|---|---|
-| **Cross-backend equivalence** | The same circuit through five backends, compared to the NumPy reference |
-| **Cross-library parity** | 301 cases against PennyLane, and every metric in `qk.evaluate` against scikit-learn — both independently written implementations |
-| **Executable documentation** | Every snippet on this site runs in CI |
+So qmlkit leans on five checks, ordered here by how much each one can prove:
 
-Plus the ordinary suite: **1202 tests, 94% combined coverage** measured in CI,
-`ruff` and `mypy --strict` clean.
+| | | |
+|---|---|---|
+| 1 | **An independent reference** | `tests/densesim.py` — 206 lines sharing no code and no conventions with the library it checks |
+| 2 | **Cross-library parity** | 301 executed cases against PennyLane, and every metric in `qk.evaluate` against scikit-learn |
+| 3 | **Property-based testing** | 17 mathematical invariants over Hypothesis-generated circuits — 1,825 per default run, ~19,500 before a release |
+| 4 | **Cross-backend equivalence** | One circuit zoo through every installed SDK, compared to the NumPy reference |
+| 5 | **Executable documentation** | Every snippet on this site is run by the test suite |
+
+Plus the ordinary suite: **1,434 tests passing of 1,563 collected**, 0 failures, 94%
+combined coverage measured in CI, `ruff` and `mypy --strict` clean over the whole
+package.
+
+Every one of the 115 skips is accounted for and none of them is silent: 65 constant
+gates tested at a single angle rather than six, 27 needing SpinQit's Python 3.10, 17
+documentation pages with no runnable Python, 4 SpinQit-only, and 2 where the
+observable is wider than the circuit. CI asserts each optional SDK actually imported
+before running its jobs, because a suite guarded by `importorskip` and never given its
+dependency turns the job green by skipping.
+
+## The reference that shares nothing
+
+This is the check that matters most, and it is the newest.
+
+Everything else here compares qmlkit against something that inherited its conventions —
+five backends against each other, or against PennyLane, which qmlkit's gate table was
+written by reading. Those agree when a convention is wrong *everywhere*. `densesim.py`
+inherited none of them: hand-written gate matrices, hand-derived derivative matrices,
+an explicit bit-index loop where the library uses `tensordot`, its own product rule.
+It reads `spec.ops` and nothing else — no backend, no gradient routine, no execution
+code.
+
+It earned its place immediately. The torch backend had reimplemented `np.moveaxis`
+without numpy's `sorted(zip(destination, source))`, so a two-qubit gate on descending
+wires permuted the wires it was not acting on. `Z(3)` read `-0.1288` against `-0.7374`.
+Nothing raised, `method="backprop"` differentiated through it, and it was reachable
+from a built-in `conv_block(filter="su4")`. Four other references agreed with it,
+because not one of them was independent of the convention that caused it.
+
+The lesson generalises past this project: **when correctness actually matters, at least
+one reference must share no code and no conventions with the thing being checked.**
+
+Four properties in `tests/test_torture.py` run it against randomly generated circuits —
+statevectors, expectations, gradients, and every installed backend at once.
+
+## Property-based testing
+
+`tests/test_torture.py` states 17 invariants that hold by mathematics rather than by
+example, and lets Hypothesis look for circuits that break them: the four exact gradient
+routes agree; a tied weight's gradient sums over its occurrences; batched equals looped;
+`adjoint()` undoes; expectation lies inside the observable's spectrum; Qiskit and Cirq
+round-trips reproduce the statevector; sampling lands within five standard errors.
+
+A default run generates **1,825 cases**. Before a release:
+
+```bash
+QMLKIT_TORTURE_EXAMPLES=1500 pytest tests/test_torture.py
+```
+
+which is about 19,500 circuits and ten minutes. When something fails, Hypothesis
+shrinks it to the smallest circuit that still shows it and replays that case
+thereafter. No CI job runs the deep campaign — it is a release step, done by hand.
 
 ## Parity with PennyLane
 
@@ -4884,7 +5094,7 @@ pytest tests/test_pennylane_parity.py
 
 | Layer | Compared | Agreement |
 |---|---|---|
-| Gates | all 20 gate matrices at 6 angles, and every closed-form `dU/dθ` against a differenced PennyLane matrix | `1e-12` |
+| Gates | 55 matrix comparisons over all 20 gates — the 7 parametric ones at 6 angles each, the 13 constant ones once — plus 21 closed-form `dU/dθ` against a differenced PennyLane matrix | `1e-12` |
 | Circuits | 40 **randomly generated** circuits over the full gate set, 1–5 qubits — statevectors, probabilities, random multi-term observables | `1e-12` |
 | Gradients | 5 ansätze × 4 observables; all four exact methods; PennyLane's own four back against ours; fuzzed circuits | `1e-10` |
 | Encodings | angle (X/Y/Z), amplitude, basis, IQP | `1e-12` |
@@ -4945,15 +5155,22 @@ decision rather than an accident.
 
 ## Cross-backend equivalence
 
-`tests/test_cross_backend.py` runs one circuit zoo through every installed backend,
-asserting agreement on statevectors, probabilities, expectations over X/Y/Z and
-two-body terms, seeded sampling, and parameter-shift gradients. The zoo deliberately
-targets where SDKs differ: endianness, controlled-gate qubit order, idle qubits,
-basis rotations.
+`tests/test_cross_backend.py` runs one circuit zoo through Qiskit, Cirq and — on Python
+3.10 — SpinQit, asserting agreement with the NumPy reference on statevectors,
+probabilities, expectations over X/Y/Z and two-body terms, seeded sampling, and
+parameter-shift gradients. The zoo deliberately targets where SDKs differ: endianness,
+controlled-gate qubit order, idle qubits, basis rotations.
 
-It found three real upstream discrepancies, all handled — including **SpinQit's `CY`
-applying `−iY` instead of `Y`** to the control-1 subspace, which is a relative phase
-and therefore physically observable. Details in [Backends and
+**It does not cover the torch backend, and that omission has already cost something.**
+Torch was excluded on the reasoning that a differentiable simulator is a different kind
+of backend — and torch is exactly where the worst defect in 0.1.1 lived. An agreement
+test that skips a participant tests nothing about that participant. Torch agreement is
+now asserted instead by `tests/test_grad_batch.py` and by the property suite, which
+iterates `available_backends()` and explicitly declines to skip it.
+
+The zoo found three real upstream discrepancies, all handled — including **SpinQit's
+`CY` applying `−iY` instead of `Y`** to the control-1 subspace, which is a relative
+phase and therefore physically observable. Details in [Backends and
 conventions](../guides/backends.md).
 
 ## Executable documentation
@@ -4970,11 +5187,15 @@ call signature, and a hand-typed number that did not match what the code printed
 `examples/benchmark_pennylane.py` times identical work on both libraries, against
 PennyLane's **fastest** configuration rather than its reference one.
 
-This section previously reported a median 6.1× against `default.qubit` alone. That was
-not a fair comparison: `pennylane-lightning` is a dependency of PennyLane, so the C++
-`lightning.qubit` is present in every install, and `qml.adjoint_metric_tensor` is an
-`O(P)` statevector algorithm sitting right next to the `O(P²)` Hadamard-test
-`qml.metric_tensor`. The numbers below are against both, summarised on the faster.
+That choice is the point, and it costs us most of the headline. `pennylane-lightning`
+is a dependency of PennyLane, so the C++ `lightning.qubit` is in every install whether
+the user asked for it or not; and `qml.adjoint_metric_tensor` is an `O(P)` statevector
+algorithm sitting right next to the `O(P²)` Hadamard-test `qml.metric_tensor`. Timing
+against `default.qubit` and the `O(P²)` route would be timing an opponent nobody runs.
+
+This section used to do exactly that, and reported a median of 6.1×. The real figure
+is **1.7×**, it is the one below, and the flattering column is printed beside it so
+the difference is visible rather than taken on trust.
 
 | Operation | qmlkit | PennyLane (best) | | vs `default.qubit` |
 |---|---|---|---|---|
@@ -4984,7 +5205,13 @@ not a fair comparison: `pennylane-lightning` is a dependency of PennyLane, so th
 | 20×20 kernel Gram matrix | 3.2 ms | 219 ms `default` | **69×** | 69× |
 | Exact metric tensor, `P=24` | 6.8 ms | 715 ms `adjoint_metric` | **105×** | 276× |
 
-qmlkit is ahead on 13 of 14 cases, median **1.7×**.
+qmlkit is ahead on 13 of 14 cases, median **1.7×**. Re-run on a second machine it
+comes out 14 of 14 at 1.78×, because the 8-qubit gradient row is a dead tie that falls
+either way — the table above quotes the worse of the two runs.
+
+`examples/benchmark_pennylane.py` checks that both libraries produce the *same number*
+before it reports a speedup, and prints the agreement alongside. An acceleration that
+changes the answer is not an acceleration.
 
 Read that in three parts. The expectation, gradient and parameter-shift rows are
 dispatch and interpreter overhead rather than arithmetic — qmlkit does less per call,

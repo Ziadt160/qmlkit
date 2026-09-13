@@ -32,3 +32,21 @@ The guide is [Evaluating a quantum model honestly](../guides/evaluation.md).
 ## `qmlkit.nn.losses`
 
 ::: qmlkit.nn.losses
+
+## `qmlkit.progress`
+
+See [Watching a run](../guides/watching-a-run.md) for the guide.
+
+::: qmlkit.progress
+
+## `qmlkit.report`
+
+::: qmlkit.report
+
+## `qmlkit.utils.errors`
+
+How every "unknown gate / backend / ansatz / method" message in the library is built.
+Worth reading before adding one, since the shape of the message is the contract:
+what was wrong, what was probably meant, and what is allowed.
+
+::: qmlkit.utils.errors

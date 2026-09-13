@@ -1,5 +1,5 @@
 site_name: qmlkit
-site_description: A backend-agnostic quantum machine learning library for SpinQit, Qiskit, Cirq and PyTorch
+site_description: A quantum machine learning library built to refuse a plausible wrong number.
 site_url: https://ziadt160.github.io/qmlkit/
 repo_url: https://github.com/Ziadt160/qmlkit
 repo_name: Ziadt160/qmlkit
@@ -124,6 +124,7 @@ nav:
       - Backends and conventions: guides/backends.md
       - Running under noise: guides/noise.md
       - Evaluating a model honestly: guides/evaluation.md
+      - Watching a run: guides/watching-a-run.md
       - Extending qmlkit: guides/extending.md
       - Working with a coding agent: guides/agents.md
   - Reference:
