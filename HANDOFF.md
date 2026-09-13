@@ -222,6 +222,28 @@ Emitted as `Sd·CX·S`. Its simulator also carries a `1e-10` precision floor.
 
 ---
 
+## Ranked out, with the measurement that did it
+
+Keep this list. Each of these looked like a clear win and was proposed more than once.
+
+| Idea | Measured | Verdict |
+|---|---|---|
+| Threading inside one circuit | **0.04x** on 8 threads at 8 qubits; dispatching 8 tasks costs 193us against an 11us gate | Never below 16 qubits. The state is cache-resident; there is no work to spread |
+| Gate fusion below 14 qubits | **0.68x** at 6 qubits; 84% of the runtime is building blocks | Off below `fuse_min_qubits`. Above it, on, and worth 5.6x |
+| Compiling to a full `2**n` unitary | 14.7x at 6 qubits, **0.2x at 12** | Never. The crossover is below the widths that matter |
+| Building fused blocks with one `einsum` | **0.53x** against 0.69x sequential | Path-finding costs more than it saves on operands this small |
+| Qrack as a backend | 2.4x on a forward pass, but no gradients and no batching in 164 public methods | ~30x slower overall once `adjoint` becomes `2P` parameter-shift |
+| FlashAttention-style tiling | Premise does not hold: at 4-12 qubits the state is L1-resident | Its core trick — recompute rather than store — is already `adjoint` |
+| **Prefix caching for parameter-shift** | `qTask` reports 5.8-9.8x for incremental simulation, and the `2P` shifted circuits do share prefixes | **No.** See below |
+
+**Why prefix caching does not pay here**, since it is the most plausible of them.
+Parameter-shift is 19-32x slower than adjoint (measured: 71.8ms vs 3.7ms at 6 qubits,
+622ms vs 27.7ms at 14). Caching the prefix saves at best ~2x, because the average
+shifted gate sits mid-circuit — leaving it still 10-16x behind. And it needs the
+prefix *state*, which is the one thing parameter-shift refuses to touch: not touching
+it is what makes the method valid on a sampling backend, on `mps`, and on hardware. So
+it would only ever help where `adjoint` already wins by twenty times.
+
 ## What to do next
 
 Revised 2026-09-13, after surveying what users actually complain about in PennyLane
