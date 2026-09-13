@@ -388,9 +388,7 @@ class QuantumKernel:
         self._hardware_circuits += _hardware_pairs(len(rows), None if Y is None else len(columns))
         return np.asarray(out, dtype=float)
 
-    def _states(
-        self, backend: Any, spec: Any, rows: npt.NDArray[Any]
-    ) -> npt.NDArray[Any]:
+    def _states(self, backend: Any, spec: Any, rows: npt.NDArray[Any]) -> npt.NDArray[Any]:
         """``psi(x)`` for each row, reusing any this kernel has already evaluated.
 
         The cache here is per *row*, not per pair, which is the whole point: a
