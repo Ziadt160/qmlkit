@@ -5,7 +5,12 @@ left, which is Python and NumPy dispatch. If (b) dominates, threads cannot help
 and fusion/compilation can.
 """
 
+import sys
 import time
+from pathlib import Path
+
+# resolve qmlkit from this checkout, not from whatever an editable install points at
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import numpy as np
 

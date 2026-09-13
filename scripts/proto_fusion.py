@@ -11,12 +11,10 @@ answer against the unfused path before reporting any speedup.
 
 import sys
 import time
+from pathlib import Path
 
-sys.path.insert(
-    0,
-    r"C:\Quantum Machine Learning Module\.claude\worktrees"
-    r"\qmlkit-pennylane-marketing-83f602\qmlkit\src",
-)
+# resolve qmlkit from this checkout, not from whatever an editable install points at
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import numpy as np
 

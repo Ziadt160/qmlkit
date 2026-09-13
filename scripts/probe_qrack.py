@@ -11,19 +11,10 @@ what a training loop actually pays, not the C++ kernel time.
 import time
 
 import sys
+from pathlib import Path
 
-# explicit, because an editable install resolves qmlkit to a different worktree
-sys.path.insert(
-    0,
-    r"C:\Quantum Machine Learning Module\.claude\worktrees"
-    r"\qmlkit-pennylane-marketing-83f602\qmlkit\src",
-)
-sys.path.insert(
-    1,
-    r"C:\Users\pc\AppData\Local\Temp\claude"
-    r"\C--Quantum-Machine-Learning-Module--claude-worktrees-qmlkit-pennylane-marketing-83f602"
-    r"\030d1a83-50ab-491b-997d-f11158dcf009\scratchpad\pqk",
-)
+# resolve qmlkit from this checkout, not from whatever an editable install points at
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import numpy as np
 from pyqrack import QrackSimulator
