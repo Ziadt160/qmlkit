@@ -12,7 +12,8 @@ first thing read in a fresh session.
 | **Repository** | <https://github.com/Ziadt160/qmlkit> — public, Apache-2.0 |
 | **Documentation** | <https://ziadt160.github.io/qmlkit/> — deploys from `main` |
 | **Source of truth** | The `qmlkit/` subdirectory of the upstream working repository; this repo is a subtree split of it |
-| **PyPI** | <https://pypi.org/project/qmlkit/> - 0.1.0 is published; 0.1.1 is prepared here and not yet tagged |
+| **PyPI** | **Published.** `pip install qmlkit` installs 0.1.0 (2026-09-12) |
+| **Released version** | `0.1.0`, tagged `v0.1.0` at the split commit. **It has a known wrong-number bug — see below** |
 
 ### The one non-obvious thing about the workflow
 
@@ -31,10 +32,67 @@ upstream repository, because it is about that project rather than about qmlkit.
 
 ---
 
+## Read this first: 0.1.0 is published and returns a wrong number
+
+`pip install qmlkit` works. It should not be recommended to anyone yet.
+
+**The torch backend in 0.1.0 evaluates a different circuit than the one it was
+given.** `_apply_torch` reimplements `np.moveaxis` without the
+`sorted(zip(destination, source))` numpy does, so any two-qubit gate on wires
+`(a, b)` with `a > b` permutes the *untouched* wires. `Z(3)` on a four-qubit circuit
+reads `-0.1288` where NumPy, Qiskit and Cirq all agree on `-0.7374`. Nothing raises.
+`method="backprop"` differentiates through the same function, so its gradients are
+wrong too, and `qk.conv_block(filter="su4")` reaches it without anyone hand-writing a
+circuit.
+
+It is **fixed on this branch and not yet released**. Cutting 0.1.1 is the first
+priority, and its release note should say plainly that 0.1.0 returns wrong numbers
+under that condition — anyone who ran a `backprop` gradient on it has no way to know.
+
+Two things worth carrying forward from how it was found. `qk.selfcheck` catches it and
+names the cause exactly; nothing was running `selfcheck`. And the cross-backend suite
+could not: it compares the backends against *each other*, and the torch backend was
+excluded from the property that would have noticed. An agreement test that skips a
+participant tests nothing about that participant.
+
+## What is fixed here and waiting for 0.1.1
+
+Everything below is committed on `claude/library-motivation-error-correction-bcd9d1`
+and absent from the published 0.1.0:
+
+| | why it matters |
+|---|---|
+| torch backend axis permutation | silent wrong number, above |
+| `expectation(return_std=True)` | reported `+-0.00000` for any multi-term observable once \|<O>\| reached 1 — every molecular Hamiltonian got a fake error bar |
+| `info.purity(..., backend=<mixed>)` | returned a hard-coded `1.0` for a state whose purity was 0.309 |
+| `ENCODING_COMMUTES` false positive | fired at *error* severity on correct architectures — **including the example in the README** |
+| `VQC` could not express data re-uploading | the pattern the docs recommend most was unreachable from the class they recommend first |
+| `AnsatzReport` trainability | probed a dead parameter and reported `1.4e-32`, which reads as a barren plateau |
+| `qk.draw` on Windows | `UnicodeEncodeError` on a cp1252 console, i.e. printing a circuit killed the script |
+| `list_baselines()` / `Scores.get()` | a duplicated name; a near-miss metric key returning `None` silently |
+
+Plus new: `qk.optim.minimize_adam`, `qk.evaluate.selective` / `risk_coverage`,
+`from_cirq`, the mixed-state backends, Study 8, and `tests/test_torture.py`.
+
+## Two fix sessions may still be running
+
+Started from this session and working in their own worktrees. **Check before editing
+their files**, and let them land before tagging 0.1.1:
+
+* `EncodingLayer` slot aliasing plus the observable algebra (`ansatz/blocks.py`,
+  `core/observables.py`)
+* six defects from the adversarial audit (`kernels/`, `info.py`, `evaluate.py`,
+  `diagnostics.py`) — the worst is `QuantumKernel(estimator="hadamard")` returning
+  `Re(<x'\|x>)**2` instead of `\|<x'\|x>\|**2`
+
 ## Status
 
-**1401 tests on Python 3.14, 956 on SpinQit's 3.10, 0 failures in either.** ruff clean
-and `ruff format --check` clean; `mypy --strict` clean over **the whole package** - the
+**1434 tests passing, 1563 collected, 0 failures** on Python 3.14 (115 skips, every one
+accounted for: 65 constant gates at a single angle by design, 27 SpinQit-absent, 17
+pages with no runnable Python, 4 SpinQit-only, 2 observable wider than its circuit).
+Re-measure before quoting: this number has been stale in three places at once.
+
+ruff clean and `ruff format --check` clean; `mypy --strict` clean over **the whole package** - the
 config listed six paths until 2026-08-28 and now lists `src/qmlkit`, so "mypy clean" and
 "the package type-checks" finally mean the same thing. **94% coverage**, combined in
 CI across every job — the number CI actually computes, not a local estimate. Two of the
@@ -42,18 +100,33 @@ twelve coverage files still fail to map (macOS and Windows record different abso
 roots), so the figure is carried by the `full` job, which installs every extra and runs
 the whole suite on Linux.
 
-Phases 0–6 are done, plus the algorithm and interoperability work. 0.1.0 is released;
-0.1.1 is prepared and untagged.
+Phases 0–7 are done: 0.1.0 is on PyPI and the release workflow ran green end to end,
+so the mechanism is proven rather than hoped for. What is open is 0.1.1.
 
-**Split the release from a branch that has *both* halves of the audit fixes.** The ten
-defects were closed on two branches that never met -
-`claude/library-motivation-error-correction-bcd9d1` (F1, F3, F4, F5) and
-`claude/audit-fixes-0-1-1` (F2, F6-F10), merge base `4e6e6b2`, neither containing the
-other. On either tip alone half the audit is still open, and `git subtree split`
-publishes whatever branch it is given, so cutting 0.1.1 from the branch *named* for it
-would have shipped the torch backend still computing a different circuit. They are
-merged on `claude/fix-documented-bugs-e51eb0`; confirm before splitting with
-`git merge-base --is-ancestor <each tip> HEAD`.
+### How the library is checked, in order of how much it proves
+
+1. **`tests/densesim.py`** — a dense reference that shares *nothing* with qmlkit.
+   Hand-written gate matrices, hand-derived derivatives, reads only `spec.ops`, calls
+   no backend. Four properties in `test_torture.py` run it against random circuits.
+   This is the only check that can catch a mistake every other one would make
+   together, and it is what found the torch bug.
+2. **`tests/test_pennylane_parity.py`** — 301 cases against a second library.
+3. **`tests/test_torture.py`** — property-based, Hypothesis, invariants that hold by
+   mathematics. Depth is tunable: `QMLKIT_TORTURE_EXAMPLES=1500` before a release runs
+   ~19,500 circuits and takes about ten minutes. Hypothesis shrinks a failure to the
+   smallest circuit that shows it and replays it thereafter.
+4. **`tests/test_cross_backend.py`** - the NumPy reference against Qiskit and Cirq,
+   plus SpinQit on 3.10. **Not torch**, and neither density backend;
+   torch agreement is covered by `test_grad_batch.py` and `test_torture.py`
+   instead. Saying 'five backends' here would name the one file that does not
+   check the backend the worst 0.1.1 defect lived in.
+5. The rest of the suite.
+
+**The audit fixes and the referee were split across three branches, now merged here.**
+`claude/audit-fixes-0-1-1` and `claude/library-motivation-error-correction-bcd9d1` each
+held half the ten defects; the second also held `tests/densesim.py` and four of the
+torture properties. A release cut from any one tip alone would have shipped a
+half-fixed library and a changelog citing a referee that was not in the tree.
 
 Run the suite in **both** environments — SpinQit needs Python 3.10 and pins `numpy<2`:
 

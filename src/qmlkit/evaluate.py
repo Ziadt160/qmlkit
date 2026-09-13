@@ -463,7 +463,7 @@ def selective(
 
     Examples
     --------
-    >>> import numpy as np, qmlkit as qk                        # doctest: +SKIP
+    >>> import qmlkit as qk                                          # doctest: +SKIP
     >>> qk.evaluate.selective([0, 1, 0, 1], [0, 1, None, 0]).score   # doctest: +SKIP
     """
     truth = _as_labels(y_true, "y_true")
