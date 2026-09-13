@@ -297,9 +297,50 @@ And BLAS threading is irrelevant at these sizes for a reason worth writing down:
 10-qubit statevector is **16 KiB**. OpenBLAS will not thread that, so the cores were
 never reachable by threading in the first place.
 
-Probes are in the session scratchpad and worth re-running before acting:
-`probe_dispatch.py` (dispatch vs arithmetic) and `probe_fusion.py` (width, and the
-matvec floor).
+**Splitting one gate across threads was measured too, and it is worse than doing
+nothing below 16 qubits.** This is the standard HPC trick - a single-qubit gate
+partitions the amplitudes into independent pairs, so the update is embarrassingly
+parallel over the leading axis - and it is what Qiskit Aer ships. Speedup against one
+thread, 12 logical cores:
+
+| qubits | state | 2 threads | 4 | 8 |
+|---|---|---|---|---|
+| 8 | 0.004 MiB | 0.17x | 0.08x | **0.04x** |
+| 12 | 0.06 MiB | 0.22x | 0.08x | 0.07x |
+| 14 | 0.25 MiB | 0.35x | 0.17x | 0.08x |
+| 16 | 1 MiB | **1.93x** | 1.64x | 1.04x |
+| 20 | 16 MiB | 1.38x | 1.59x | 1.59x |
+| 22 | 64 MiB | 1.36x | 1.36x | 1.31x |
+
+Two things to take from it. **Below 16 qubits threading is 3-25x slower**, because
+handing out the work costs more than doing it: a thread-pool dispatch of 8 tasks costs
+**193 us** against a 6-qubit gate's 11 us, so scheduling is 17x the entire gate. And
+**above the crossover the speedup saturates near 1.4-1.6x on 12 cores**, not 12x,
+because the kernel is memory-bandwidth bound rather than compute bound - 8 threads is
+no better than 2 at 22 qubits. Even in the regime where it works, "use all the cores"
+does not arrive.
+
+Qiskit Aer agrees independently: `statevector_parallel_threshold` defaults to **14
+qubits**, and its documentation warns that setting it lower *reduces* performance. A
+vendor with every incentive to look fast turns this off below 14.
+
+So: for a library whose circuits are 4-12 qubits, amplitude-level threading is not a
+missing feature. Fusion cuts the call count, batching amortises it across samples, and
+process fan-out uses the other cores on *other circuits*. If 20+ qubit registers ever
+become a target, revisit this table and nothing above it.
+
+Probes are kept in `scripts/` and are worth re-running before acting rather than
+trusting the tables: `probe_dispatch.py` (dispatch vs arithmetic), `probe_fusion.py`
+(gate width, and the matvec floor), `probe_threads.py` (the table just above).
+
+**Prior art worth reading before building any of this.** `qTask` (arXiv 2210.01076)
+does exactly the block-partitioned task-parallel scheme, with a tunable block size,
+and reports 1.46x over Qulacs and 1.71x over Qiskit for full simulation - the same
+modest factor measured above, from a dedicated C++ implementation. Its larger result
+is 5.8-9.8x for *incremental* simulation, where few gates change and the unaffected
+partitions are reused. That has a direct analogue here worth considering separately
+from threading: parameter-shift evaluates `2P` circuits that each differ in **one**
+gate, so every one of them shares a prefix with the unshifted circuit.
 
 In priority order, revised by the measurement above:
 
