@@ -107,7 +107,19 @@ class _KernelEstimator(SklearnCompatible):
 
     @property
     def n_circuit_evaluations(self) -> int:
+        """Circuits this run actually evaluated."""
         return self.kernel.n_evaluations
+
+    @property
+    def circuits_on_hardware(self) -> int:
+        """What the same fit would have cost on a device.
+
+        On a simulator a Gram matrix costs one circuit per row, because the overlap
+        can be read off two statevectors. A device has no statevector and pays the
+        pairwise inversion test, so this is the number to budget a hardware run from
+        — see :meth:`~qmlkit.kernels.matrix.QuantumKernel._state_gram`.
+        """
+        return self.kernel.circuits_on_hardware
 
 
 class QSVC(_KernelEstimator):

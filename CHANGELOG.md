@@ -6,6 +6,95 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed - the batched NumPy kernel now goes through BLAS, and is 5x faster
+
+`_apply_batch` applied a gate to a stack of states with `np.einsum` on generated
+subscripts. **`np.einsum` without `optimize=` never calls BLAS** — it runs NumPy's own
+nested-loop C kernel — so the hottest loop in the library was leaving a batched `gemm`
+on the table. Reshaping to `(batch, 2**k, 2**(n-k))` and using `@` reaches it.
+
+Microseconds per gate, 32-row stack at 10 qubits:
+
+| gate | einsum | now |
+|---|---|---|
+| 1-qubit, wire 0 | 190.4 | **82.5** |
+| 1-qubit, wire 5 | 366.0 | **90.9** |
+| 2-qubit, wires 0,1 | 297.9 | **89.9** |
+| 2-qubit, wires 6,7 | 755.2 | **352.7** |
+
+The tell was that einsum's cost swung 2.5x with *where the gate sat*: a naive loop is
+at the mercy of the stride pattern and a gemm on a packed block is not. The benchmark
+that originally chose einsum tried only wires `(0, 1)` and so never saw it.
+
+An earlier note in that function said the reshape-and-copy route loses because it
+copies the stack twice per gate. The copy is real and the conclusion was wrong — BLAS
+repays it several times over. Dropping einsum also drops a 26-letter subscript
+alphabet that had silently capped the batched path at 23 qubits.
+
+End to end on `expectation_over` with 32 rows, against the faster of PennyLane's
+`default.qubit` and `lightning.qubit`:
+
+| qubits | before | after | vs PennyLane |
+|---|---|---|---|
+| 8 | 0.0116 s | 0.0038 s | 1.35x → **4.18x** |
+| 9 | 0.0228 s | 0.0062 s | 0.95x → **3.50x** |
+| 10 | 0.0548 s | 0.0110 s | 0.61x → **2.93x** |
+
+which removes the 9-to-12 qubit band where qmlkit was slower than PennyLane outright.
+
+`batch_max_qubits` moved 10 → 11 as a consequence: a 5x faster batched path pushes its
+crossover against the one-at-a-time loop up with it. 11 is the last width that wins at
+every batch size measured (8, 32, 128 rows); at 12 it is a win at 32 rows and a loss at
+8, so the boundary now *does* move with batch size, which the previous note said it did
+not.
+
+### Changed - a Gram matrix now costs one circuit per row, not one per pair
+
+A fidelity kernel's inversion test reads `P(0...0)` of `U(x')† U(x)|0⟩`, which *is*
+`|⟨ψ(x')|ψ(x)⟩|²`. A device has to build that composed circuit because it cannot hand
+back a state. A simulator can: evaluate each row once and let BLAS form every overlap.
+
+`QuantumKernel` did the quadratic thing — `m(m-1)/2` composed circuits, batched but
+still quadratic. It now evaluates `m` states and takes one matrix product, which is
+the difference between linear and quadratic in the size of the dataset:
+
+| qubits | rows | pairs | before | after | |
+|---|---|---|---|---|---|
+| 4 | 24 | 276 | 24.2 ms | 2.3 ms | 10.4x |
+| 4 | 64 | 2016 | 166.6 ms | 4.9 ms | 34.0x |
+| 6 | 64 | 2016 | 929.4 ms | 19.8 ms | 46.9x |
+| 8 | 64 | 2016 | 4911.3 ms | 81.0 ms | 60.6x |
+
+The cache moved with it, from per pair to per row, which is what makes prediction
+cheap: a test matrix against the training set used to evaluate every `(test, train)`
+pair and now re-encodes only the test rows.
+
+**This is a simulator-only shortcut and it changes what a circuit count means**, so
+the count was split rather than quietly redefined. `n_evaluations` still reports what
+actually ran; the new `circuits_on_hardware` — on `QuantumKernel` and on the `QSVC` /
+`QSVR` estimators — reports what the same Gram matrices would have cost on a device,
+which is the pairwise number. Budgeting a hardware run from the first would under-count
+it by `(m-1)/2`.
+
+Found by benchmarking against PennyLane and losing. Against the standard PennyLane
+kernel recipe (`IQPEmbedding` composed with its adjoint, broadcast) this is now 8.6x
+at 24 points and 40.9x at 128, agreeing to 1e-16. Against a PennyLane user who
+hand-rolls the same state-overlap trick it is 2.2x at 24 points and 0.86x at 128 —
+that is to say, the algorithm is the win and it is not proprietary. The difference is
+that it is what `QuantumKernel(fmap)(X)` already does.
+
+### Fixed - `recommend()` sent single circuits to Aer three qubits too early
+
+Aer's per-job cost is paid once per `run()`, so a batch amortises it across every row
+and one circuit pays all of it. `recommend()` applied the batched crossover to
+everything, and so recommended `aer` from 12 qubits even when told `batch=1`, where it
+is about 15% *slower*. Measured, ms for one expectation, numpy/aer: 3.78/4.49 at 12
+qubits, 8.05/9.46 at 14, 14.01/9.08 at 15, 21.13/10.84 at 16.
+
+`batch=1` now gets `AER_CROSSOVER_UNBATCHED = 14`; anything else keeps the measured
+batched boundary of 11. Not knowing the batch size is treated as the batched case, not
+as one circuit, because every training loop in this library evaluates batches.
+
 ### Fixed - a registered gate now reaches every backend that can take one
 
 `register_gate` is advertised as an extension point, and the documentation said a gate

@@ -156,6 +156,30 @@ def test_recommend_matches_the_backend_it_describes() -> None:
             assert rec.batching == (n <= backend.batch_max_qubits)
 
 
+@pytest.mark.skipif(not qk.is_available("aer"), reason="needs qiskit-aer")
+def test_recommend_keeps_unbatched_work_on_the_reference_for_longer() -> None:
+    """One circuit at a time does not amortise Aer's per-job cost.
+
+    Measured, ms for one expectation, numpy/aer: 3.78/4.49 at 12 qubits, 8.05/9.46 at
+    14, 14.01/9.08 at 15. So `batch=1` has to stay on NumPy exactly where a batch
+    should already have moved to Aer, and this asserts the gap rather than the
+    constants, so it still means something if both move.
+    """
+    from qmlkit.recommend import AER_CROSSOVER, AER_CROSSOVER_UNBATCHED
+
+    assert AER_CROSSOVER_UNBATCHED > AER_CROSSOVER
+    for n in range(AER_CROSSOVER + 1, AER_CROSSOVER_UNBATCHED + 1):
+        model = qk.hardware_efficient(n, 2)
+        assert qk.recommend(model, batch=1).backend == "numpy"
+        assert qk.recommend(model, batch=64).backend == "aer"
+    # above both boundaries the batch size stops mattering
+    above = qk.hardware_efficient(AER_CROSSOVER_UNBATCHED + 1, 2)
+    assert qk.recommend(above, batch=1).backend == "aer"
+    assert qk.recommend(above, batch=64).backend == "aer"
+    # not knowing is not the same as knowing there is one circuit
+    assert qk.recommend(above).backend == qk.recommend(above, batch=64).backend
+
+
 def test_recommend_always_names_something_runnable() -> None:
     """The NumPy reference is always installed, so there is always an answer."""
     rec = qk.recommend(qk.hardware_efficient(20, 2))

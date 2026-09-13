@@ -76,6 +76,41 @@ def test_statevector_batch_equals_the_loop(n_qubits):
     )
 
 
+@pytest.mark.parametrize(
+    "qubits",
+    [(0,), (4,), (2,), (0, 4), (4, 0), (3, 1), (0, 2, 4), (4, 2, 0), (3, 0, 2)],
+    ids=str,
+)
+def test_the_batched_kernel_survives_descending_and_non_adjacent_wires(qubits):
+    """The reindexing case a batched contraction gets silently wrong.
+
+    `_apply_batch` brings the target wires to the front, reshapes to `(batch, 2**k,
+    rest)` for a BLAS gemm, and moves them back. Ascending adjacent wires would pass
+    even with the map inverted; descending and non-adjacent ones are what pin it. The
+    reference is the single-state `_apply`, which contracts by `tensordot` and shares
+    no index arithmetic with the batched path.
+    """
+    from qmlkit.core.backends.numpy_backend import _apply, _apply_batch
+
+    n, k, batch = 5, len(qubits), 4
+    rng = np.random.default_rng(abs(hash(qubits)) % 2**32)
+    states = rng.random((batch,) + (2,) * n) + 1j * rng.random((batch,) + (2,) * n)
+    matrix = rng.random((2**k, 2**k)) + 1j * rng.random((2**k, 2**k))
+
+    # one shared matrix, broadcast across the stack
+    shared = _apply_batch(states, matrix, qubits)
+    expected = np.stack([_apply(s, matrix, qubits) for s in states])
+    np.testing.assert_allclose(shared, expected, atol=1e-14)
+
+    # and one matrix per sample, which is the branch every parameterised gate takes
+    each = rng.random((batch, 2**k, 2**k)) + 1j * rng.random((batch, 2**k, 2**k))
+    np.testing.assert_allclose(
+        _apply_batch(states, each, qubits),
+        np.stack([_apply(s, m, qubits) for s, m in zip(states, each, strict=True)]),
+        atol=1e-14,
+    )
+
+
 def test_the_wide_fallback_path_is_still_exact():
     """Above the crossover the loop runs instead, and must give the same answer."""
     backend = NumpyBackend()
@@ -321,24 +356,52 @@ def test_a_batched_gram_is_symmetric_with_a_unit_diagonal():
 
 
 def test_the_batched_path_still_uses_the_cache():
-    """Batching changes how misses are evaluated, not whether hits are reused."""
+    """Batching changes how misses are evaluated, not whether hits are reused.
+
+    Under the state-overlap path the cache is keyed per row rather than per pair, so
+    asking for the same data again is a complete hit — including the diagonal, which
+    the pair-keyed cache used to have to evaluate.
+    """
     rng = np.random.default_rng(3)
     X = rng.uniform(0, np.pi, (8, 2))
     kernel = qk.QuantumKernel(qk.AngleFeatureMap(2))
     kernel(X)
     before = kernel.n_evaluations
-    kernel(X, X)  # every off-diagonal pair already seen, in one order or the other
-    # the only new work is the diagonal, which the square path assumes to be 1
-    # rather than measuring it
-    assert kernel.n_evaluations - before == len(X)
+    kernel(X, X)  # the same rows, so every state is already in hand
+    assert kernel.n_evaluations - before == 0
 
 
-def test_the_batched_path_evaluates_only_the_upper_triangle():
+def test_the_gram_matrix_costs_one_circuit_per_row():
+    """The state-overlap path is linear in the dataset, not quadratic.
+
+    `|<0|U(x')^dag U(x)|0>|**2` is `|<psi(x')|psi(x)>|**2`, so a statevector backend
+    evaluates each row once and lets BLAS form every pair. What a *device* would pay
+    is still the upper triangle, and `circuits_on_hardware` is where that lives -
+    budget from that one, because hardware cannot take this shortcut.
+    """
     rng = np.random.default_rng(4)
     m = 7
     kernel = qk.QuantumKernel(qk.AngleFeatureMap(2))
     kernel(rng.uniform(0, np.pi, (m, 2)))
-    assert kernel.n_evaluations == m * (m - 1) // 2  # not m**2, and no diagonal
+    assert kernel.n_evaluations == m
+    assert kernel.circuits_on_hardware == m * (m - 1) // 2  # not m**2, and no diagonal
+
+
+def test_a_rectangular_gram_reuses_the_training_states():
+    """The reason the cache is keyed per row: predicting re-encodes nothing.
+
+    A test matrix against the training set is where the pair-keyed cache did worst -
+    it had to evaluate every (test, train) pair. Here the training states are already
+    held, so only the test rows cost anything.
+    """
+    rng = np.random.default_rng(5)
+    X, Xt = rng.uniform(0, np.pi, (10, 2)), rng.uniform(0, np.pi, (4, 2))
+    kernel = qk.QuantumKernel(qk.AngleFeatureMap(2))
+    kernel(X)
+    before = kernel.n_evaluations
+    kernel(Xt, X)
+    assert kernel.n_evaluations - before == len(Xt)
+    assert kernel.circuits_on_hardware == len(X) * (len(X) - 1) // 2 + len(Xt) * len(X)
 
 
 @pytest.mark.parametrize(

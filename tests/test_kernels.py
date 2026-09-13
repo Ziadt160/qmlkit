@@ -303,9 +303,15 @@ def test_qsvc_separates_a_dataset_built_to_be_quantum_separable():
 
 
 def test_qsvc_fills_only_the_upper_triangle():
+    """One circuit per training row here; the upper triangle on a device.
+
+    Both numbers matter and they are not the same number. A hardware budget taken
+    from the first would be short by a factor of (m-1)/2.
+    """
     X, y = _blobs(n=12)
     clf = QSVC(qk.AngleFeatureMap(2)).fit(X, y)
-    assert clf.n_circuit_evaluations == 12 * 11 // 2
+    assert clf.n_circuit_evaluations == 12
+    assert clf.circuits_on_hardware == 12 * 11 // 2
 
 
 def test_qsvr_fits_a_smooth_target():

@@ -38,10 +38,6 @@ def _apply(
     return np.moveaxis(state, list(range(k)), list(qubits))
 
 
-#: einsum subscripts. 'a' and 'b' are reserved for the batch and for spare output legs.
-_LETTERS = "cdefghijklmnopqrstuvwxyz"
-
-
 def _apply_batch(
     state: npt.NDArray[Any], matrices: npt.NDArray[Any], qubits: tuple[int, ...]
 ) -> npt.NDArray[Any]:
@@ -50,33 +46,47 @@ def _apply_batch(
     ``state`` is ``(batch,) + (2,)*n``, so axis 0 is the batch and qubit ``q`` lives on
     axis ``q+1``. ``matrices`` is either one ``(d, d)`` matrix used for every sample —
     a gate with literal angles — or ``(batch, d, d)`` when the angle varies across the
-    batch, which is the case for every encoding gate.
+    batch, which is the case for every encoding gate. Both shapes take the same route,
+    because ``@`` broadcasts the first against the batch.
 
-    The contraction is expressed directly in ``einsum`` subscripts rather than by
-    moving the qubit axes to the end and reshaping. Both are correct; the reshape
-    forces a copy of the whole stack twice per gate, and at 8 qubits that copying costs
-    more than the arithmetic (measured: 41 ms against 27 ms for the same work).
+    This used to be an ``einsum`` on generated subscripts, chosen because bringing the
+    qubit axes to the front and reshaping copies the stack twice per gate and that
+    copying measured more expensive than the arithmetic. The copy is real; the
+    conclusion was wrong, and it was wrong for a reason worth writing down.
+    ``np.einsum`` without ``optimize=`` runs NumPy's own C kernel, which **never calls
+    BLAS**. Reshaping to ``(batch, 2**k, 2**(n-k))`` turns the contraction into a
+    batched ``gemm``, and BLAS repays the copy several times over. Microseconds per
+    gate on a 32-row stack at 10 qubits:
+
+    | gate | einsum | this |
+    |---|---|---|
+    | 1-qubit, wire 0 | 190.4 | **82.5** |
+    | 1-qubit, wire 5 | 366.0 | **90.9** |
+    | 1-qubit, wire 9 | 282.2 | **70.3** |
+    | 2-qubit, wires 0,1 | 297.9 | **89.9** |
+    | 2-qubit, wires 6,7 | 755.2 | **352.7** |
+    | 2-qubit, wires 8,9 | 353.7 | **90.8** |
+
+    The einsum cost also swung by 2.5x with *where the gate sat*, which is the tell: a
+    naive nested loop is at the mercy of the stride pattern, and a gemm on a packed
+    block is not. The first benchmark that compared the two only tried wires ``(0, 1)``
+    and missed it.
+
+    Dropping einsum also drops a 26-letter subscript alphabet, which had capped the
+    batched path at 23 qubits independently of ``max_qubits``.
     """
     n = state.ndim - 1
-    if n > len(_LETTERS) - len(qubits):  # pragma: no cover - max_qubits bites first
-        raise ValueError(f"{n} qubits is more than the batched contraction can subscript")
-    state_subs = list(_LETTERS[:n])
-    out_subs = list(state_subs)
-    gate_subs = []
-    for i, q in enumerate(qubits):
-        fresh = _LETTERS[n + i]
-        gate_subs.append(fresh)
-        out_subs[q] = fresh
-    inputs = "".join(state_subs[q] for q in qubits)
-    legs = (2,) * (2 * len(qubits))
-
-    if matrices.ndim == 2:
-        spec = f"{''.join(gate_subs)}{inputs},b{''.join(state_subs)}->b{''.join(out_subs)}"
-        shared: npt.NDArray[Any] = np.einsum(spec, matrices.reshape(legs), state)
-        return shared
-    spec = f"b{''.join(gate_subs)}{inputs},b{''.join(state_subs)}->b{''.join(out_subs)}"
-    per_sample: npt.NDArray[Any] = np.einsum(spec, matrices.reshape((-1, *legs)), state)
-    return per_sample
+    k = len(qubits)
+    batch = state.shape[0]
+    axes = [q + 1 for q in qubits]
+    front = list(range(1, k + 1))
+    # moveaxis leaves the untouched axes in their original relative order and the
+    # inverse moveaxis at the end puts them back, which is what keeps this correct for
+    # descending and non-adjacent wires -- the case a reindexing bug survives silently.
+    stack = np.moveaxis(state, axes, front).reshape(batch, 2**k, -1)
+    product = (matrices.reshape(-1, 2**k, 2**k) @ stack).reshape((batch,) + (2,) * n)
+    out: npt.NDArray[Any] = np.moveaxis(product, front, axes)
+    return out
 
 
 def _rx_batch(a: npt.NDArray[Any]) -> npt.NDArray[Any]:
@@ -200,12 +210,23 @@ class NumpyBackend(Backend):
     #: Above this width, :meth:`statevector_batch` falls back to simulating one
     #: sample at a time. Batching trades per-sample Python overhead for worse memory
     #: locality, so it wins while the overhead dominates and loses once ``2**n`` does.
-    #: Measured on a hardware-efficient ansatz against the one-at-a-time loop:
-    #: 30x at 4 qubits, 11x at 6, 3.9x at 8, 1.3x at 10, and 0.7x at 11 — the
-    #: crossover sits between 10 and 11 and does not move with batch size, which is
-    #: what you would expect if it is set by ``2**n`` alone. Raise it if you measure
-    #: otherwise on your own hardware.
-    batch_max_qubits = 10
+    #:
+    #: This was 10, measured against the one-at-a-time loop when the batched kernel was
+    #: an ``einsum``. Routing that kernel through BLAS instead (see :func:`_apply_batch`)
+    #: made the batched path ~5x faster and moved the boundary with it. Re-measured on a
+    #: hardware-efficient ansatz, batched over loop:
+    #:
+    #:     qubits      9     10     11     12     13     14
+    #:     batch 8    5.1x   4.0x   3.1x   0.9x   0.8x   0.6x
+    #:     batch 32   8.8x   2.3x   1.8x   1.2x   0.9x   0.6x
+    #:     batch 128  5.3x   3.1x   1.9x   1.2x   0.8x   0.5x
+    #:
+    #: 11 is the last width that wins at *every* batch size. At 12 it depends on the
+    #: batch — a win at 32 rows and a loss at 8 — so the boundary does now move with
+    #: batch size, which the previous note said it did not. Taking the safe side of a
+    #: width that is only sometimes faster is the difference between a default and a
+    #: gamble; raise it if you measure otherwise on your own hardware.
+    batch_max_qubits = 11
 
     #: Below this width, fusing adjacent gates into one wider matrix *loses*. The
     #: block matrix is ``2**(2k)`` and the state is ``2**n``, so fusion only pays once

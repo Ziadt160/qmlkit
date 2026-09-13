@@ -1548,19 +1548,34 @@ K = kernel(X_train)
 
 print(f"shape {K.shape}  symmetric {np.allclose(K, K.T)}  unit diagonal {np.allclose(np.diag(K), 1)}")
 print(f"positive semi-definite: {qk.is_psd(K)}")
-print(f"circuits run: {kernel.n_evaluations}  (m(m-1)/2 = {len(X_train) * (len(X_train) - 1) // 2})")
+print(f"circuits run: {kernel.n_evaluations}  (one per row: m = {len(X_train)})")
+print(f"on a device that would be: {kernel.circuits_on_hardware}  (m(m-1)/2)")
 print(f"target alignment: {qk.target_alignment(K, y_train):+.4f}")
 ```
 
 ```text
 shape (28, 28)  symmetric True  unit diagonal True
 positive semi-definite: True
-circuits run: 378  (m(m-1)/2 = 378)
+circuits run: 28  (one per row: m = 28)
+on a device that would be: 378  (m(m-1)/2)
 target alignment: +0.3360
 ```
 
-`QuantumKernel` caches symmetrically, so `k(a,b)` and `k(b,a)` share one entry and a
-training Gram matrix costs exactly `m(m−1)/2` circuits — not `m²`.
+Those two numbers are both real and they are not the same number.
+
+The inversion test reads `P(0…0)` of `U(x′)† U(x)|0⟩`, which *is* `|⟨ψ(x′)|ψ(x)⟩|²`.
+A device has no choice but to build that composed circuit once per pair, because it
+cannot hand you a state. A simulator can hand you one — so `QuantumKernel` evaluates
+each row **once** and forms every overlap with a single matrix product. That is the
+difference between linear and quadratic in the size of your dataset, and it is why a
+1000-point Gram matrix is a thousand circuits here rather than half a million.
+
+`n_evaluations` is what actually ran. **`circuits_on_hardware` is the number to budget
+a real run from** — the shortcut above is simulator-only, and taking the first number
+to a device would under-count it by a factor of `(m−1)/2`.
+
+The row-keyed cache is the other half of this: predicting against the training set
+re-encodes only the test points, because the training states are already in hand.
 
 **Target alignment** measures how well the kernel's geometry matches the labels,
 before fitting anything. It is the cheapest signal you have about whether a feature

@@ -59,6 +59,19 @@ _BYTES_PER_AMPLITUDE = 16
 #: measuring the boundary rather than reasoning about it.
 AER_CROSSOVER = 11
 
+#: The same boundary for work that arrives **one circuit at a time**, which is a
+#: different number and was wrong here until it was measured. Aer's per-job cost is
+#: paid once per ``run()``, so a batch amortises it across every row and a lone
+#: circuit pays all of it. Measured, ms for one expectation, numpy/aer: 3.78/4.49 at
+#: 12 qubits, 5.50/6.19 at 13, 8.05/9.46 at 14, 14.01/9.08 at 15, 21.13/10.84 at 16,
+#: 69.53/17.63 at 18.
+#:
+#: So unbatched work should stay on the reference three qubits longer than batched
+#: work. Recommending ``aer`` at 12 for a single circuit — which this function did,
+#: because it applied the batched boundary to everything — made the run ~15% slower
+#: while telling the caller it would be faster.
+AER_CROSSOVER_UNBATCHED = 14
+
 #: Above this a statevector is measured in gigabytes and an MPS is the only thing
 #: left — 24 qubits is 256 MiB, 30 is 16 GiB, and Aer refuses 32 outright. Measured on
 #: a chain circuit, seconds for one expectation: 0.279/0.002 at 24 qubits, 4.97/0.002
@@ -146,7 +159,11 @@ def recommend(model: Any, *, shots: int | None = None, batch: int | None = None)
         :func:`~qmlkit.gradients.dispatch.choose_method`.
     batch
         How many parameter vectors will be evaluated together, if you know. Batching
-        is what decides the answer below ~10 qubits.
+        is what decides the answer below ~10 qubits, and ``batch=1`` also moves the
+        Aer boundary up by three qubits — Aer's per-job cost is paid once per
+        ``run()``, so a batch amortises it and a single circuit does not. Saying
+        ``batch=1`` is worth doing when it is true: it is the difference between
+        ``'numpy'`` and a recommendation that is ~15% slower at 12 to 14 qubits.
 
     Returns
     -------
@@ -164,6 +181,11 @@ def recommend(model: Any, *, shots: int | None = None, batch: int | None = None)
 
     aer_here = is_available("aer")
     batching = n <= reference.batch_max_qubits and (batch is None or batch > 1)
+    # Where Aer starts winning depends on whether its per-job cost gets amortised, so
+    # a caller who says batch=1 gets the boundary that was measured for batch=1.
+    # `batch is None` keeps the batched number: not knowing is not the same as knowing
+    # there is one circuit, and every training loop in this library evaluates batches.
+    aer_crossover = AER_CROSSOVER_UNBATCHED if batch == 1 else AER_CROSSOVER
     alternatives: list[tuple[str, str]] = []
     notes: list[str] = []
 
@@ -200,9 +222,11 @@ def recommend(model: Any, *, shots: int | None = None, batch: int | None = None)
             notes=tuple(notes),
         )
 
-    if n > AER_CROSSOVER and aer_here:
+    if n > aer_crossover and aer_here:
         backend = "aer"
-        reason = f"AerSimulator, C++ - the NumPy reference loses above ~{AER_CROSSOVER} qubits"
+        reason = f"AerSimulator, C++ - the NumPy reference loses above ~{aer_crossover} qubits"
+        if batch == 1:
+            reason += " one circuit at a time"
         fusion = False  # Aer does its own; qmlkit's pass is for the NumPy path
         alternatives.append(
             (
@@ -216,7 +240,7 @@ def recommend(model: Any, *, shots: int | None = None, batch: int | None = None)
     else:
         backend = "numpy"
         fusion = n >= reference.fuse_min_qubits
-        if n > AER_CROSSOVER:
+        if n > aer_crossover:
             reason = "the reference - and the only one installed that is worth using here"
             notes.append(
                 "pip install 'qmlkit[aer]' - measured 4.5x faster than this at 16 qubits "
@@ -229,8 +253,13 @@ def recommend(model: Any, *, shots: int | None = None, batch: int | None = None)
                 "exact, always present, and the reference every other backend is tested against"
             )
         if aer_here:
+            unbatched = " one circuit at a time" if batch == 1 else ""
             alternatives.append(
-                ("aer", f"C++, but its per-call cost dominates below ~{AER_CROSSOVER} qubits")
+                (
+                    "aer",
+                    f"C++, but its per-call cost dominates below ~{aer_crossover} qubits"
+                    f"{unbatched}",
+                )
             )
         if is_available("qiskit"):
             alternatives.append(("qiskit", "Qiskit's pure-Python reference; slower than both"))
