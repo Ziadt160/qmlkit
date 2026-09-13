@@ -324,6 +324,22 @@ Qiskit Aer agrees independently: `statevector_parallel_threshold` defaults to **
 qubits**, and its documentation warns that setting it lower *reduces* performance. A
 vendor with every incentive to look fast turns this off below 14.
 
+**The crossover is a cache boundary, and that is the whole explanation.** On the
+machine these were measured on (Ryzen 5 3600: 32 KiB L1d per core, 512 KiB L2 per
+core, 32 MiB L3) a statevector of `2^n x 16` bytes lands like this:
+
+| qubits | state | lives in | threading |
+|---|---|---|---|
+| <= 11 | <= 32 KiB | **L1** | pure loss |
+| 12-15 | 64 KiB - 512 KiB | L2 | still a loss |
+| 16-19 | 1 - 8 MiB | L3 | **starts to pay** |
+| >= 20 | >= 16 MiB | RAM | pays, then saturates on bandwidth |
+
+Threading only helps once the state stops fitting in a core's private cache, because
+until then there is no memory traffic to overlap. qmlkit's circuits are 4-12 qubits,
+which is **L1-resident**: the data is already as close to the ALU as it can get, and
+every technique that exists to improve data locality has nothing left to improve.
+
 So: for a library whose circuits are 4-12 qubits, amplitude-level threading is not a
 missing feature. Fusion cuts the call count, batching amortises it across samples, and
 process fan-out uses the other cores on *other circuits*. If 20+ qubit registers ever
