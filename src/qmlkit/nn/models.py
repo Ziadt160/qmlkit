@@ -28,6 +28,8 @@ from qmlkit.core.observables import Observable, Z
 from qmlkit.encoding.feature_maps import AngleFeatureMap, FeatureMap
 from qmlkit.encoding.scaling import AngleScaler
 from qmlkit.nn.layer import QuantumLayer, _is_combined
+from qmlkit.progress import current as progress_current
+from qmlkit.progress import log as progress_log
 from qmlkit.progress import task as progress_task
 
 __all__ = ["HybridModel", "VQC", "VQRegressor"]
@@ -138,15 +140,35 @@ class HybridModel(nn.Module):
             for epoch in range(epochs):
                 perm = torch.randperm(n)
                 total = 0.0
+                # the extra norms cost a pass over the parameters, so they are only
+                # computed when something is actually going to show them
+                watching = progress_current() is not None
+                grad_sq = 0.0
                 for start in range(0, n, bs):
                     idx = perm[start : start + bs]
                     opt.zero_grad()
                     loss = loss_fn(self(xt[idx]), yt[idx])
                     loss.backward()
+                    if watching:
+                        grad_sq += sum(
+                            float(p.grad.pow(2).sum())
+                            for p in self.parameters()
+                            if p.grad is not None
+                        )
                     opt.step()
                     total += float(loss.detach()) * len(idx)
                     tracked.advance()
                 self.history_.append(total / n)
+                if watching:
+                    # loss says whether it is learning; the gradient norm says whether
+                    # it *can* -- a plateau and a solved problem look identical in loss
+                    progress_log("loss", self.history_[-1], epoch)
+                    progress_log("gradient norm", (grad_sq / batches_per_epoch) ** 0.5, epoch)
+                    progress_log(
+                        "parameter norm",
+                        float(torch.cat([p.detach().flatten() for p in self.parameters()]).norm()),
+                        epoch,
+                    )
                 if verbose:
                     print(f"epoch {epoch + 1:3d}/{epochs}  loss {self.history_[-1]:.5f}")
         return self

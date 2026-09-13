@@ -57,6 +57,40 @@ stand-in when nothing is watching, so no loop needs to branch on it.
 Nothing is printed unless `qk.progress()` is entered, and the live line goes to
 stderr so piping a script's stdout to a file does not collect redraws.
 
+### Added - the run writes itself up
+
+A run produces a number, and a month later the number is all that is left. A run now
+also records its *trajectory* — `run.log(name, value, step)` — and can write the whole
+thing out as one HTML file:
+
+```python
+with qk.progress() as run:
+    run.note(dataset="breast-cancer", seed=0)
+    model.fit(X, y)
+
+run.save_html("run.html")
+```
+
+`HybridModel.fit` logs three series per epoch, so `VQC` and `VQRegressor` get this
+without asking: **loss**, **gradient norm** and **parameter norm**. The second is
+there because loss alone cannot tell a solved problem from a plateau, and the third
+because weights running away looks like nothing at all in a loss curve. Computing
+them costs a pass over the parameters, so it happens only when something is watching.
+
+The page is deliberately a *file*, not a server. A dashboard you have to start,
+connect to and keep alive is a dependency, a port and a process; a page you can open,
+email, and drop next to the result in a directory is none of those and outlives all
+of them. The charts are inline SVG for the same reason: nothing to fetch, nothing to
+pin, nothing to break in two years. Tests assert it — no `<script>`, no `src=`, no
+`http`, and every label and metadata value escaped, because a report is exactly the
+kind of artefact that gets passed around.
+
+Both chart edge cases are handled and tested because both are real runs: a single
+point has no range to scale against, and a flat series has zero range — which is the
+loss curve of a model that never learned, the run you most want to look at. That one
+is labelled `flat — never moved` rather than drawn as a misleading straight line at
+an arbitrary height.
+
 ### Added - `diagnose` can now be asked whether the quantum layer earned its place
 
 `qk.diagnose(model, X, y)` takes a *trained* model and the data it was trained on,

@@ -37,7 +37,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import IO, Any, TypeVar
 
-__all__ = ["Progress", "Task", "TaskRecord", "current", "progress", "track"]
+__all__ = ["Progress", "Task", "TaskRecord", "current", "log", "note", "progress", "track"]
 
 T = TypeVar("T")
 
@@ -139,7 +139,10 @@ class Progress:
 
     def __init__(self, stream: IO[str] | None = None, live: bool = True) -> None:
         self.records: list[TaskRecord] = []
+        self.series: dict[str, list[tuple[int, float]]] = {}
+        self.meta: dict[str, Any] = {}
         self.started = time.perf_counter()
+        self.started_at = time.time()
         self._stack: list[Task] = []
         self._stream = stream if stream is not None else sys.stderr
         self._live = live
@@ -153,6 +156,21 @@ class Progress:
         self._stack.append(task)
         self._draw(force=True)
         return task
+
+    def log(self, name: str, value: float, step: int | None = None) -> None:
+        """Record one point of a named scalar series.
+
+        The trajectory, not just the timings: a loss that fell and then stopped, a
+        gradient norm that went to zero, a parameter norm that ran away. These are
+        what the report plots, and what makes a finished run answerable afterwards
+        rather than only observable while it happens.
+        """
+        points = self.series.setdefault(name, [])
+        points.append((len(points) if step is None else step, float(value)))
+
+    def note(self, **facts: Any) -> None:
+        """Attach run-level facts - shapes, seeds, configuration - to the record."""
+        self.meta.update(facts)
 
     # -- rendering ------------------------------------------------------------ #
     def _maybe_draw(self) -> None:
@@ -229,6 +247,23 @@ class Progress:
             )
         return "\n".join(lines)
 
+    def html(self, title: str = "qmlkit run") -> str:
+        """The whole run as one self-contained HTML page.
+
+        No dependencies, no server, no asset directory - the charts are inline SVG
+        drawn from the recorded series. A file you can open, keep beside the result,
+        or attach to whatever you are writing up.
+        """
+        from qmlkit.report import render
+
+        return render(self, title=title)
+
+    def save_html(self, path: str, title: str = "qmlkit run") -> str:
+        """Write :meth:`html` to ``path`` and return the path."""
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(self.html(title=title))
+        return path
+
     def __str__(self) -> str:
         return self.report()
 
@@ -294,6 +329,24 @@ def task(label: str, total: int | None = None) -> Iterator[Any]:
         return
     with reporter.task(label, total) as live:
         yield live
+
+
+def log(name: str, value: float, step: int | None = None) -> None:
+    """Record a scalar into the active run, or do nothing if none is active.
+
+    The counterpart to :func:`task` for library code: one comparison when nobody is
+    watching, so a training loop can log unconditionally.
+    """
+    reporter = _CURRENT
+    if reporter is not None:
+        reporter.log(name, value, step)
+
+
+def note(**facts: Any) -> None:
+    """Attach run-level facts to the active run, or do nothing if none is active."""
+    reporter = _CURRENT
+    if reporter is not None:
+        reporter.note(**facts)
 
 
 class _Silent:
