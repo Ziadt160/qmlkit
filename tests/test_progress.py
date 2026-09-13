@@ -218,3 +218,21 @@ def test_a_vectorised_backend_reports_nothing() -> None:
         qk.get_backend("numpy").statevector_batch_slots(spec, rows)
 
     assert run.records == []
+
+
+def test_a_large_untracked_row_explains_itself() -> None:
+    """An unexplained number invites someone to chase it.
+
+    On a first run the untracked time is usually an optional SDK being imported
+    lazily - `import sklearn.svm` alone is ~1.8s - rather than work the run did. The
+    same run warm accounts for 98% of its own time, so the row says where to look
+    instead of leaving a large silent gap.
+    """
+    with qk.progress(live=False) as run:
+        with run.task("work", 1) as tracked:
+            tracked.advance()
+        time.sleep(0.3)  # stand-in for an import happening outside any task
+
+    text = run.report()
+    assert "(untracked)" in text
+    assert "one-time imports" in text

@@ -40,6 +40,17 @@ backend differentiates *through* each gate, which a NumPy `matrix=` cannot suppo
 Both now say so, and name the alternative, instead of telling the caller to edit a
 table.
 
+### Changed - a large untracked row now says where to look
+
+`run.report()` showed 2.5s untracked on a `QSVC` fit, which looked like a gap worth
+instrumenting. It was not: `import sklearn.svm` alone is ~1.8s, and the *same run*
+warm accounts for **98%** of its own time. Putting a progress bar on an import would
+have been a bar that describes nothing.
+
+So the row explains itself instead of growing an instrument — on a first run it is
+mostly one-time lazy imports, and re-running shows it. The cheapest fix for a
+confusing number is sometimes a sentence rather than a feature.
+
 ### Added - `backend="aer"`, and the library now works above 13 qubits
 
 Qiskit ships two statevector simulators and this library was reaching the slower one.

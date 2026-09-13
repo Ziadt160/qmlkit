@@ -129,8 +129,13 @@ def _timing_table(run: Progress) -> str:
     untracked = run.elapsed - tracked
     if untracked > 0.05 * run.elapsed and untracked > 0.1:
         share = untracked / longest * 100
+        # On a first run this is usually an optional SDK imported lazily rather than
+        # work the run did — `import sklearn.svm` alone is ~1.8s — so the row says so
+        # instead of leaving a large unexplained number on the page.
         rows.append(
-            "<tr class='untracked'><th scope='row'>(untracked)</th><td class='num'>-</td>"
+            "<tr class='untracked'><th scope='row'>(untracked)<br>"
+            "<span class='hint'>setup and imports, not work the run did</span></th>"
+            "<td class='num'>-</td>"
             f"<td class='num'>{untracked:.2f}s</td><td class='num'>-</td>"
             f"<td class='bar'><span style='width:{share:.1f}%'></span></td></tr>"
         )
@@ -193,6 +198,7 @@ th[scope=row]{font-weight:500}
 .bar{width:28%}
 .bar span{display:block;height:7px;border-radius:4px;background:var(--ink);min-width:2px}
 .untracked th,.untracked td{color:var(--dim);font-style:italic}
+.hint{font-style:normal;font-size:11px;font-weight:400;opacity:.8}
 .untracked .bar span{background:var(--line)}
 .chart{width:100%;height:auto;display:block}
 .axis{stroke:var(--line);stroke-width:1}

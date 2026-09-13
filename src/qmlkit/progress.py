@@ -245,6 +245,14 @@ class Progress:
                 f"  {'(untracked)':<24}{'':>10}      {untracked:>8.1f}s"
                 "   - setup, data handling, and anything outside a task"
             )
+            # On a first run this row is usually an optional SDK being imported
+            # lazily, which is not work the run did and not worth chasing. Measured:
+            # `import sklearn.svm` alone is ~1.8s, and the same run warm accounts for
+            # 98% of its own time.
+            lines.append(
+                f"  {'':<24}{'':>10}              "
+                "  on a first run this is mostly one-time imports; re-run to see"
+            )
         return "\n".join(lines)
 
     def html(self, title: str = "qmlkit run") -> str:
