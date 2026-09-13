@@ -14,17 +14,18 @@ Three crossovers decide it, and all three were measured rather than reasoned abo
   qubits — the ``2**(2k)`` block is comparable to the ``2**n`` state, and 84% of the
   runtime goes on building blocks — and is worth 5.6x by 18.
 * **Aer** is a C++ simulator whose per-call cost is Python. It loses to the fused
-  NumPy reference up to about 15 qubits, then wins by 3.3x at 16 and 11.4x at 20.
+  NumPy reference up to about 11 qubits, then wins by 4.5x at 16 and 11.8x at 20 -
+  once it is told how many circuits to run at once, which by default it is not.
 
 The three are not independent, and that is the point: they are all the same fact seen
-from different sides. Below ~15 qubits this library is bound by *per-call overhead*,
+from different sides. Below ~11 qubits this library is bound by *per-call overhead*,
 and the answer is always to make fewer, fatter calls — batch them, or fuse them. Above
 it the cost is arithmetic on an array too big for cache, and C++ wins.
 
     >>> import qmlkit as qk
     >>> print(qk.recommend(qk.hardware_efficient(18, 3)))     # doctest: +SKIP
     18 qubits, 159 gates - 4.0 MiB per statevector
-      use  backend='aer'          AerSimulator, C++ - the NumPy reference loses above ~15 qubits
+      use  backend='aer'          AerSimulator, C++ - the NumPy reference loses above ~11 qubits
       optimisations:              gate fusion off, batching off
       ...
 
@@ -46,12 +47,16 @@ __all__ = ["Recommendation", "recommend"]
 #: float64 and so does any honest claim that parameter-shift is *exact*.
 _BYTES_PER_AMPLITUDE = 16
 
-#: The width above which Aer's C++ kernel beats the NumPy reference *with fusion on*.
-#: Measured on a Gram matrix over a ZZFeatureMap, numpy/aer: 1.00/1.27 s at 14 qubits,
-#: 2.00/0.61 at 16, 3.89/0.69 at 18, 10.50/0.92 at 20. Fusion moved this boundary up
-#: from 13 - which is the useful part, because it buys a NumPy-only install two more
-#: qubits before an extra is worth installing.
-AER_CROSSOVER = 15
+#: The width above which Aer's C++ kernel beats the fused NumPy reference. Measured on
+#: a Gram matrix over a ZZFeatureMap, numpy/aer seconds: 0.59/0.70 at 10 qubits,
+#: 0.86/0.88 at 11, 0.93/0.69 at 12, 0.99/0.53 at 14, 2.00/0.44 at 16, 10.56/0.89 at 20.
+#:
+#: This number moved twice in one afternoon and the moves are the interesting part.
+#: Fusion pushed it *up* from 13 to 15 by making the reference faster; giving Aer a
+#: memory-aware `max_parallel_experiments` pushed it back *down* to 11 by making Aer
+#: faster still. Neither was predictable from the outside, which is the argument for
+#: measuring the boundary rather than reasoning about it.
+AER_CROSSOVER = 11
 
 #: Where a statevector stops fitting a core's private cache and the run becomes
 #: memory-bound. Below this, threading a single circuit is *slower* — measured 0.04x
@@ -161,7 +166,7 @@ def recommend(model: Any, *, shots: int | None = None, batch: int | None = None)
         alternatives.append(
             (
                 "numpy",
-                f"fused, but still a Python loop at {n} qubits: 3.3x slower at 16, 11.4x at 20",
+                f"fused, but still a Python loop at {n} qubits: 4.5x slower at 16, 11.8x at 20",
             )
         )
         alternatives.append(
@@ -173,8 +178,8 @@ def recommend(model: Any, *, shots: int | None = None, batch: int | None = None)
         if n > AER_CROSSOVER:
             reason = "the reference - and the only one installed that is worth using here"
             notes.append(
-                "pip install 'qmlkit[aer]' - measured 3.3x faster than this at 16 qubits "
-                "and 11.4x at 20, and the gap widens"
+                "pip install 'qmlkit[aer]' - measured 4.5x faster than this at 16 qubits "
+                "and 11.8x at 20, and the gap widens"
             )
         elif batching:
             reason = f"vectorised across the batch; measured up to 30x at {n} qubits"
