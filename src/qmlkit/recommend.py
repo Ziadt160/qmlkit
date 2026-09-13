@@ -58,6 +58,13 @@ _BYTES_PER_AMPLITUDE = 16
 #: measuring the boundary rather than reasoning about it.
 AER_CROSSOVER = 11
 
+#: Above this a statevector is measured in gigabytes and an MPS is the only thing
+#: left — 24 qubits is 256 MiB, 30 is 16 GiB, and Aer refuses 32 outright. Measured on
+#: a chain circuit, seconds for one expectation: 0.279/0.002 at 24 qubits, 4.97/0.002
+#: at 28, and at 32 the statevector simulator fails while MPS is unchanged. The catch
+#: is that this holds only while the circuit stays lightly entangled.
+MPS_CROSSOVER = 22
+
 #: Where a statevector stops fitting a core's private cache and the run becomes
 #: memory-bound. Below this, threading a single circuit is *slower* — measured 0.04x
 #: on 8 threads at 8 qubits, because handing out the work costs 17x the gate.
@@ -158,6 +165,39 @@ def recommend(model: Any, *, shots: int | None = None, batch: int | None = None)
     batching = n <= reference.batch_max_qubits and (batch is None or batch > 1)
     alternatives: list[tuple[str, str]] = []
     notes: list[str] = []
+
+    # An MPS has no 2**n array at all, so it is the only thing that reaches widths a
+    # statevector cannot — but only while the circuit stays lightly entangled, and it
+    # cannot answer a statevector question at any price.
+    entangling = sum(1 for op in spec.ops if len(op.qubits) > 1)
+    if n > MPS_CROSSOVER and aer_here:
+        backend = "mps"
+        reason = "no 2**n array at all - the only thing that reaches this width"
+        fusion = False
+        alternatives.append(
+            ("aer", f"needs {size / 1024**3:.1f} GiB for one statevector at {n} qubits")
+        )
+        notes.append(
+            "MPS is exact only while the bond dimension holds. It is at its best on "
+            "shallow or chain-structured circuits and at its worst on a full entangler "
+            f"ring - this one has {entangling} multi-qubit gates. Check what a run "
+            "actually needed with get_backend('mps').bond_dimension(spec)."
+        )
+        notes.append(
+            "it has no statevector, so adjoint and backprop refuse; parameter-shift "
+            "works, because a shift rule never inspects a state"
+        )
+        return Recommendation(
+            n_qubits=n,
+            n_gates=len(spec.ops),
+            statevector_bytes=size,
+            backend=backend,
+            reason=reason,
+            fusion=fusion,
+            batching=False,
+            alternatives=tuple(alternatives),
+            notes=tuple(notes),
+        )
 
     if n > AER_CROSSOVER and aer_here:
         backend = "aer"

@@ -18,7 +18,7 @@ import pytest
 
 import qmlkit as qk
 from qmlkit.core.backends.numpy_backend import NumpyBackend
-from qmlkit.core.ir import CircuitSpec, Op
+from qmlkit.core.ir import CircuitSpec, Op, ParamRef
 
 #: Gates drawn from at random. A snapshot, not the live registry - other test modules
 #: register throwaway gates at run time, which is how a fuzzer comes to pass alone and
@@ -167,3 +167,58 @@ def test_recommend_always_names_something_runnable() -> None:
 def test_recommend_refuses_what_it_cannot_read() -> None:
     with pytest.raises(TypeError, match="recommend"):
         qk.recommend("not a circuit")
+
+
+# --------------------------------------------------------------------------- #
+# the MPS backend: width, at the price of entanglement
+# --------------------------------------------------------------------------- #
+@pytest.mark.aer
+def test_mps_expectation_matches_the_reference() -> None:
+    """It computes <O> inside the tensor network, so the translation must be right.
+
+    This is the one place in the library that hands an observable to an SDK -
+    everywhere else expectation is derived once in the base class. So it is the one
+    place where a Pauli-label or endianness mistake could not be caught by the shared
+    machinery, and has to be asserted directly.
+    """
+    pytest.importorskip("qiskit_aer")
+    rng = np.random.default_rng(0)
+    for n in (4, 6, 8):
+        ops = [Op("ry", (q,), (float(rng.uniform(-np.pi, np.pi)),)) for q in range(n)]
+        ops += [Op("cx", (q, q + 1)) for q in range(n - 1)]
+        spec = CircuitSpec(n, ops=tuple(ops))
+        obs = 0.7 * qk.Z(0) + 1.3 * qk.ZZ(0, n - 1) - 0.4 * qk.X(1) + 0.2 * qk.Y(0) * qk.Y(n - 1)
+        assert qk.expectation(spec, obs, backend="mps") == pytest.approx(
+            qk.expectation(spec, obs, backend="numpy"), abs=1e-9
+        )
+
+
+@pytest.mark.aer
+def test_mps_refuses_a_statevector_and_the_gradients_that_need_one() -> None:
+    """Refusing is the feature: contracting the network throws away the whole point."""
+    pytest.importorskip("qiskit_aer")
+    spec = CircuitSpec(3, ops=(Op("h", (0,)), Op("cx", (0, 1))))
+    with pytest.raises(NotImplementedError, match="no statevector"):
+        qk.statevector(spec, backend="mps")
+
+    free = CircuitSpec(3, ops=(Op("ry", (0,), (ParamRef(0),)), Op("cx", (0, 1))), n_params=1)
+    for method in ("adjoint", "backprop"):
+        with pytest.raises(Exception, match="statevector"):
+            qk.grad(free, [0.4], qk.Z(0), method=method, backend="mps")
+    # ...but a shift rule never inspects a state, so it works
+    assert np.isfinite(qk.grad(free, [0.4], qk.Z(0), method="parameter-shift", backend="mps")).all()
+
+
+@pytest.mark.aer
+def test_capping_the_bond_dimension_warns_that_it_is_now_approximate() -> None:
+    """A cap turns an exact simulator into a silently approximate one.
+
+    Measured: a 12-qubit hardware-efficient ansatz capped at bond 4 reports
+    1.4512716722 where the exact answer is 1.4154454301, with nothing raised. The
+    library's whole thesis is that a number like that must announce itself.
+    """
+    pytest.importorskip("qiskit_aer")
+    from qmlkit.core.backends.mps_backend import MPSBackend
+
+    with pytest.warns(RuntimeWarning, match="APPROXIMATE"):
+        MPSBackend(max_bond_dimension=4)

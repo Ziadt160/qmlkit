@@ -78,6 +78,10 @@ register_backend("qiskit-aer", _lazy("qiskit_aer_backend", "QiskitAerBackend"), 
 # silently upgrading ``qiskit``, because which simulator produced a number belongs in
 # the code that produced it.
 register_backend("aer", _lazy("aer_backend", "AerBackend"), "qiskit_aer", "aer")
+# Aer's matrix-product-state method: no statevector at all, but widths a statevector
+# cannot reach when the circuit does not entangle much. Exact while the bond dimension
+# holds, approximate past it - which is why it reports one.
+register_backend("mps", _lazy("mps_backend", "MPSBackend"), "qiskit_aer", "aer")
 
 #: The backends that accept a ``noise`` argument. Noise never selects a simulator for
 #: you: a mixed-state run costs more, refuses the state-based gradients, and answers a
