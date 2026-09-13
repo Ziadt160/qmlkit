@@ -207,9 +207,29 @@ class NumpyBackend(Backend):
     #: otherwise on your own hardware.
     batch_max_qubits = 10
 
+    #: Below this width, fusing adjacent gates into one wider matrix *loses*. The
+    #: block matrix is ``2**(2k)`` and the state is ``2**n``, so fusion only pays once
+    #: the state dominates: at 6 qubits a ``k=4`` block is 256 complex numbers against
+    #: a 64-element state, and **84% of the fused runtime is building blocks**.
+    #: Measured against the unfused loop on a hardware-efficient ansatz: 0.68x at 6
+    #: qubits, 0.91x at 12, 1.77x at 15, 3.28x at 18, 4.07x at 20.
+    fuse_min_qubits = 14
+
+    #: Widest block fusion will build. Also grows with ``n`` — see :meth:`_fuse_width`.
+    fuse_max_width = 6
+
     def __init__(self, seed: int | None = None, max_qubits: int = 24) -> None:
         super().__init__(seed)
         self.max_qubits = max_qubits
+
+    def _fuse_width(self, n_qubits: int) -> int:
+        """How wide a fused block to build on ``n`` qubits.
+
+        The best width grows with the register, because what fusion trades is a
+        ``2**(2k)`` build against ``2**n`` applies. Measured optimum: ``k=3`` at 12
+        qubits, 5 at 15, 6 at 18 and 20 — close enough to ``n // 3`` to use it.
+        """
+        return max(2, min(self.fuse_max_width, n_qubits // 3))
 
     def statevector(self, spec: CircuitSpec) -> npt.NDArray[Any]:
         self._check_bound(spec)
@@ -220,9 +240,56 @@ class NumpyBackend(Backend):
             )
         state = np.zeros((2,) * spec.n_qubits, dtype=complex)
         state[(0,) * spec.n_qubits] = 1.0
+        if spec.n_qubits >= self.fuse_min_qubits:
+            for wires, matrix in self._fused(spec):
+                state = _apply(state, matrix, wires)
+            return state.reshape(-1)
         for op in spec.ops:
             state = _apply(state, self._matrix(op), op.qubits)
         return state.reshape(-1)
+
+    def _fused(self, spec: CircuitSpec) -> list[tuple[tuple[int, ...], npt.NDArray[Any]]]:
+        """Consecutive gates merged into blocks of at most :meth:`_fuse_width` qubits.
+
+        Greedy and order-preserving, which is what makes it obviously correct: a gate
+        joins the current block whenever the union of their wires still fits, and
+        otherwise starts a new one. No reordering, so no commutation argument is
+        needed — and a fusion bug would be a *silent wrong number*, which is the one
+        class of defect this library cannot ship.
+
+        Each block is composed by applying its gates to the output legs of an
+        identity, using the same contraction the state path uses. A convention error
+        here would have to be a convention error there too.
+        """
+        width = self._fuse_width(spec.n_qubits)
+        out: list[tuple[tuple[int, ...], npt.NDArray[Any]]] = []
+        current: list[Op] = []
+        wires: set[int] = set()
+
+        def flush() -> None:
+            if not current:
+                return
+            order = tuple(sorted(wires))
+            if len(current) == 1:
+                out.append((current[0].qubits, self._matrix(current[0])))
+            else:
+                k = len(order)
+                index = {q: i for i, q in enumerate(order)}
+                block = np.eye(2**k, dtype=complex).reshape((2,) * (2 * k))
+                for held in current:
+                    block = _apply(block, self._matrix(held), tuple(index[q] for q in held.qubits))
+                out.append((order, block.reshape(2**k, 2**k)))
+
+        for op in spec.ops:
+            candidate = wires | set(op.qubits)
+            if current and len(candidate) > width:
+                flush()
+                current, wires = [op], set(op.qubits)
+            else:
+                current.append(op)
+                wires = candidate
+        flush()
+        return out
 
     def statevector_batch_slots(
         self, spec: CircuitSpec, slot_angles: npt.NDArray[Any]

@@ -40,6 +40,58 @@ backend differentiates *through* each gate, which a NumPy `matrix=` cannot suppo
 Both now say so, and name the alternative, instead of telling the caller to edit a
 table.
 
+### Added - gate fusion above 14 qubits, and `qk.recommend()` to choose for you
+
+Gate fusion was built, measured and **ranked out** earlier: it is 0.68x at 6 qubits,
+because a `2**(2k)` block matrix is comparable to a `2**n` state and 84% of the runtime
+goes on building blocks. That conclusion was right for the widths this library ran at
+and wrong for the widths it now reaches:
+
+| qubits | fused | unfused | |
+|---|---|---|---|
+| 12 | 3.3 ms | 3.3 ms | 1.00x — off by design |
+| 14 | 7.5 ms | 9.5 ms | 1.28x |
+| 15 | 15.1 ms | 41.9 ms | **2.77x** |
+| 18 | 68.6 ms | 383.2 ms | **5.59x** |
+| 20 | 294 ms | 1,598 ms | 5.43x |
+
+It is on automatically above `NumpyBackend.fuse_min_qubits` (14), and the block width
+grows with the register — measured optimum `k=3` at 12 qubits, 5 at 15, 6 at 18, close
+enough to `n // 3` to use it. The pass is greedy and order-preserving, so no
+commutation argument is needed, and `tests/test_fusion.py` compares it against the
+unfused path over randomised circuits at 14, 15 and 16 qubits, plus a registered custom
+gate. A fusion bug is a *silent wrong number*: the circuit still runs, the state is
+still normalised, and the answer is wrong.
+
+**This moved the Aer crossover**, which is the useful part. With fusion on, the NumPy
+reference now *beats* Aer at 14 qubits and the boundary sits at ~15 rather than 13 —
+two more qubits before an optional dependency is worth installing.
+
+### Added - `qk.recommend()`
+
+`qk.plan` says what a run will cost. `qk.recommend` says what to run it on, which is a
+different question with an order-of-magnitude answer:
+
+```text
+18 qubits, 159 gates - 4.0 MiB per statevector
+  use  backend='aer'            AerSimulator, C++ - the NumPy reference loses above ~15 qubits
+  optimisations:                gate fusion off, batching off
+
+  considered and not chosen:
+    numpy          fused, but still a Python loop at 18 qubits: 3.3x slower at 16, 11.4x at 20
+    qiskit         quantum_info.Statevector is Qiskit's reference, not its fast path
+
+  note: at 18 qubits the state is 4 MiB and no longer cache-resident, so this is
+        memory-bound: more threads saturate at ~1.5x rather than scaling
+```
+
+It reads its thresholds off `NumpyBackend` rather than restating them, and a test
+asserts the advice tracks the code — a recommender that drifts from what it describes
+is worse than none. It reports what it did *not* choose and why, because the reasons
+are the part you cannot get from the outside: below ~15 qubits this library is
+dispatch-bound and the answer is always fewer, fatter calls; above it the cost is
+arithmetic on an array too big for cache, and C++ wins.
+
 ### Changed - a large untracked row now says where to look
 
 `run.report()` showed 2.5s untracked on a `QSVC` fit, which looked like a gap worth

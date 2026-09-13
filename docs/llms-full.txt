@@ -5918,6 +5918,8 @@ class QuantumLayer(feature_map: 'FeatureMap', ansatz: 'Ansatz | None' = None, ob
     Defaults are chosen for a simulator: exact expectations and adjoint gradients.
     Pass ``shots=N`` to model a device, and ``grad_method="parameter-shift"`` to
     compute the way hardware would have to.
+class Recommendation(n_qubits: 'int', n_gates: 'int', statevector_bytes: 'int', backend: 'str', reason: 'str', fusion: 'bool', batching: 'bool', alternatives: 'tuple[tuple[str, str], ...]' = (), notes: 'tuple[str, ...]' = ()) -> None
+    What to run this on, and what that turns on.
 class Reduction(name: 'str', circuits: 'int', factor: 'float', trade: 'str') -> None
     One way to make the run cheaper, and what it costs to take it.
 class Report(subject: 'str', findings: 'tuple[Finding, ...]' = ()) -> None
@@ -6176,6 +6178,8 @@ def quantum_fisher_information(spec: 'CircuitSpec', theta: 'Sequence[float]', ba
     QFIM — exactly ``4 x`` the Fubini–Study metric.
 def random_layers(n_qubits: 'int', n_layers: 'int' = 2, ratio_imprimitive: 'float' = 0.3, seed: 'int | None' = None) -> 'Ansatz'
     Randomly placed rotations and CNOTs — the baseline a new ansatz must beat.
+def recommend(model: 'Any', *, shots: 'int | None' = None, batch: 'int | None' = None) -> 'Recommendation'
+    Which backend to run ``model`` on, and what that switches on.
 def reduce_to_qubits(x: 'npt.NDArray[Any]', n_qubits: 'int', method: 'str' = 'pca', to_angles: 'bool' = True, lo: 'float' = 0.0, hi: 'float' = 6.283185307179586) -> 'npt.NDArray[Any]'
     Reduce a feature matrix to ``n_qubits`` columns, ready for angle encoding.
 def reduced_dm(state: 'CircuitSpec | npt.NDArray[Any]', wires: 'Sequence[int]', n_qubits: 'int | None' = None, backend: 'BackendLike' = None) -> 'npt.NDArray[Any]'

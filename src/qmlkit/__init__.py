@@ -205,6 +205,7 @@ from qmlkit.optim import (
 )
 from qmlkit.progress import Progress, TaskRecord, progress, track
 from qmlkit.provenance import Fingerprint, fingerprint, selfcheck
+from qmlkit.recommend import Recommendation, recommend
 from qmlkit.search import (
     AXES,
     SearchResult,
@@ -336,6 +337,8 @@ __all__ = [
     "Reduction",
     "progress",
     "Progress",
+    "recommend",
+    "Recommendation",
     "TaskRecord",
     "track",
     "fingerprint",
