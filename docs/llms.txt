@@ -63,6 +63,7 @@ What is worth knowing before writing any of it:
 - [5. Clustering and generative](https://ziadt160.github.io/qmlkit/studies/05-beyond-classification/): Accuracy needs labels and a decision. Two large parts of machine learning have neither, and they fail in ways a classification metric cannot describe: a clustering that is beautifully separated and answers the wrong question, and a generative model that assigns zero probability to something that actually happens.
 - [6. Clinical decisions](https://ziadt160.github.io/qmlkit/studies/06-clinical/): Credit risk in study 1 was about a skewed dataset. This one is about something else that no amount of balancing fixes: a false negative and a false positive are not equivalent mistakes, and no single-number metric knows that.
 - [7. Images and structure](https://ziadt160.github.io/qmlkit/studies/07-images-and-structure/): Every other study on this page flattens its data and hands it to a general-purpose ansatz.
+- [8. A classifier that declines](https://ziadt160.github.io/qmlkit/studies/08-selective-classification/): Letting a model abstain is an old and good idea: answer where you are confident, refuse where you are not, and hand the rest to a human.
 
 ## Guides
 

@@ -70,7 +70,7 @@ six weights, and one frequency:
 ```python
 from qmlkit.ansatz import Ansatz, EncodingLayer, RotationLayer, repeat
 
-fmap = qk.AngleFeatureMap(2, rotation="ry")
+fmap = qk.AngleFeatureMap(2, rotation="ry", entangle=False)  # entangle=False: an entangler defeats the collapse
 model = Ansatz(2, repeat(3, EncodingLayer(fmap) + RotationLayer("ry")), n_inputs=2)
 
 print(qk.diagnose(model))

@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
+from qmlkit.core.backends.registry import get_backend
 from qmlkit.core.execute import BackendLike, statevector
 from qmlkit.core.ir import CircuitSpec
 
@@ -90,8 +91,23 @@ def purity(
     n_qubits: int | None = None,
     backend: BackendLike = None,
 ) -> float:
-    """``Tr(rho^2)`` — 1 for a pure state, ``1/d`` for the maximally mixed one."""
+    """``Tr(rho^2)`` — 1 for a pure state, ``1/d`` for the maximally mixed one.
+
+    With no ``wires`` the whole register is meant. That is 1 for a statevector by
+    construction — but not when ``backend`` evolves a density matrix, where the whole
+    point of asking is that the state may be mixed. Returning 1.0 there answered a
+    question nobody asked, and was the one path in this module that neither refused
+    nor computed.
+    """
     if wires is None:
+        device = get_backend(backend)
+        if not device.supports_statevector and hasattr(device, "purity"):
+            if not isinstance(state, CircuitSpec):
+                raise TypeError(
+                    f"the {device.name!r} backend computes purity from a circuit, not "
+                    "from an array; pass the CircuitSpec"
+                )
+            return float(device.purity(state))
         return 1.0  # a statevector is pure by construction
     rho = reduced_dm(state, wires, n_qubits, backend)
     return float(np.real(np.trace(rho @ rho)))

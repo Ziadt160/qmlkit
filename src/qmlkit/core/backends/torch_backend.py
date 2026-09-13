@@ -99,9 +99,15 @@ def _apply_torch(torch: Any, state: Any, matrix: Any, qubits: tuple[int, ...]) -
     k = len(qubits)
     op = matrix.reshape((2,) * (2 * k))
     state = torch.tensordot(op, state, dims=([*range(k, 2 * k)], list(qubits)))
+    # tensordot leaves the operator's output axes in front, so they have to be moved
+    # back to the wires they belong to. This is np.moveaxis, and the part that is easy
+    # to drop is that numpy sorts the (destination, source) pairs first: inserting in
+    # slot order instead is only correct while `qubits` is ascending. For a gate on
+    # (2, 1) the *untouched* wires come out permuted -- a different circuit, evaluated
+    # silently, and inherited by method="backprop".
     perm = list(range(k, state.dim()))
-    for slot, q in enumerate(qubits):
-        perm.insert(q, slot)
+    for destination, slot in sorted(zip(qubits, range(k), strict=True)):
+        perm.insert(destination, slot)
     return state.permute(perm)
 
 

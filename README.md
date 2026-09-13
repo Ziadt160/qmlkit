@@ -185,7 +185,7 @@ returns a plausible number rather than an exception. This model builds, binds,
 differentiates and trains, and reaches one Fourier frequency instead of three:
 
 ```python
-fmap  = qk.AngleFeatureMap(2, rotation="ry")
+fmap  = qk.AngleFeatureMap(2, rotation="ry", entangle=False)
 model = qk.Ansatz(2, qk.repeat(3, qk.EncodingLayer(fmap) + qk.RotationLayer("ry")))
 print(qk.diagnose(model))
 # [error] ENCODING_COMMUTES: 3 uploads, but every trainable rotation is 'ry', the

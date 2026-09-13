@@ -137,7 +137,10 @@ def test_sampled_expectation_converges_to_the_exact_one():
     exact = qk.expectation(spec, qk.Z(0))
     sampled, err = qk.expectation(spec, qk.Z(0), shots=200_000, seed=7, return_std=True)
     assert abs(sampled - exact) < 5 * err
-    assert err == pytest.approx(qk.standard_error(sampled, 200_000))
+    # the reported error is the estimator's true standard deviation, computed from
+    # the exact variance rather than plugged in from the sample - so it agrees with
+    # the formula to the accuracy of the sample, not exactly
+    assert err == pytest.approx(qk.standard_error(sampled, 200_000), rel=1e-3)
 
 
 def test_shot_noise_shrinks_as_one_over_sqrt_n():

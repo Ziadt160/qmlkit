@@ -16,6 +16,7 @@ structure a general optimiser cannot see:
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -29,6 +30,9 @@ from qmlkit.core.observables import Observable, Z
 from qmlkit.utils.errors import unknown
 
 __all__ = [
+    "AdamState",
+    "adam_step",
+    "minimize_adam",
     "supports_rotosolve",
     "rotosolve_step",
     "minimize_rotosolve",
@@ -128,6 +132,102 @@ def minimize_rotosolve(
         if callback is not None:
             callback(sweep, theta, value)
         if abs(history[-2] - value) < tol:
+            break
+    return theta, history
+
+
+# --------------------------------------------------------------------------- #
+# Adam
+# --------------------------------------------------------------------------- #
+@dataclass
+class AdamState:
+    """The two running averages Adam carries between steps, and the step count.
+
+    Exposed because a circuit-level optimiser is often driven one step at a time from
+    a loop the caller owns, and losing this between steps silently turns Adam back
+    into plain gradient descent with a decaying learning rate.
+    """
+
+    m: npt.NDArray[Any]
+    v: npt.NDArray[Any]
+    t: int = 0
+
+    @classmethod
+    def for_parameters(cls, n_params: int) -> AdamState:
+        return cls(m=np.zeros(n_params), v=np.zeros(n_params), t=0)
+
+
+def adam_step(
+    theta: ArrayLike,
+    gradient: ArrayLike,
+    state: AdamState,
+    lr: float = 0.05,
+    beta1: float = 0.9,
+    beta2: float = 0.999,
+    eps: float = 1e-8,
+) -> tuple[npt.NDArray[Any], AdamState]:
+    """One Adam update, given a gradient you already have.
+
+    Returns the new parameters and the new state; ``state`` is not mutated, so a
+    caller can keep a trajectory without copying by hand.
+
+    Adam earns its place on variational circuits for a specific reason: parameter
+    gradients in a deep ansatz differ in scale by orders of magnitude — a rotation
+    near the readout moves the expectation far more than one behind a wall of
+    entanglers — and a single learning rate either crawls on the small ones or
+    diverges on the large. Dividing by the running gradient magnitude makes the step
+    size per-parameter, which is exactly that problem.
+    """
+    values = np.asarray(theta, dtype=float).ravel()
+    grad = np.asarray(gradient, dtype=float).ravel()
+    if grad.shape != values.shape:
+        raise ValueError(f"gradient has {grad.size} entries but there are {values.size} parameters")
+
+    t = state.t + 1
+    m = beta1 * state.m + (1.0 - beta1) * grad
+    v = beta2 * state.v + (1.0 - beta2) * grad**2
+    # bias correction: m and v start at zero, so without this the first steps are
+    # damped by roughly (1 - beta) and Adam looks like it is not moving
+    m_hat = m / (1.0 - beta1**t)
+    v_hat = v / (1.0 - beta2**t)
+    stepped: npt.NDArray[Any] = values - lr * m_hat / (np.sqrt(v_hat) + eps)
+    return stepped, AdamState(m=m, v=v, t=t)
+
+
+def minimize_adam(
+    f: LossFn,
+    theta0: Sequence[float],
+    grad: Callable[[npt.NDArray[Any]], npt.NDArray[Any]],
+    n_steps: int = 100,
+    lr: float = 0.05,
+    beta1: float = 0.9,
+    beta2: float = 0.999,
+    eps: float = 1e-8,
+    tol: float = 0.0,
+    callback: Callable[[int, npt.NDArray[Any], float], None] | None = None,
+) -> tuple[npt.NDArray[Any], list[float]]:
+    """Minimise ``f`` by Adam, using the gradient ``grad`` supplies.
+
+    ``grad`` is explicit rather than inferred because the right way to differentiate a
+    circuit depends on the circuit and the backend: pass
+    ``lambda t: qk.grad(spec, t, obs)`` for an exact gradient, or a shot-based one
+    when the point is to see what a device would do. :func:`~qmlkit.grad` chooses the
+    method; this chooses the step.
+
+    ``tol`` stops early when the loss improves by less than that between steps;
+    the default of ``0.0`` runs the full budget, since a variational loss plateaus and
+    then escapes often enough that stopping on the first flat step is usually wrong.
+    """
+    theta: npt.NDArray[Any] = np.asarray(theta0, dtype=float).ravel().copy()
+    state = AdamState.for_parameters(theta.size)
+    history = [float(f(theta))]
+    for step in range(n_steps):
+        theta, state = adam_step(theta, grad(theta), state, lr, beta1, beta2, eps)
+        value = float(f(theta))
+        history.append(value)
+        if callback is not None:
+            callback(step, theta, value)
+        if tol > 0.0 and abs(history[-2] - value) < tol:
             break
     return theta, history
 
