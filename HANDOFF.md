@@ -405,24 +405,69 @@ partitions are reused. That has a direct analogue here worth considering separat
 from threading: parameter-shift evaluates `2P` circuits that each differ in **one**
 gate, so every one of them shares a prefix with the unshifted circuit.
 
-In priority order, revised by the measurement above:
+**Gate fusion was built as a prototype on 2026-09-13 and it does not pay at these
+widths. Do not build it. The earlier ranking here put it first and that was wrong.**
 
-1. **Gate fusion.** The largest measured win, it needs no concurrency and no new
-   dependency, and it compounds with batching rather than competing with it. A pass
-   over `spec.ops` merging adjacent gates into blocks of at most 4 qubits, cached per
-   structure. Guard it with the existing convention: assert the fused circuit's
-   statevector equals the unfused one over randomised circuits, and put it in
-   `tests/test_torture.py`'s path - a fusion bug is a *silent wrong number*, which is
-   the one class of defect this library cannot ship.
-2. **Say it.** A dispatch-bound diagnostic - "6 qubits, 4000 circuits, one at a time;
-   more threads will not help, fusion and batching will, here is the call." Cheap, and
-   worth more than any knob because the user's own conclusion is wrong.
-3. **Process-level fan-out over independent work**, where real cores do help: kernel
+The mistake is worth understanding, because it is easy to make again. The gate-width
+table above measures what it costs to *apply* a wide gate, and a 4-qubit gate really
+does apply for 1.3x the price of a 1-qubit one. It does not measure what it costs to
+*build* that gate, which is a `2^2k` array: for `k=4` that is 256 complex numbers,
+**four times the size of a whole 6-qubit state**. Fusion at these widths spends more
+constructing the fused operator than it saves applying it.
+
+Greedy consecutive fusion, hardware-efficient ansatz, 3 layers, against unfused:
+
+| qubits | k<=2 | k<=3 | k<=4 | k<=5 |
+|---|---|---|---|---|
+| 4 | 0.77x | 0.64x | 0.81x | 0.81x |
+| 6 | 0.80x | 0.69x | 0.68x | 0.64x |
+| 8 | 0.84x | 0.72x | 0.76x | 0.68x |
+| 10 | 0.93x | 0.81x | 0.85x | 0.81x |
+| 12 | 1.06x | 1.01x | 1.04x | 0.81x |
+| 14 | 1.20x | 1.10x | 1.14x | 1.03x |
+| 16 | 1.61x | 2.48x | **3.43x** | 3.73x |
+
+At 6 qubits the build is **84% of the fused runtime**. Three ways out were measured
+and none of them works here:
+
+- **Prebuild everything** (the ceiling no scheme can beat): **5.2x at 6 qubits**. So
+  the idea is sound and the applies really are cheap - the whole loss is the build.
+- **Cache the blocks that have no parameters**, which is the only thing cacheable once
+  angles change every step: a hardware-efficient ansatz is **29-31% constant gates**,
+  and caching exactly those gives **0.81x to 1.30x**. Nothing.
+- **Build with one `einsum`** instead of `m` sequential applies, subscripts computed
+  once per structure: **worse** - 0.53x at 6 qubits against 0.69x sequential, because
+  path-finding costs more than it saves on operands this small.
+
+The general rule this leaves: fusion needs `2^n` to dominate `2^2k`, so it wants
+`n >> 2k`, and below ~12 qubits nothing helps because *everything* is per-call-overhead
+bound and the build is more calls. **Revisit only if 14+ qubit registers become a
+target**, where the table above is already a 3.4x waiting to be collected.
+
+Prototypes: `scripts/proto_fusion.py`, `proto_fusion2.py` (ceiling and caching),
+`proto_fusion3.py` (einsum build). All three check the fused statevector against the
+unfused one before reporting any speedup.
+
+So, in priority order:
+
+1. **Say it.** A dispatch-bound diagnostic - "6 qubits, 4000 circuits, one at a time;
+   more threads will not help, batching will, here is the call." Cheap, and worth more
+   than any knob because the user's own conclusion is wrong. Now the top item.
+2. **Process-level fan-out over independent work**, where real cores do help: kernel
    Gram blocks, CV folds, `search()` configurations, multi-seed runs, and
    parameter-shift shifts on backends that cannot batch. One `n_jobs` convention
-   everywhere, default serial.
-4. **BLAS thread control**, once 3 exists, so that processes times BLAS threads stop
+   everywhere, default serial. This is the only thing here that actually raises CPU
+   utilisation, and it is untouched by everything above.
+3. **BLAS thread control**, once 2 exists, so that processes times BLAS threads stop
    oversubscribing. Classic slowdown, and it will appear as soon as fan-out lands.
+4. **Gate fusion, gated behind a qubit threshold** like `batch_max_qubits` - but only
+   if wide registers ever matter. Not now.
+
+**The thing already built is still the thing that works.** `statevector_batch` and
+`grad_batch` amortise the same per-call cost across samples and measure 19.8x on a
+training step and 69x on a Gram matrix. Fusion was an attempt to beat that cost a
+second way, on a single circuit, and there is not enough work in a single small
+circuit to beat it twice.
 
 Remember `NumpyBackend.batch_max_qubits` (default 10): batching *loses* above the
 10-11 qubit crossover, so any recommendation here has to respect it rather than
