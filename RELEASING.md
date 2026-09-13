@@ -70,32 +70,25 @@ the final upload into something you approve by hand.
    & "$env:TEMP\clean\Scripts\python.exe" scripts\verify_install.py
    ```
 
-5. **Publish the subtree, then tag it *there*.** This is the step that is easy to get
-   wrong, because there are two repositories.
-
-qmlkit is developed as the `qmlkit/` subdirectory of a private upstream working
-   repository, and **published** as `github.com/Ziadt160/qmlkit` — a `git subtree
-   split` of that subdirectory. `release.yml` exists only in the published repo, so
-   tagging upstream triggers nothing at all.
-
-   Commit inside `qmlkit/` first, then, from the upstream repository root:
+5. **Push, then tag.**
 
    ```bash
-   git branch -D qmlkit-standalone 2>/dev/null
-   git subtree split --prefix=qmlkit -b qmlkit-standalone
-   git push qmlkit qmlkit-standalone:main
-   ```
-
-   The split is deterministic, so re-running it fast-forwards rather than diverging.
-   It prints the SHA of the split commit — that is what the tag goes on:
-
-   ```bash
-   git tag v0.2.0 $(git rev-parse qmlkit-standalone)
-   git push qmlkit v0.2.0
+   git push origin main
+   git tag v0.2.0
+   git push origin v0.2.0
    ```
 
    The tag must match the packaged version exactly; the workflow checks and refuses
-   otherwise.
+   otherwise, because a tag that disagrees with `pyproject.toml` would publish a
+   version nobody asked for.
+
+   > This step used to be the one that was easy to get wrong. qmlkit was developed as
+   > the `qmlkit/` subdirectory of a lecture repository and published as a
+   > `git subtree split` of it, so `release.yml` existed only in the published copy
+   > and tagging upstream triggered nothing — while the split itself published
+   > whatever branch it was given, which twice nearly shipped a release missing half
+   > its fixes. The library moved to its own repository on 2026-09-13 and none of that
+   > applies any more.
 
 6. **Watch the workflow.** It runs the suite again on the tagged commit, builds,
    re-verifies the wheel in a clean environment, publishes to TestPyPI, and only
@@ -119,15 +112,16 @@ qmlkit is developed as the `qmlkit/` subdirectory of a private upstream working
   anything. Delete the tag, fix the version, tag again:
 
   ```bash
-  git push qmlkit :refs/tags/v0.2.0   # delete it on the remote
+  git push origin :refs/tags/v0.2.0   # delete it on the remote
   git tag -d v0.2.0                   # and locally
   ```
 
-- **Nothing happened when you pushed the tag** — you almost certainly tagged the
-  upstream repository instead of the published one. `release.yml` only exists in the
-  published repo; check with `git ls-remote --tags qmlkit`.
+- **Nothing happened when you pushed the tag** — check it actually arrived with
+  `git ls-remote --tags origin`, and that Actions is healthy. On 2026-09-13 two
+  pushes to `main` created no workflow runs at all during a GitHub incident, and
+  `workflow_dispatch` returned HTTP 500 while queueing the job anyway. A tag pushed
+  into that is a release that may half-complete, and a half-completed release burns
+  the version number on TestPyPI. Wait for Actions to be draining normally.
 
-- **The split branch will not push** — it is deterministic, so a rejected push means
-  the remote has commits the split does not contain (someone committed directly to
-  the published repo). Reconcile there first; never force-push over it, because a
-  published tag must keep pointing at the commit that produced the artifact.
+- **Never force-push over a published tag.** It must keep pointing at the commit that
+  produced the artifact on PyPI, or the provenance is a lie.

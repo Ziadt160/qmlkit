@@ -99,10 +99,14 @@ then three or four places that will not fail loudly if you forget them.
 | **Anything public** | `docs/llms.txt` regenerated, a reference page entry, and a CHANGELOG entry |
 | **A version bump** | `pyproject.toml` **and** `src/qmlkit/__init__.py`. A third hardcoded copy in `scripts/verify_install.py` once failed the release gate |
 
-**Releasing is a subtree split, and the tag does not go where you think.** The
-published repo is a split of this directory; `release.yml` exists only there, so
-tagging upstream triggers nothing. `RELEASING.md` has the procedure. A PyPI version
-number can never be reused, so tags stay unpushed until the release is wanted.
+**Releasing is a tag on this repository**, which `release.yml` turns into a TestPyPI
+then PyPI publish over Trusted Publishing - no token is handled anywhere. It asserts
+the tag matches `pyproject.toml` before it builds. A PyPI version number can never be
+reused, so tags stay unpushed until the release is actually wanted, and a release that
+half-completes burns the number. `RELEASING.md` has the procedure.
+
+Until 2026-09-13 this repo was a `git subtree split` of a subdirectory in the lecture
+repository. If you find a document that still says so, it is stale - fix it.
 
 ## Writing
 

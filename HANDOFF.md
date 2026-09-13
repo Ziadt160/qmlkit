@@ -11,24 +11,28 @@ first thing read in a fresh session.
 |---|---|
 | **Repository** | <https://github.com/Ziadt160/qmlkit> — public, Apache-2.0 |
 | **Documentation** | <https://ziadt160.github.io/qmlkit/> — deploys from `main` |
-| **Source of truth** | The `qmlkit/` subdirectory of the upstream working repository; this repo is a subtree split of it |
+| **Source of truth** | This repository. Commit here, push here. |
 | **PyPI** | **Published.** `pip install qmlkit` installs 0.1.0 (2026-09-12) |
-| **Released version** | `0.1.0`, tagged `v0.1.0` at the split commit. **It has a known wrong-number bug — see below** |
+| **Released version** | `0.1.0`. **It has a known wrong-number bug - see below** |
 
-### The one non-obvious thing about the workflow
+### The workflow used to be the hard part, and no longer is
 
-The published repo is produced by a **subtree split** of the upstream working
-repository's `qmlkit/` subdirectory. Commit
-inside `qmlkit/` there, then:
+Until 2026-09-13 this repo was produced by a `git subtree split` of a `qmlkit/`
+subdirectory inside the lecture repository, and that indirection was the most
+expensive thing in the project. A split publishes **whatever branch it is given**, so
+work that landed on a sibling branch was simply absent from the release - which nearly
+shipped a half-fixed 0.1.1 twice, once missing five of the ten audit fixes and once
+missing `tests/densesim.py`, the reference its own changelog cited by name.
+
+That is retired. This is an ordinary repository: commit, push, tag.
 
 ```bash
-git branch -D qmlkit-standalone
-git subtree split --prefix=qmlkit -b qmlkit-standalone
-git push qmlkit qmlkit-standalone:main
+git push origin main
+git tag v0.2.0 && git push origin v0.2.0    # the tag triggers release.yml
 ```
 
-The split is deterministic, so re-pushing fast-forwards. `LIBRARY_PLAN.md` stays in the
-upstream repository, because it is about that project rather than about qmlkit.
+`LIBRARY_PLAN.md` stayed behind in the lecture repository, because it maps those
+lectures onto library features and belongs with them.
 
 ---
 
@@ -255,9 +259,10 @@ audit's own findings re-run and closed in both environments, the wheel and sdist
 `twine check` passes on both, and a clean venv installing only the wheel pulls in
 **numpy and nothing else** before `verify_install.py` passes.
 
-**The tag goes on the subtree-split commit, not on this repository.** `release.yml`
-only exists in the published one, so `git push origin main --tags` tags the upstream
-repository and triggers nothing. `RELEASING.md` has the procedure; it names `v0.2.0`.
+**Tagging is now just tagging.** `git tag v0.2.0 && git push origin v0.2.0` in this
+repository is the whole release; `release.yml` picks it up from there and publishes
+through Trusted Publishing, so no token is ever handled. `RELEASING.md` has the
+procedure and what to do when it goes wrong; it names `v0.2.0`.
 
 **A PyPI version number can never be reused**, so the tag is deliberately not pushed
 until the release is wanted.
