@@ -203,6 +203,7 @@ from qmlkit.optim import (
     quantum_fisher_information,
     rotosolve_step,
 )
+from qmlkit.parallel import parallel_map
 from qmlkit.progress import Progress, TaskRecord, progress, track
 from qmlkit.provenance import Fingerprint, fingerprint, selfcheck
 from qmlkit.recommend import Recommendation, recommend
@@ -337,6 +338,7 @@ __all__ = [
     "Reduction",
     "progress",
     "Progress",
+    "parallel_map",
     "recommend",
     "Recommendation",
     "TaskRecord",

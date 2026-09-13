@@ -277,6 +277,7 @@ def search(
     max_configs: int | None = None,
     dry_run: bool = False,
     verbose: bool = True,
+    n_jobs: int | None = None,
     **axes: Any,
 ) -> SearchResult:
     """Sweep every tunable axis, skipping the configurations that cannot work.
@@ -326,6 +327,7 @@ def search(
     """
     from qmlkit.baselines import _infer_task
     from qmlkit.imbalance import stratified_folds
+    from qmlkit.parallel import parallel_map
 
     data = np.atleast_2d(np.asarray(X, dtype=float))
     target = np.asarray(y).ravel()
@@ -418,14 +420,20 @@ def search(
         order = rng.permutation(data.shape[0])
         folds = [(np.setdiff1d(order, chunk), chunk) for chunk in np.array_split(order, cv)]
 
-    for index, (config, codes) in enumerate(runnable, start=1):
+    def _fit_one(item: tuple[dict[str, Any], tuple[str, ...]]) -> SearchRow:
+        """One configuration, scored across every fold. Independent of the others.
+
+        Which is what makes `n_jobs` safe here: configurations share the folds and
+        the data read-only and touch nothing else, so the only thing threading can
+        change is how long it takes.
+        """
+        config, codes = item
         started = time.perf_counter()
         try:
             scores = _score_config(config, data, target, folds, resolved, metric, n_classes)
         except Exception as exc:  # a broken point must not lose the rest of the table
-            rows.append(SearchRow(config, pruned=f"failed: {exc}", findings=codes, fitted=False))
-            continue
-        row = SearchRow(
+            return SearchRow(config, pruned=f"failed: {exc}", findings=codes, fitted=False)
+        return SearchRow(
             config,
             float(np.mean(scores)),
             float(np.std(scores)),
@@ -433,8 +441,11 @@ def search(
             seconds=time.perf_counter() - started,
             findings=codes,
         )
+
+    # order is preserved, so the table and the verbose log read the same either way
+    for index, row in enumerate(parallel_map(_fit_one, runnable, n_jobs=n_jobs), start=1):
         rows.append(row)
-        if verbose:
+        if verbose and row.ran:
             print(
                 f"  [{index}/{len(runnable)}] {row.label(varied)}"
                 f"  {row.mean:.3f} +/- {row.std:.3f}  ({row.seconds:.0f}s)",

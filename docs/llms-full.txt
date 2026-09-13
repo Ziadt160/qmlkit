@@ -6154,6 +6154,8 @@ optim
     Optimisers that only make sense for quantum circuits.
 def p0_from_z(z: 'float') -> 'float'
     P(0) from <Z>.
+def parallel_map(fn: 'Callable[[T], R]', items: 'Iterable[T]', n_jobs: 'int | None' = None) -> 'list[R]'
+    Apply ``fn`` to each item, on ``n_jobs`` threads, preserving order.
 def param_shift_grad(f_slots: 'SlotFn', spec: 'CircuitSpec', theta: 'Sequence[float]', rules: 'dict[int, ShiftRule] | None' = None, f0: 'float | None' = None) -> 'npt.NDArray[Any]'
     Exact gradient of ``f`` with respect to the logical parameter vector.
 def param_shift_grad_batch(spec: 'CircuitSpec', thetas: 'ArrayLike', obs: 'Observable | None' = None, shots: 'int | None' = None, backend: 'Backend | str | None' = None, seed: 'int | None' = None) -> 'npt.NDArray[Any]'
@@ -6210,7 +6212,7 @@ def rule_for_gate(gate: 'str') -> 'ShiftRule'
     Look the rule up from the gate's declared generator frequencies.
 def run_counts(spec: 'CircuitSpec', shots: 'int' = 8192, theta: 'ArrayLike | None' = None, backend: 'BackendLike' = None, seed: 'int | None' = None) -> 'dict[str, int]'
     Sample the computational basis. Keys are ``n_qubits``-wide bitstrings.
-def search(X: 'Any', y: 'Any', task: 'str' = 'auto', cv: 'int' = 3, metric: 'str | None' = None, seed: 'int | None' = 0, prune: 'str | Sequence[str]' = 'error', max_configs: 'int | None' = None, dry_run: 'bool' = False, verbose: 'bool' = True, **axes: 'Any') -> 'SearchResult'
+def search(X: 'Any', y: 'Any', task: 'str' = 'auto', cv: 'int' = 3, metric: 'str | None' = None, seed: 'int | None' = 0, prune: 'str | Sequence[str]' = 'error', max_configs: 'int | None' = None, dry_run: 'bool' = False, verbose: 'bool' = True, n_jobs: 'int | None' = None, **axes: 'Any') -> 'SearchResult'
     Sweep every tunable axis, skipping the configurations that cannot work.
 def selfcheck(spec: 'CircuitSpec', theta: 'ArrayLike', obs: 'Observable', backend: 'Any' = None, cross_backend: 'bool' = True) -> 'Any'
     Compute this circuit's value and gradient every available way, and compare.

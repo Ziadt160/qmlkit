@@ -49,7 +49,10 @@ class AerBackend(QiskitBackend):
     name = "aer"
 
     def __init__(
-        self, seed: int | None = None, max_parallel_experiments: int | None = None
+        self,
+        seed: int | None = None,
+        max_parallel_experiments: int | None = None,
+        device: str = "CPU",
     ) -> None:
         super().__init__(seed)
         try:
@@ -59,8 +62,22 @@ class AerBackend(QiskitBackend):
                 "Qiskit Aer is not installed. It is a separate package from Qiskit:\n"
                 "    pip install 'qmlkit[aer]'"
             ) from exc
-        self._simulator = AerSimulator(method="statevector")
+        # `device="GPU"` needs the separate `qiskit-aer-gpu` distribution, which
+        # publishes no Windows wheel - so this path is **untested here** and is a
+        # passthrough rather than a claim. Aer reports what it actually has, and
+        # asking for a device it does not have should say so rather than silently
+        # running on the CPU and looking merely disappointing.
+        if device.upper() != "CPU":
+            available = AerSimulator().available_devices()
+            if device.upper() not in {d.upper() for d in available}:
+                raise BackendNotAvailable(
+                    f"this Aer build has no {device!r} device - it reports {available}. "
+                    "GPU needs the separate 'qiskit-aer-gpu' distribution, which is "
+                    "Linux-only; there is no Windows wheel."
+                )
+        self._simulator = AerSimulator(method="statevector", device=device)
         self._max_parallel = max_parallel_experiments
+        self.device = device
 
     #: How much statevector to keep in flight at once when running a batch in
     #: parallel. Aer will thread the circuits of one job, and by default does not —

@@ -74,6 +74,15 @@ class HybridModel(nn.Module):
             self.ansatz = ansatz or hardware_efficient(n_qubits, n_layers)
         obs = list(observables) if observables is not None else [Z(i) for i in range(n_qubits)]
 
+        # The classical layers initialise from torch's *global* RNG, so a seeded model
+        # was still not reproducible: the quantum weights honoured `seed` and the
+        # Linear ones did not. Seeding around their construction and putting the
+        # global state back leaves no side effect on the caller's own RNG - which
+        # `torch.manual_seed(seed)` here would not.
+        rng_state = torch.get_rng_state() if seed is not None else None
+        if seed is not None:
+            torch.manual_seed(seed)
+
         # a classical projection only when the widths genuinely differ
         self.pre: nn.Module = (
             nn.Sequential(nn.Linear(n_features, n_qubits), nn.Tanh())
@@ -90,8 +99,15 @@ class HybridModel(nn.Module):
             init_seed=seed,
         )
         self.head = nn.Linear(len(obs), n_outputs)
+        if rng_state is not None:
+            torch.set_rng_state(rng_state)
         self.scaler = AngleScaler() if scale_inputs else None
         self.history_: list[float] = []
+        #: The seed shuffling uses, kept so that `fit` is reproducible. Without it the
+        #: batch order came off torch's *global* RNG, so two runs of the same seeded
+        #: model disagreed - and `qk.search(seed=0)` was not reproducible either,
+        #: which is a worse thing for a library that asks to be trusted with a number.
+        self.seed = seed
 
     # ------------------------------------------------------------------------
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -137,8 +153,13 @@ class HybridModel(nn.Module):
 
         batches_per_epoch = (n + bs - 1) // bs
         with progress_task(f"fit {type(self).__name__}", epochs * batches_per_epoch) as tracked:
+            # A local generator rather than the global RNG: shuffling off the global
+            # one makes a seeded model unreproducible, and makes any two fits running
+            # at once perturb each other.
+            shuffle = torch.Generator()
+            shuffle.manual_seed(self.seed if self.seed is not None else torch.seed() % (2**31))
             for epoch in range(epochs):
-                perm = torch.randperm(n)
+                perm = torch.randperm(n, generator=shuffle)
                 total = 0.0
                 # the extra norms cost a pass over the parameters, so they are only
                 # computed when something is actually going to show them

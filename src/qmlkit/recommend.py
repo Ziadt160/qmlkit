@@ -36,6 +36,7 @@ one machine, single-threaded, and the honest use of it is as a starting point fo
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -253,8 +254,12 @@ def recommend(model: Any, *, shots: int | None = None, batch: int | None = None)
         )
     else:
         notes.append(
-            "this is dispatch-bound, not compute-bound: the statevector fits in cache, so "
-            "threading a single circuit makes it slower, not faster"
+            f"**your CPU will sit near {100 // (os.cpu_count() or 1)}% and that is correct.** "
+            f"At {n} qubits the statevector is {size / 1024:,.0f} KiB and fits in one "
+            "core's cache, so there is no work to spread: threading a single circuit "
+            "measured 0.04x on 8 threads at 8 qubits, because handing out the work "
+            "costs 17x what the gate costs. Use more cores on *independent* circuits - "
+            "folds, seeds, hyperparameter configurations - not inside one."
         )
 
     if shots is not None:

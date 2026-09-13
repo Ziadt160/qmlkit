@@ -40,6 +40,47 @@ backend differentiates *through* each gate, which a NumPy `matrix=` cannot suppo
 Both now say so, and name the alternative, instead of telling the caller to edit a
 table.
 
+### Fixed - `seed` did not reach everything random, so nothing was reproducible
+
+Found while testing `n_jobs`, and much the more important of the two. `HybridModel`
+passed `seed` to the quantum weights and to nothing else: the batch shuffle came off
+torch's **global** RNG and so did the `nn.Linear` initialisation. So two fits of the
+same seeded model disagreed, and `qk.search(seed=0)` returned a different table each
+time it was called — in a library whose entire argument is that a number can be
+trusted.
+
+Both now come from a seed the model owns, and constructing one puts the global RNG
+state back afterwards, so it does not silently reseed the caller's process the way
+`torch.manual_seed(seed)` would have. `seed=None` still varies, by design.
+
+### Added - `n_jobs` on `qk.search`, and `qk.parallel_map`
+
+The one kind of parallelism that helps. Every other measurement in this project says
+threading *inside* a circuit is slower than not — 0.04x on 8 threads at 8 qubits,
+because the statevector fits in cache and handing the work out costs 17x the gate.
+Configurations, folds and seeds are the opposite: independent, and seconds each.
+
+`qk.search(..., n_jobs=4)` measured **1.74x**, and produces a table identical to the
+serial one — same rows, same order, same means to the last bit, asserted by a test.
+`qk.parallel_map` is the same thing for your own loops.
+
+Threads rather than processes, and the ceiling is stated rather than hoped for: 1.38x
+on 2 workers, 1.59x on 4, **1.75x on 6**. Well short of linear, because the GIL is
+held during this library's Python-level dispatch and released only inside NumPy — the
+same dispatch cost that dominates everything else here. Processes would scale further
+and would have to pickle every argument across a spawn on Windows, which rules out
+closures, lambdas and most model objects. A reliable 1.75x beat an unreliable 4x.
+
+Serial is the default everywhere: a library that silently takes every core is a bad
+guest inside someone else's parallel loop.
+
+### Added - `backend="mps"` reaches 30 qubits, and `device=` on `backend="aer"`
+
+See the MPS backend notes above. `AerBackend(device="GPU")` is a passthrough for the
+separate `qiskit-aer-gpu` distribution; it is **untested here**, because that
+distribution publishes no Windows wheel, and asking for a device Aer does not have
+raises with what it does have rather than quietly running on the CPU.
+
 ### Added - gate fusion above 14 qubits, and `qk.recommend()` to choose for you
 
 Gate fusion was built, measured and **ranked out** earlier: it is 0.68x at 6 qubits,
