@@ -349,6 +349,53 @@ Probes are kept in `scripts/` and are worth re-running before acting rather than
 trusting the tables: `probe_dispatch.py` (dispatch vs arithmetic), `probe_fusion.py`
 (gate width, and the matvec floor), `probe_threads.py` (the table just above).
 
+**Qrack was evaluated on 2026-09-13 and the result is not what the roadmap assumed.**
+`pip install pyqrack` then `scripts/probe_qrack.py`. Forward pass, same
+hardware-efficient circuits, Qrack on CPU against the NumPy backend:
+
+| circuit | gates | qmlkit | Qrack | |
+|---|---|---|---|---|
+| HEA 4q x2 | 22 | 0.351 ms | 0.183 ms | **1.9x faster** |
+| HEA 6q x3 | 51 | 0.854 ms | 0.347 ms | **2.4x faster** |
+| HEA 8q x3 | 69 | 1.259 ms | 0.624 ms | 2.0x faster |
+| HEA 10q x3 | 87 | 1.864 ms | 1.429 ms | 1.3x faster |
+| HEA 12q x3 | 105 | 3.277 ms | 4.347 ms | 0.8x - slower |
+
+So a C++ engine behind a `ctypes` binding **is** cheaper per gate than NumPy: one
+`r()` costs **2.6 us** against NumPy's ~17 us per op. The assumption that an FFI
+boundary would cost more than NumPy dispatch was wrong, and the fixed costs are where
+it goes instead - `out_ket()` is **144 us** and constructing a simulator is 30 us, so
+174 us of every 347 us 6-qubit circuit is overhead that does not shrink.
+
+**It still must not become the default, for two reasons that decide it.**
+
+1. **No gradients and no batching.** The API has 164 public methods and none of them
+   is a gradient, an adjoint, or a batch (checked directly). `adjoint_grad` gets a
+   gradient in ~2 passes; on Qrack the only route is parameter-shift at `2P` passes.
+   For a 36-parameter circuit that is 72 passes against 2, so a 2.4x faster pass is
+   ~30x slower overall - and `statevector_batch`, which is where the 19.8x training
+   step and 69x Gram matrix come from, has nothing to map onto.
+2. **Its speed is partly approximation, configured by environment variable.**
+   `set_reactive_separate`, `try_separate_tolerance`, `QRACK_MAX_PAGING_QB`,
+   `QRACK_DISABLE_QUNIT_FIDELITY_GUARD`, and an ACE mode where ~50% XEB fidelity is
+   the expected operating point. A setting that changes a number and is invisible in
+   the code that produced it is precisely what `fingerprint()` exists to catch. Any
+   Qrack backend **must** record those and surface `get_unitary_fidelity()`, or this
+   library would be shipping the failure it was built to refuse.
+
+**What the measurement is actually good for: it prices the ceiling.** 2.4x at 6 qubits
+is what eliminating *all* Python and NumPy dispatch buys on a forward pass. Gate
+fusion is measured at up to ~3x from the width table, in pure NumPy, while keeping
+adjoint and batching. Fusion is therefore not a poor substitute for a C++ engine here
+- it reaches the same place and keeps what matters.
+
+Where Qrack genuinely wins and a backend would earn its place: sampling workloads,
+single forward passes with no gradient, and high-qubit low-entanglement circuits where
+Schmidt decomposition makes 30+ qubits tractable and nothing here can follow. That is
+a plugin, not a default - and it is the obvious **first third-party backend to prove
+the conformance contract** in item 6 with, since it fails two capability declarations
+honestly rather than hypothetically.
+
 **Prior art worth reading before building any of this.** `qTask` (arXiv 2210.01076)
 does exactly the block-partitioned task-parallel scheme, with a tunable block size,
 and reports 1.46x over Qulacs and 1.71x over Qiskit for full simulation - the same
