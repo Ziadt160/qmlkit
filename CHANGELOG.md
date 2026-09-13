@@ -6,6 +6,57 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added - you can watch a run instead of waiting for it
+
+`qk.plan` says what a run will cost before it starts and `qk.diagnose` says what went
+wrong after it finishes. In between there was nothing, and in between is where the
+hours go — a quantum kernel on a few hundred points is tens of thousands of circuits
+behind a single silent call that returns when it returns. "How much is left" is one
+of the most common questions asked about every library in this field, and none of
+them answers it.
+
+```python
+with qk.progress() as run:
+    gram = kernel(X)
+    model.fit(X, y)
+```
+
+```text
+kernel gram  3,412/12,720   27%   14.2s elapsed  ~37s left
+```
+
+and afterwards, where the time actually went:
+
+```text
+>>> print(run.report())
+Run finished in 51.4s
+kernel gram               12,720 items    47.9s    3.77 ms/item
+fit VQC                      600 items     3.2s    5.33 ms/item
+  (untracked)                              0.3s   - setup, data handling, and anything outside a task
+```
+
+Three properties it holds to, in priority order, each with a test:
+
+1. **It does not change any number.** A seeded kernel and a seeded circuit produce
+   bit-identical results watched and unwatched. A reporter that perturbed a result
+   would be a worse defect than the silence it replaces.
+2. **It is free when nobody is watching.** With no active reporter, the tracking
+   calls inside the library cost one comparison against `None`, and the live line
+   redraws at most ten times a second however fast the loop runs.
+3. **It does not claim to know what it does not.** An estimate from four items in
+   half a second says more about scheduling noise than about the run, so it prints
+   `estimating` until there is evidence — the same rule the rest of the library
+   follows about reporting a measurement.
+
+Wired into the two loops that actually take the time: the pair-at-a-time kernel Gram
+(sampled kernels, non-inversion estimators, and any backend without a statevector)
+and `HybridModel.fit`, which covers `VQC` and `VQRegressor`. `qk.track` wraps any
+iterable, and `qmlkit.progress.task` is what library code calls — it returns a silent
+stand-in when nothing is watching, so no loop needs to branch on it.
+
+Nothing is printed unless `qk.progress()` is entered, and the live line goes to
+stderr so piping a script's stdout to a file does not collect redraws.
+
 ### Added - `diagnose` can now be asked whether the quantum layer earned its place
 
 `qk.diagnose(model, X, y)` takes a *trained* model and the data it was trained on,

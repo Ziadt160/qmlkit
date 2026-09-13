@@ -203,6 +203,7 @@ from qmlkit.optim import (
     quantum_fisher_information,
     rotosolve_step,
 )
+from qmlkit.progress import Progress, TaskRecord, progress, track
 from qmlkit.provenance import Fingerprint, fingerprint, selfcheck
 from qmlkit.search import (
     AXES,
@@ -333,6 +334,10 @@ __all__ = [
     "plan",
     "Plan",
     "Reduction",
+    "progress",
+    "Progress",
+    "TaskRecord",
+    "track",
     "fingerprint",
     "Fingerprint",
     "selfcheck",

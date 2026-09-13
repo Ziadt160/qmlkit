@@ -28,6 +28,7 @@ from qmlkit.core.observables import Observable, Z
 from qmlkit.encoding.feature_maps import AngleFeatureMap, FeatureMap
 from qmlkit.encoding.scaling import AngleScaler
 from qmlkit.nn.layer import QuantumLayer, _is_combined
+from qmlkit.progress import task as progress_task
 
 __all__ = ["HybridModel", "VQC", "VQRegressor"]
 
@@ -132,19 +133,22 @@ class HybridModel(nn.Module):
         bs = batch_size or n
         self.history_ = []
 
-        for epoch in range(epochs):
-            perm = torch.randperm(n)
-            total = 0.0
-            for start in range(0, n, bs):
-                idx = perm[start : start + bs]
-                opt.zero_grad()
-                loss = loss_fn(self(xt[idx]), yt[idx])
-                loss.backward()
-                opt.step()
-                total += float(loss.detach()) * len(idx)
-            self.history_.append(total / n)
-            if verbose:
-                print(f"epoch {epoch + 1:3d}/{epochs}  loss {self.history_[-1]:.5f}")
+        batches_per_epoch = (n + bs - 1) // bs
+        with progress_task(f"fit {type(self).__name__}", epochs * batches_per_epoch) as tracked:
+            for epoch in range(epochs):
+                perm = torch.randperm(n)
+                total = 0.0
+                for start in range(0, n, bs):
+                    idx = perm[start : start + bs]
+                    opt.zero_grad()
+                    loss = loss_fn(self(xt[idx]), yt[idx])
+                    loss.backward()
+                    opt.step()
+                    total += float(loss.detach()) * len(idx)
+                    tracked.advance()
+                self.history_.append(total / n)
+                if verbose:
+                    print(f"epoch {epoch + 1:3d}/{epochs}  loss {self.history_[-1]:.5f}")
         return self
 
     def resources(self) -> dict[str, object]:

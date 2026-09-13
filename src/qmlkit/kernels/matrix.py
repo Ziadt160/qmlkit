@@ -27,6 +27,7 @@ import numpy.typing as npt
 from qmlkit.core.execute import BackendLike
 from qmlkit.encoding.feature_maps import FeatureMap
 from qmlkit.kernels.estimators import fidelity_kernel, hadamard_test
+from qmlkit.progress import task as progress_task
 from qmlkit.utils.errors import unknown
 
 __all__ = [
@@ -70,9 +71,13 @@ def square_kernel_matrix(
     if not assume_unit_diagonal:
         for i in range(m):
             out[i, i] = kernel(rows[i], rows[i])
-    for i in range(m):
-        for j in range(i + 1, m):
-            out[i, j] = out[j, i] = kernel(rows[i], rows[j])
+    # this is the path that takes hours on a few hundred points, so it is the one
+    # worth being able to watch
+    with progress_task("kernel gram", m * (m - 1) // 2) as tracked:
+        for i in range(m):
+            for j in range(i + 1, m):
+                out[i, j] = out[j, i] = kernel(rows[i], rows[j])
+                tracked.advance()
     return out
 
 
@@ -86,7 +91,13 @@ def kernel_matrix(
         return square_kernel_matrix(X, kernel)
     a = np.atleast_2d(np.asarray(X, dtype=float))
     b = np.atleast_2d(np.asarray(Y, dtype=float))
-    return np.array([[kernel(u, v) for v in b] for u in a], dtype=float)
+    with progress_task("kernel gram", a.shape[0] * b.shape[0]) as tracked:
+        out = np.empty((a.shape[0], b.shape[0]), dtype=float)
+        for i, u in enumerate(a):
+            for j, v in enumerate(b):
+                out[i, j] = kernel(u, v)
+                tracked.advance()
+    return out
 
 
 def _hadamard_kernel(

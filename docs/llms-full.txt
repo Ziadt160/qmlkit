@@ -5103,6 +5103,8 @@ class PoolLayer(keep: 'str' = 'odd', mode: 'str' = 'discard', tied: 'bool' = Tru
 
     ``tied`` shares one pooling angle across the whole layer, matching the way a
     tied convolution shares one filter.
+class Progress(stream: 'IO[str] | None' = None, live: 'bool' = True) -> 'None'
+    Collects what the run is doing, and optionally shows it live.
 class QCNNLayer(n_qubits: 'int', feature_map: 'FeatureMap | None' = None, tie_weights: 'bool' = True, observables: 'Sequence[Observable] | None' = None, filter: 'str | tuple[Any, int]' = 'ry_cx', pattern: 'str' = 'chain', pool: 'str' = 'discard', ansatz: 'Ansatz | None' = None, **kwargs: 'Any') -> 'None'
     Quantum convolutional layer: shared filter, then pooling.
 
@@ -5200,6 +5202,8 @@ class SklearnCompatible()
     attribute of the same name, unchanged.
 class Slot(op_index: 'int', param_pos: 'int', ref: 'ParamRef', gate: 'str') -> None
     One concrete (operation, parameter-position) angle site.
+class TaskRecord(label: 'str', items: 'int', seconds: 'float', depth: 'int' = 0) -> None
+    One finished unit of work, kept for the report.
 class TrainableKernel(feature_map_factory: 'Any', n_params: 'int', shots: 'int | None' = None, backend: 'BackendLike' = None) -> 'None'
     Train the *feature map itself* by maximising kernel-target alignment.
 
@@ -5413,6 +5417,8 @@ def plan(model: 'Any', n_samples: 'int' = 1, steps: 'int' = 1, method: 'str' = '
     Circuits, shots and wall-clock for a training run, plus the ways to shrink it.
 def probabilities(spec: 'CircuitSpec', theta: 'ArrayLike | None' = None, backend: 'BackendLike' = None) -> 'npt.NDArray[Any]'
     Exact outcome probabilities over the ``2**n`` basis states.
+def progress(live: 'bool' = True, stream: 'IO[str] | None' = None) -> 'Iterator[Progress]'
+    Watch a run, and keep what it did.
 def projected_kernel_matrix(feature_map: 'FeatureMap', X: 'npt.NDArray[Any]', gamma: 'float' = 1.0, backend: 'BackendLike' = None) -> 'npt.NDArray[Any]'
     Projected quantum kernel — the standard answer to exponential concentration.
 def purity(state: 'CircuitSpec | npt.NDArray[Any]', wires: 'Sequence[int] | None' = None, n_qubits: 'int | None' = None, backend: 'BackendLike' = None) -> 'float'
@@ -5491,6 +5497,8 @@ def threshold_matrix(K: 'npt.NDArray[Any]') -> 'npt.NDArray[Any]'
     Clip negative eigenvalues to zero — the standard projection onto the cone.
 def to_angle_range(x: 'npt.NDArray[Any]', lo: 'float' = 0.0, hi: 'float' = 6.283185307179586, data_min: 'npt.NDArray[Any] | None' = None, data_max: 'npt.NDArray[Any] | None' = None) -> 'npt.NDArray[Any]'
     Rescale features into an angle window, per column.
+def track(iterable: 'Iterable[T]', label: 'str', total: 'int | None' = None) -> 'Iterator[T]'
+    Count an iterable's items as they are consumed, if anything is watching.
 def tree_tensor_network(n_qubits: 'int', filter: 'str | tuple[ConvFilter, int]' = 'ry_cx', tied: 'bool' = False) -> 'Ansatz'
     Log-depth merge tree — shallow, and resistant to barren plateaus.
 def two_local(n_qubits: 'int', n_layers: 'int' = 2, rotations: 'Sequence[str]' = ('ry',), entangler: 'str' = 'cx', pattern: 'str' = 'full') -> 'Ansatz'
