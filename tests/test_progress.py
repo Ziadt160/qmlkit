@@ -180,3 +180,41 @@ def test_live_output_is_throttled() -> None:
             tracked.advance()
     # one forced draw at task start, then at most a handful more
     assert stream.getvalue().count("fast") < 100
+
+
+# --------------------------------------------------------------------------- #
+# the slow path is the one that has to report
+# --------------------------------------------------------------------------- #
+def test_a_backend_without_a_native_batch_reports_each_circuit() -> None:
+    """The case this module exists for: a long run that looks like one call.
+
+    A Gram matrix on Qiskit is one call from the caller's side and hundreds of
+    simulations from inside `Backend.statevector_batch_slots`. Reporting at the call
+    would sit silent for minutes, which is exactly the complaint about every other
+    library in this field.
+    """
+    from qmlkit.core.backends.base import Backend
+
+    spec = qk.hardware_efficient(2, 1).build()
+    rows = np.zeros((7, spec.n_params))
+    backend = qk.get_backend("numpy")
+
+    with qk.progress(live=False) as run:
+        Backend.statevector_batch_slots(backend, spec, rows)  # the base fallback
+
+    assert [(r.label, r.items) for r in run.records] == [("numpy circuits", 7)]
+
+
+def test_a_vectorised_backend_reports_nothing() -> None:
+    """NumPy overrides the fallback with one vectorised call.
+
+    There is no incremental progress to report there, and inventing some would be a
+    progress bar that describes nothing.
+    """
+    spec = qk.hardware_efficient(2, 1).build()
+    rows = np.zeros((7, spec.n_params))
+
+    with qk.progress(live=False) as run:
+        qk.get_backend("numpy").statevector_batch_slots(spec, rows)
+
+    assert run.records == []

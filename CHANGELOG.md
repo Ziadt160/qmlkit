@@ -40,6 +40,29 @@ backend differentiates *through* each gate, which a NumPy `matrix=` cannot suppo
 Both now say so, and name the alternative, instead of telling the caller to edit a
 table.
 
+### Fixed - the slow backends were the silent ones
+
+`qk.progress()` tracked the pair-at-a-time kernel loop and `HybridModel.fit`, which
+meant it reported on the *fast* path and said nothing on the slow one. An exact Gram
+matrix on Qiskit took 140x what NumPy took and printed nothing at all, because from the
+caller's side it is a single `statevector_batch` call — and the thousands of
+simulations happen inside `Backend.statevector_batch_slots`, which was a bare list
+comprehension.
+
+That loop is now where progress is reported from, which fixes it for every backend
+without a native batch at once — Qiskit, Cirq, SpinQit, and anything registered later:
+
+```text
+qiskit circuits  471/780   60%  1.2s elapsed  ~0.8s left
+```
+
+`NumpyBackend` overrides that method with one vectorised call and so reports nothing,
+which is correct: there is no incremental progress there, and inventing some would be a
+bar that describes nothing. Both behaviours have a test.
+
+Overhead measured at **5 us per row against 960 us of work** — 0.5%, and only when
+something is watching.
+
 ### Added - the extension guide covers the parts that have no registry
 
 `docs/guides/extending.md` listed four registries; there are eight, and it now lists

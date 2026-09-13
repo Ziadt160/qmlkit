@@ -92,11 +92,20 @@ class Backend:
         working implementation the moment it can produce a statevector. A backend that
         can do better overrides this one method and everything above it — batched
         expectations, batched gradients, the torch layer — speeds up with it.
+
+        This loop is also the one place a backend *without* a native batch spends a
+        long workload, so it is where progress is reported from. A Gram matrix on
+        Qiskit is a single call from the caller's side and thousands of simulations
+        from here; anything reporting at the call would sit silent for minutes.
         """
+        from qmlkit.progress import task as progress_task
+
         rows = np.atleast_2d(np.asarray(slot_angles, dtype=float))
-        states: npt.NDArray[Any] = np.stack(
-            [self.statevector(spec.with_slot_angles(row)) for row in rows]
-        )
+        states: npt.NDArray[Any] = np.empty((len(rows), 2**spec.n_qubits), dtype=complex)
+        with progress_task(f"{self.name} circuits", len(rows)) as tracked:
+            for i, row in enumerate(rows):
+                states[i] = self.statevector(spec.with_slot_angles(row))
+                tracked.advance()
         return states
 
     def statevector_batch(self, spec: CircuitSpec, thetas: npt.NDArray[Any]) -> npt.NDArray[Any]:
