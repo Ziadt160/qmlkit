@@ -4,7 +4,33 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-09-13
+
+**Upgrading from 0.1.0? This release contains eleven correctness fixes as well as the
+features below, and four of those defects corrupt a result silently.** They were
+prepared as 0.1.1, which was never published — everything in that section further down
+ships here. The worst of them is in the torch backend, which computed a *different
+circuit* from every other backend, so `backend="torch"` and `method="backprop"` returned
+wrong numbers and nothing raised. If you are on 0.1.0, upgrade.
+
+### Fixed - a documented optimiser that never ran
+
+`OPTIMIZERS` has four entries and two of them need the gradient injected by the caller,
+but every injection site named `gradient-descent` alone. `optimizer="adam"` therefore
+raised `TypeError: _adam() missing 1 required keyword-only argument: 'grad'` from `VQE`,
+`QAOA` and `AdaptVQE` alike — one of the four documented optimiser names could not be
+used from any of the three algorithms that list it.
+
+`tests/test_optimizer_wiring.py` now parametrises over `OPTIMIZERS` itself rather than a
+hand-written list, so a fifth entry cannot be added without being covered, and one test
+drives both gradient routes to the known ground state — an injected gradient that was
+*wrong* would pass a wiring test and fail that one.
+
+Also fixed: two docstrings whose LaTeX had been eaten by a shell heredoc (`\rho` and
+`\rangle` became line breaks, `\theta` became a tab), and three references to things
+that do not exist — `kernel.matrix(X)` in a user-facing error message where the call is
+`kernel(X)`, `qk.datasets.moons` in a live doctest where it is `make_moons`, and an
+"AmplitudeEncoder feature map" in the PennyLane alias table.
 
 ### Added - you can watch a run instead of waiting for it
 
@@ -121,7 +147,13 @@ or without torch, `diagnose` behaves exactly as before.
 
 `X` and `y` are optional positional parameters, so every existing call is unchanged.
 
-## [0.1.1] - 2026-09-13
+## [0.1.1] - prepared, never published
+
+This version was cut, verified and then superseded before it was tagged: the tree
+gained features while it sat, so the correctness work below shipped in **0.2.0**
+instead. There is no `0.1.1` on PyPI and there never will be. The section is kept in
+full because it is the account of eleven defects that were in 0.1.0, and a reader
+upgrading from 0.1.0 needs it.
 
 **Upgrade from 0.1.0.** Everything below was found after 0.1.0 was published, so it is
 all still present in the version on PyPI. One defect was reported by a reader using the

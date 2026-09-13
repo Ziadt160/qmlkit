@@ -45,7 +45,7 @@ reads `-0.1288` where NumPy, Qiskit and Cirq all agree on `-0.7374`. Nothing rai
 wrong too, and `qk.conv_block(filter="su4")` reaches it without anyone hand-writing a
 circuit.
 
-It is **fixed on this branch and not yet released**. Cutting 0.1.1 is the first
+It is **fixed on this branch and not yet released**. Cutting 0.2.0 is the first
 priority, and its release note should say plainly that 0.1.0 returns wrong numbers
 under that condition — anyone who ran a `backprop` gradient on it has no way to know.
 
@@ -55,10 +55,10 @@ could not: it compares the backends against *each other*, and the torch backend 
 excluded from the property that would have noticed. An agreement test that skips a
 participant tests nothing about that participant.
 
-## What is fixed here and waiting for 0.1.1
+## What is fixed here and waiting for the release
 
-Everything below is committed on `claude/library-motivation-error-correction-bcd9d1`
-and absent from the published 0.1.0:
+All of it is merged onto this branch now, and all of it is absent from the published
+0.1.0:
 
 | | why it matters |
 |---|---|
@@ -74,16 +74,12 @@ and absent from the published 0.1.0:
 Plus new: `qk.optim.minimize_adam`, `qk.evaluate.selective` / `risk_coverage`,
 `from_cirq`, the mixed-state backends, Study 8, and `tests/test_torture.py`.
 
-## Two fix sessions may still be running
+## The two fix sessions landed
 
-Started from this session and working in their own worktrees. **Check before editing
-their files**, and let them land before tagging 0.1.1:
-
-* `EncodingLayer` slot aliasing plus the observable algebra (`ansatz/blocks.py`,
-  `core/observables.py`)
-* six defects from the adversarial audit (`kernels/`, `info.py`, `evaluate.py`,
-  `diagnostics.py`) — the worst is `QuantumKernel(estimator="hadamard")` returning
-  `Re(<x'\|x>)**2` instead of `\|<x'\|x>\|**2`
+Both are merged here: the `EncodingLayer` slot aliasing plus the observable
+algebra, and the six audit defects in `kernels/`, `info.py`, `evaluate.py` and
+`diagnostics.py` - the worst of which was `QuantumKernel(estimator="hadamard")`
+returning `Re(<x'|x>)**2` instead of `|<x'|x>|**2`.
 
 ## Status
 
@@ -101,7 +97,7 @@ roots), so the figure is carried by the `full` job, which installs every extra a
 the whole suite on Linux.
 
 Phases 0–7 are done: 0.1.0 is on PyPI and the release workflow ran green end to end,
-so the mechanism is proven rather than hoped for. What is open is 0.1.1.
+so the mechanism is proven rather than hoped for. What is open is 0.2.0.
 
 ### How the library is checked, in order of how much it proves
 
@@ -234,10 +230,17 @@ stopped being capability several releases ago. Items 2-6 are mostly *honesty lay
 rather than new capability surface, which is the only kind of growth this library can
 afford. Where an item is pure capability (threads, GPU), keep it as small as it can be.
 
-### 1. Release 0.1.1 - 0.1.0 returns wrong numbers and should not be recommended
+### 1. Release 0.2.0 - 0.1.0 returns wrong numbers and should not be recommended
 
-0.1.0 is on PyPI. 0.1.1 is prepared here and **not yet tagged**. It closes eleven
-defects found after 0.1.0 shipped: one a reader hit using the library - a composition
+0.1.0 is on PyPI. **0.2.0 is prepared here and not yet tagged.** It was going to be
+0.1.1 and stayed untagged long enough for the tree to gain features - progress and the
+run report, `diagnose(model, X, y)`, and a fix for an optimiser that never ran - so
+shipping it as a patch would have put features in a patch release under a changelog
+calling them unreleased. There is no 0.1.1 on PyPI and there will not be; its section
+in the changelog is kept because it is the account of the eleven defects, and it says
+so at the top.
+
+It closes eleven defects found after 0.1.0 shipped: one a reader hit using the library - a composition
 the README recommended that built the wrong circuit without raising - and ten from an
 adversarial audit, four of which corrupt a result silently. The worst is the torch
 backend computing a different circuit from every other backend, reachable from the
@@ -254,7 +257,7 @@ audit's own findings re-run and closed in both environments, the wheel and sdist
 
 **The tag goes on the subtree-split commit, not on this repository.** `release.yml`
 only exists in the published one, so `git push origin main --tags` tags the upstream
-repository and triggers nothing. `RELEASING.md` has the procedure; it names `v0.1.1`.
+repository and triggers nothing. `RELEASING.md` has the procedure; it names `v0.2.0`.
 
 **A PyPI version number can never be reused**, so the tag is deliberately not pushed
 until the release is wanted.

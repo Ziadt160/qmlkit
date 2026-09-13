@@ -90,8 +90,8 @@ qmlkit is developed as the `qmlkit/` subdirectory of a private upstream working
    It prints the SHA of the split commit — that is what the tag goes on:
 
    ```bash
-   git tag v0.1.1 $(git rev-parse qmlkit-standalone)
-   git push qmlkit v0.1.1
+   git tag v0.2.0 $(git rev-parse qmlkit-standalone)
+   git push qmlkit v0.2.0
    ```
 
    The tag must match the packaged version exactly; the workflow checks and refuses
@@ -119,8 +119,8 @@ qmlkit is developed as the `qmlkit/` subdirectory of a private upstream working
   anything. Delete the tag, fix the version, tag again:
 
   ```bash
-  git push qmlkit :refs/tags/v0.1.1   # delete it on the remote
-  git tag -d v0.1.1                   # and locally
+  git push qmlkit :refs/tags/v0.2.0   # delete it on the remote
+  git tag -d v0.2.0                   # and locally
   ```
 
 - **Nothing happened when you pushed the tag** — you almost certainly tagged the
