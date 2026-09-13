@@ -222,8 +222,9 @@ class AdaptVQE:
 
             fn = OPTIMIZERS[self.optimizer] if isinstance(self.optimizer, str) else self.optimizer
             kwargs = dict(optimizer_kwargs)
-            if fn is OPTIMIZERS["gradient-descent"]:
+            if fn in (OPTIMIZERS["gradient-descent"], OPTIMIZERS["adam"]):
                 kwargs.setdefault("grad", gradient)
+            if fn is OPTIMIZERS["gradient-descent"]:
                 kwargs.setdefault("n_steps", 60)
                 kwargs.setdefault("lr", 0.2)
             if fn is OPTIMIZERS["spsa"]:

@@ -41,7 +41,7 @@ _PENNYLANE: dict[str, tuple[str | None, str]] = {
     "jacobian": ("grad", ""),
     "about": ("backend_report", ""),
     "AngleEmbedding": ("AngleFeatureMap", "or angle_encode(x) for a one-shot circuit"),
-    "AmplitudeEmbedding": ("amplitude_encode", "or the AmplitudeEncoder feature map"),
+    "AmplitudeEmbedding": ("amplitude_encode", "for a one-shot circuit over a state vector"),
     "BasisEmbedding": ("basis_encode", ""),
     "IQPEmbedding": ("ZZFeatureMap", ""),
     "StatePrep": ("amplitude_encode", ""),

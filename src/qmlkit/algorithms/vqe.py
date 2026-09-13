@@ -177,7 +177,10 @@ class VQE:
             else self.ansatz.init("small", seed=seed)
         )
         fn = OPTIMIZERS[self.optimizer] if isinstance(self.optimizer, str) else self.optimizer
-        if fn is _gradient_descent:
+        # both gradient optimisers need the gradient injected; naming only one of them
+        # here is what made optimizer="adam" raise a TypeError from every algorithm
+        # that advertises it
+        if fn in (_gradient_descent, _adam):
             optimizer_kwargs.setdefault("grad", self.gradient_of_energy)
         if fn is _spsa:
             optimizer_kwargs.setdefault("seed", seed)

@@ -11,7 +11,7 @@ So it goes unrun, and the reviewer asks anyway.
 This module makes it one call::
 
     >>> import qmlkit as qk
-    >>> X, y = qk.datasets.moons(n_samples=60, seed=0)
+    >>> X, y = qk.datasets.make_moons(n_samples=60, seed=0)
     >>> table = qk.baseline(X, y, cv=3, seed=0)     # doctest: +SKIP
     >>> print(table)                                # doctest: +SKIP
     classification  ·  balanced_accuracy  ·  3-fold stratified  ·  n=60

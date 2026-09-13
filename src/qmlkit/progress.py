@@ -7,7 +7,7 @@ library in this field runs them behind a silent call that returns when it return
 
     >>> import qmlkit as qk
     >>> with qk.progress() as run:                      # doctest: +SKIP
-    ...     gram = kernel.matrix(X)
+    ...     gram = kernel(X)
     ...
     kernel gram   3,412/12,720   27%   14.2s elapsed   ~37s left
 

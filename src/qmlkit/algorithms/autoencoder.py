@@ -100,16 +100,13 @@ class QuantumAutoencoder:
         return PauliSum(tuple(terms))
 
     def trash_fidelity(self, theta: ArrayLike, states: Sequence[CircuitSpec]) -> float:
-        r"""Mean :math:`\langle 0|
-        ho_\mathrm{trash}|0
-        angle` — 1.0 is perfect compression.
+        r"""Mean :math:`\langle 0|\rho_\mathrm{trash}|0\rangle` — 1.0 is perfect compression.
 
-                Purity alone is **not** enough, and getting that wrong is easy: an encoder can
-                leave the trash in a pure state pointing somewhere other than
-                :math:`|0
-        angle`, scoring purity 0.998 while the round trip only returns
-                fidelity 0.21. Measured, on the way to writing this. What the decoder needs is
-                the trash reset to a *known* state, so that is what the loss asks for.
+        Purity alone is **not** enough, and getting that wrong is easy: an encoder can
+        leave the trash in a pure state pointing somewhere other than
+        :math:`|0\rangle`, scoring purity 0.998 while the round trip only returns
+        fidelity 0.21. Measured, on the way to writing this. What the decoder needs is
+        the trash reset to a *known* state, so that is what the loss asks for.
         """
         arr = np.asarray(theta, dtype=float)
         projector = self._trash_projector()

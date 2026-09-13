@@ -70,7 +70,7 @@ def supports_rotosolve(spec: CircuitSpec) -> bool:
     r"""Whether Rotosolve's closed form is actually valid for this circuit.
 
     Rotosolve works because a circuit expectation is a *single* sinusoid
-    :math:`A\sin(	heta + B) + C` in any one Pauli-rotation angle — three samples then
+    :math:`A\sin(\theta + B) + C` in any one Pauli-rotation angle — three samples then
     determine it exactly. That holds when a parameter drives one rotation, or several
     that compose into one (same qubit, same generator).
 

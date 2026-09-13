@@ -558,7 +558,7 @@ def _diagnose_kernel(
     if arr.ndim != 2 or arr.shape[0] != arr.shape[1]:
         raise ValueError(
             f"a Gram matrix must be square, got shape {arr.shape}. Build one with "
-            "kernel_matrix(X) or QuantumKernel(...).matrix(X)."
+            "kernel_matrix(X) or QuantumKernel(...)(X)."
         )
     if arr.shape[0] < 2:
         return []

@@ -163,7 +163,7 @@ class QAOA:
         fn = OPTIMIZERS[self.optimizer] if isinstance(self.optimizer, str) else self.optimizer
         if fn is OPTIMIZERS["spsa"]:
             optimizer_kwargs.setdefault("seed", seed)
-        if fn is OPTIMIZERS["gradient-descent"]:
+        if fn in (OPTIMIZERS["gradient-descent"], OPTIMIZERS["adam"]):
             optimizer_kwargs.setdefault("grad", self.gradient_of_energy)
         if fn is OPTIMIZERS["rotosolve"] and not supports_rotosolve(self._spec):
             warnings.warn(
