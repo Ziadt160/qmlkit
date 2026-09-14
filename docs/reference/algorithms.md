@@ -21,10 +21,36 @@ converges confidently to an energy 601 mHa wrong.
 
 ADAPT-VQE: grow the ansatz one operator at a time, chosen by gradient magnitude.
 
-**The trap worth knowing.** A molecular Hamiltonian conserves particle number, so any
-operator that does not has *exactly zero* gradient at Hartree–Fock — the generic pool
-grows an empty circuit and reports convergence. Use `chemistry_operator_pool`. This is
-physics, not a bug, and a test pins it.
+**The trap worth knowing, and it has two halves.** A molecular Hamiltonian conserves
+particle number, so any operator that does not has *exactly zero* gradient at
+Hartree–Fock — the generic pool grows an empty circuit and reports convergence. Use
+`chemistry_operator_pool`. This is physics, not a bug, and a test pins it.
+
+The second half is that the pool alone is not enough. A particle-conserving pool cannot
+*change* the particle number either, so starting from the default vacuum every
+candidate has zero gradient too, and you get the same empty circuit — reporting
+`+0.720` Ha against a true `-1.137`. Hartree–Fock is where `reference=` comes in:
+
+```python
+import qmlkit as qk
+from qmlkit.algorithms import AdaptVQE, chemistry_operator_pool, h2_hamiltonian
+
+hamiltonian, info = h2_hamiltonian()          # H2 at 0.735 A, 4 qubits
+result = AdaptVQE(
+    hamiltonian,
+    n_qubits=4,
+    pool=chemistry_operator_pool(4),
+    reference=[0, 1],                          # Hartree-Fock: two occupied spin-orbitals
+).run(seed=0)
+
+print(f"{result.energy:.8f} Ha from {len(result.operators)} operator(s)")
+# -1.13730603 Ha from 1 operator(s)
+```
+
+One operator reaches the exact ground state here, to `1e-11`. That is ADAPT's point:
+it grows only what the gradient asks for. Selecting *zero* operators now warns, because
+it is never convergence — it means nothing in the pool can move the energy off the
+reference at all.
 
 ::: qmlkit.algorithms.adapt
 
@@ -73,6 +99,32 @@ external quality because they routinely disagree — see
 
 ## `qmlkit.algorithms.rl`
 
-Variational policies for reinforcement learning.
+Variational policies for reinforcement learning. The circuit *is* the policy: an
+observation is encoded, the trainable block runs, and one expectation per action
+becomes a logit that a softmax turns into action probabilities.
+
+```python
+from qmlkit.algorithms import ContextualBandit, QuantumPolicy, train_reinforce
+
+env = ContextualBandit(seed=0)                 # 2 observations, 2 actions, reward 0 or 1
+policy = QuantumPolicy(n_observations=env.n_observations, n_actions=env.n_actions, seed=0)
+result = train_reinforce(policy, env, n_episodes=200, seed=0)
+
+print(f"{result.mean_return(50):.2f}")         # mean return over the last 50 episodes
+# 0.70
+```
+
+Read that against the bar, not in isolation: two actions and a 0/1 reward means a random
+policy averages **0.50**, and the first fifty episodes of this run do exactly that. The
+last fifty average **0.70**. That gap is the learning, and it is the number to report —
+a mean return quoted without the random baseline beside it says nothing at all.
+
+`beta` is the knob most worth understanding. Expectations live in `[-1, 1]`, which is a
+narrow range to softmax over, so `beta` sets how sharp the policy is: too low and it
+never commits, too high and it stops exploring before it has learned anything.
+
+Any environment satisfying the `Environment` protocol works — `n_observations`,
+`n_actions`, `reset()` and `step(action)`. `ContextualBandit` is the toy that keeps the
+test suite honest, not the interesting case.
 
 ::: qmlkit.algorithms.rl

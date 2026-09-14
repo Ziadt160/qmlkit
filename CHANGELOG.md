@@ -6,6 +6,56 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed - `QMeans.fit(X, seed=...)` did not make a shots-based run reproducible
+
+`_kernel` always read the *constructor's* `seed`, never `fit`'s, so the run seed
+reached the centroid draw and not the kernel's sampling. An unseeded `QMeans(shots=300)`
+fitted twice with the same `fit(X, seed=42)` returned inertia 6.740 and 5.613 --
+`fit(X, seed=...)` reads like "make this run reproducible" and did not. It now seeds
+both, and a constructor seed still works on its own.
+
+### Added - which gradient methods keep a torch layer batched
+
+`QuantumLayer` computes a whole batch's gradient in one backend call, which is the
+difference between a training step costing one call and one per sample. Only
+`auto`, `adjoint` and `parameter-shift` take that path. `hadamard`, `spsa`,
+`finite-diff` and anything registered fall back to a per-sample Python loop -- no
+error, no warning, correct answers, an order of magnitude slower. `backprop` is refused
+outright, which the gradient guide already covered; the silent fallback it did not.
+
+Set `grad_method="hadamard"` on a `VQC` because the comparison table says it costs half
+what parameter-shift does, and you get the per-slot saving *and* lose the batching. The
+guide now says so, with the table.
+
+### Added - narrative for the parts of the library that had only a signature
+
+- **`qmlkit.generative`** had no prose at all. Born machines sample easily and cannot
+  score a point; energy-based models score easily and sample only through a chain --
+  the split decides what you can ask of them. `QuantumBoltzmannMachine.grad` returns a
+  *lower-bound* gradient, so a run that stops improving may have hit the bound rather
+  than the optimum, which is worth knowing before you debug the optimiser.
+- **`qmlkit.shadows`** had one sentence. Shadows predict `M` observables at a cost
+  growing with `log M` rather than `M`, against a variance penalty that grows sharply
+  with locality: they win on many local observables and lose on a few global ones.
+  `shadow_shot_cost` and `kernels.kernel_shot_cost` price the two routes; the crossover
+  moves with locality and no rule of thumb survives it.
+- **The capacity half of `qmlkit.metrics`** -- `generalization_bound`,
+  `samples_for_gap`, `effective_dimension`, `noise_survival` -- was reachable only by
+  already knowing the names. `hardware_efficient(4, 3)` has 24 parameters and a bound
+  of 0.87 against 100 samples, which for a metric in `[0, 1]` constrains nothing;
+  reaching a gap of 0.1 needs 7,628 samples. At `hardware_efficient(6, 8)` it is 2.09
+  and 43,818. That arithmetic is usually the real reason a model that trains
+  beautifully does not generalise.
+- **`AdaptVQE` and the RL policy** had no worked example anywhere in the docs. Both now
+  have one, and because they are executable the suite runs them: the ADAPT example
+  reaches `-1.13730603` Ha from one operator, and the REINFORCE example reports 0.70
+  against a random-policy baseline of 0.50 -- quoted together, because a mean return
+  without its baseline beside it says nothing.
+- **`QuantumPolicy`** documented none of its nine constructor arguments. It documents
+  all nine now, `beta` included: expectations live in `[-1, 1]`, a narrow range to take
+  a softmax over, so it decides whether the policy commits or keeps exploring.
+
+
 ### Fixed - errors that named the wrong thing, and counts that understated
 
 The second pass over the audit findings. None of these returned a wrong number; each

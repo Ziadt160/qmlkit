@@ -3753,6 +3753,30 @@ once per parameter. qmlkit's adjoint is a direct NumPy sweep with no dispatch to
 amortise, so the ranking inverts. If you arrive expecting backprop to win, measure
 before switching; `method="auto"` already picks the fast one here.
 
+## Inside a torch layer, only three methods stay batched
+
+`QuantumLayer` and the models built on it compute a whole batch's gradient in one
+backend call. That is the difference between a training step costing one call and
+costing one per sample, and it is why `qmlkit.gradients.batch` exists at all.
+
+Only three `grad_method` values take that path:
+
+| `grad_method` | inside `QuantumLayer` |
+|---|---|
+| `auto`, `adjoint`, `parameter-shift` | **batched** — one call per observable for the whole batch |
+| `hadamard`, `spsa`, `finite-diff`, anything you registered | **per sample**, in a Python loop |
+| `backprop` | refused outright by `grad_batch`, which says so rather than falling back |
+
+The middle row is the one to watch, because nothing raises and nothing warns: the
+answer is correct and the run is quietly an order of magnitude slower. If you set
+`grad_method="hadamard"` on a `VQC` because the comparison table above says it costs
+half what parameter-shift does, you get the per-slot saving *and* lose the batching,
+which on any realistic batch size is the worse trade.
+
+The refusal on `backprop` is deliberate and worth contrasting: it needs the circuit
+inside an autograd graph, which a batched NumPy call cannot provide, so it raises
+instead of silently doing something else.
+
 **`hadamard`** — one circuit per parameterised *slot* instead of two, using an ancilla in `|+⟩`
 and a controlled generator. Unlike adjoint it is a real measurement, so it stays
 valid on hardware. The trade is an ancilla that must couple to every wire the
@@ -5464,10 +5488,36 @@ converges confidently to an energy 601 mHa wrong.
 
 ADAPT-VQE: grow the ansatz one operator at a time, chosen by gradient magnitude.
 
-**The trap worth knowing.** A molecular Hamiltonian conserves particle number, so any
-operator that does not has *exactly zero* gradient at Hartree–Fock — the generic pool
-grows an empty circuit and reports convergence. Use `chemistry_operator_pool`. This is
-physics, not a bug, and a test pins it.
+**The trap worth knowing, and it has two halves.** A molecular Hamiltonian conserves
+particle number, so any operator that does not has *exactly zero* gradient at
+Hartree–Fock — the generic pool grows an empty circuit and reports convergence. Use
+`chemistry_operator_pool`. This is physics, not a bug, and a test pins it.
+
+The second half is that the pool alone is not enough. A particle-conserving pool cannot
+*change* the particle number either, so starting from the default vacuum every
+candidate has zero gradient too, and you get the same empty circuit — reporting
+`+0.720` Ha against a true `-1.137`. Hartree–Fock is where `reference=` comes in:
+
+```python
+import qmlkit as qk
+from qmlkit.algorithms import AdaptVQE, chemistry_operator_pool, h2_hamiltonian
+
+hamiltonian, info = h2_hamiltonian()          # H2 at 0.735 A, 4 qubits
+result = AdaptVQE(
+    hamiltonian,
+    n_qubits=4,
+    pool=chemistry_operator_pool(4),
+    reference=[0, 1],                          # Hartree-Fock: two occupied spin-orbitals
+).run(seed=0)
+
+print(f"{result.energy:.8f} Ha from {len(result.operators)} operator(s)")
+# -1.13730603 Ha from 1 operator(s)
+```
+
+One operator reaches the exact ground state here, to `1e-11`. That is ADAPT's point:
+it grows only what the gradient asks for. Selecting *zero* operators now warns, because
+it is never convergence — it means nothing in the pool can move the energy off the
+reference at all.
 
 ## `qmlkit.algorithms.qaoa`
 
@@ -5502,7 +5552,33 @@ external quality because they routinely disagree — see
 
 ## `qmlkit.algorithms.rl`
 
-Variational policies for reinforcement learning.
+Variational policies for reinforcement learning. The circuit *is* the policy: an
+observation is encoded, the trainable block runs, and one expectation per action
+becomes a logit that a softmax turns into action probabilities.
+
+```python
+from qmlkit.algorithms import ContextualBandit, QuantumPolicy, train_reinforce
+
+env = ContextualBandit(seed=0)                 # 2 observations, 2 actions, reward 0 or 1
+policy = QuantumPolicy(n_observations=env.n_observations, n_actions=env.n_actions, seed=0)
+result = train_reinforce(policy, env, n_episodes=200, seed=0)
+
+print(f"{result.mean_return(50):.2f}")         # mean return over the last 50 episodes
+# 0.70
+```
+
+Read that against the bar, not in isolation: two actions and a 0/1 reward means a random
+policy averages **0.50**, and the first fifty episodes of this run do exactly that. The
+last fifty average **0.70**. That gap is the learning, and it is the number to report —
+a mean return quoted without the random baseline beside it says nothing at all.
+
+`beta` is the knob most worth understanding. Expectations live in `[-1, 1]`, which is a
+narrow range to softmax over, so `beta` sets how sharp the policy is: too low and it
+never commits, too high and it stops exploring before it has learned anything.
+
+Any environment satisfying the `Environment` protocol works — `n_observations`,
+`n_actions`, `reset()` and `step(action)`. `ContextualBandit` is the toy that keeps the
+test suite honest, not the interesting case.
 
 
 ==============================================================================
@@ -5516,6 +5592,32 @@ Measuring an ansatz rather than asserting things about it: expressibility, entan
 ## `qmlkit.diagnostics`
 
 ## `qmlkit.metrics`
+
+Two halves. Expressibility, entangling capability and gradient variance describe the
+*circuit*, and [Designing an ansatz](../tutorials/04-ansatz-design.md) and
+[Trainability](../tutorials/08-trainability.md) work through them.
+
+The other half describes what the model can be expected to *learn*, and is easy to
+miss because nothing else links to it:
+
+| | |
+|---|---|
+| `generalization_bound(T, N)` | the expected train-test gap, `O(sqrt(T log T / N))` (Caro et al. 2022), for `T` trainable gates and `N` samples |
+| `samples_for_gap(T, gap)` | the same bound inverted: how much data a target gap needs |
+| `fisher_information` / `effective_dimension` | how many parameters are *usefully* independent, which is generally far fewer than the raw count |
+| `noise_survival(f, depth)` | `f**depth`, independent per-gate success compounding over a circuit |
+
+These are worth running before a long training job rather than after.
+`hardware_efficient(4, 3)` carries 24 trainable parameters; against 100 samples the
+bound is **0.87**, which for a metric in `[0, 1]` is no constraint at all. Reaching a
+gap of 0.1 would take **7,628 samples**. Go to `hardware_efficient(6, 8)` — 96
+parameters — and the bound is **2.09** and the requirement **43,818 samples**. Quantum
+datasets are rarely that large, and that arithmetic is usually the real reason a model
+that trains beautifully does not generalise.
+
+`noise_survival` is the same kind of sobriety on the hardware side: a 200-gate circuit
+at 99.9% per-gate fidelity keeps **0.819** of its amplitude, and a 2,000-gate one keeps
+0.135.
 
 ## `qmlkit.landscape`
 
@@ -5535,9 +5637,38 @@ random starts agree, and where the QFIM rank saturates.
 
 ## `qmlkit.generative`
 
+Two families, and the difference decides what you can ask of them. A **Born machine**
+(`QCBM`, `QGAN`) reads its distribution off measurement probabilities directly, so it
+samples easily and cannot score an arbitrary point. An **energy-based** model
+(`QuantumBoltzmannMachine`, `QuantumHopfield`) defines a distribution through an energy
+and a partition function, so it scores easily and samples only through a chain.
+
+`QCBM` trains against a target distribution through a sample-based loss —
+`mmd_squared`, `kl_divergence` or `total_variation`. `mmd_squared` is the usual choice:
+the other two need the target's support to cover the model's, which an untrained model
+rarely arranges.
+
+`QuantumBoltzmannMachine.grad` returns a **lower-bound** gradient, not an exact
+log-likelihood gradient — the exact one needs the quantum relative entropy's derivative,
+which is not sampled cheaply. The bound is what makes the model trainable at all; it
+also means the loss it reports is a bound rather than a likelihood, and a run that
+stops improving may have hit the bound rather than the optimum.
+
 ## `qmlkit.shadows`
 
 Classical shadows: many observables from few measurements.
+
+The trade is worth making explicit, because it is the opposite of the usual one.
+Measuring `M` observables the direct way costs one measurement setting each, and each
+setting needs enough shots to resolve its own value. A shadow takes randomised
+single-qubit measurements *once* and predicts all `M` afterwards, at a cost that grows
+with `log M` rather than `M` — but with a variance penalty that grows with each
+observable's locality, sharply. Shadows win on many *local* observables and lose on a
+few global ones.
+
+`shadow_shot_cost` prices the shadow route; `qmlkit.kernels.kernel_shot_cost` prices
+the direct one. Compare them before committing a device run, because the crossover
+moves with locality and there is no rule of thumb that survives it.
 
 ## `qmlkit.utils.shots`
 
@@ -5637,12 +5768,12 @@ So qmlkit leans on five checks, ordered here by how much each one can prove:
 | 4 | **Cross-backend equivalence** | One circuit zoo through every installed SDK, compared to the NumPy reference |
 | 5 | **Executable documentation** | Every snippet on this site is run by the test suite |
 
-Plus the ordinary suite: **1,630 tests passing of 1,753 collected**, 0 failures, 94%
+Plus the ordinary suite: **1,631 tests passing of 1,753 collected**, 0 failures, 94%
 combined coverage measured in CI, `ruff` and `mypy --strict` clean over the whole
 package.
 
-Every one of the 123 skips is accounted for and none of them is silent: 65 constant
-gates tested at a single angle rather than six, 37 needing SpinQit's Python 3.10, 19
+Every one of the 122 skips is accounted for and none of them is silent: 65 constant
+gates tested at a single angle rather than six, 37 needing SpinQit's Python 3.10, 18
 documentation pages with no runnable Python, and 2 where the observable is wider than
 the circuit. CI asserts each optional SDK actually imported before running its jobs,
 because a suite guarded by `importorskip` and never given its dependency turns the job

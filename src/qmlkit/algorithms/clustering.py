@@ -79,19 +79,35 @@ class QMeans:
         self.labels_: npt.NDArray[Any] | None = None
 
     # ---------------------------------------------------------------- distance --
-    def _kernel(self, n_features: int) -> QuantumKernel:
+    def _kernel(self, n_features: int, seed: int | None = None) -> QuantumKernel:
         from qmlkit.encoding.feature_maps import AngleFeatureMap
 
         fmap = self.feature_map or AngleFeatureMap(n_features, entangle=n_features > 1)
-        return QuantumKernel(fmap, shots=self.shots, backend=self.backend, seed=self.seed)
+        # `seed` is the run's, falling back to the constructor's. Reading only
+        # `self.seed` here meant `fit(X, seed=...)` -- which reads like "make this run
+        # reproducible" -- reseeded the centroid draw and left the kernel's shot noise
+        # unseeded, so a shots-based fit was reproducible only if the *constructor* had
+        # also been seeded. Measured: two `fit(X, seed=42)` calls on an unseeded QMeans
+        # returned inertia 6.740 and 5.613.
+        return QuantumKernel(
+            fmap,
+            shots=self.shots,
+            backend=self.backend,
+            seed=self.seed if seed is None else seed,
+        )
 
-    def distances(self, X: npt.NDArray[Any], centroids: npt.NDArray[Any]) -> npt.NDArray[Any]:
+    def distances(
+        self, X: npt.NDArray[Any], centroids: npt.NDArray[Any], seed: int | None = None
+    ) -> npt.NDArray[Any]:
         r"""``(n_samples, k)`` of :math:`2(1 - k(x, c))`.
 
         A kernel with unit diagonal induces a genuine squared distance this way, so
         the assignment step below is the ordinary one — no special-casing.
+
+        ``seed`` seeds the kernel's sampling for this call, and defaults to the
+        constructor's.
         """
-        kernel = self._kernel(X.shape[1])
+        kernel = self._kernel(X.shape[1], seed)
         gram = kernel(np.asarray(X, dtype=float), np.asarray(centroids, dtype=float))
         return 2.0 * (1.0 - gram)
 
@@ -109,7 +125,7 @@ class QMeans:
         labels = np.zeros(len(data), dtype=int)
         iteration = 0
         for iteration in range(self.max_iterations):  # noqa: B007 - used after the loop
-            d = self.distances(data, centroids)
+            d = self.distances(data, centroids, seed=seed)
             labels = np.argmin(d, axis=1)
             inertia = float(d[np.arange(len(data)), labels].sum())
             history.append(inertia)

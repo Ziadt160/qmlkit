@@ -73,7 +73,33 @@ class ContextualBandit:
 
 
 class QuantumPolicy:
-    """A circuit policy: observation in, action probabilities out."""
+    """A circuit policy: observation in, action probabilities out.
+
+    Parameters
+    ----------
+    n_observations, n_actions
+        Width of the observation vector and the size of the action space. The circuit
+        is built on ``max(n_observations, n_actions)`` qubits, since it has to encode
+        the one and read out the other.
+    feature_map
+        How an observation becomes angles. Defaults to an entangling
+        :class:`~qmlkit.encoding.feature_maps.AngleFeatureMap` at the circuit's width.
+    ansatz
+        The trainable block. Defaults to
+        :func:`~qmlkit.ansatz.library.hardware_efficient` with ``n_layers`` layers.
+    observables
+        One per action; their expectations become the logits. Defaults to ``Z(i)`` on
+        the first ``n_actions`` wires.
+    n_layers
+        Depth of the default ansatz. Ignored when ``ansatz`` is given.
+    beta
+        Inverse temperature on the softmax over those logits. Expectations live in
+        ``[-1, 1]``, which is a narrow range to take a softmax over, so ``beta``
+        controls how sharp the resulting policy is: small values keep it close to
+        uniform and exploring, large values make it nearly deterministic.
+    backend, seed
+        Passed through to execution. ``seed`` fixes the initial weights.
+    """
 
     def __init__(
         self,

@@ -16,12 +16,12 @@ So qmlkit leans on five checks, ordered here by how much each one can prove:
 | 4 | **Cross-backend equivalence** | One circuit zoo through every installed SDK, compared to the NumPy reference |
 | 5 | **Executable documentation** | Every snippet on this site is run by the test suite |
 
-Plus the ordinary suite: **1,630 tests passing of 1,753 collected**, 0 failures, 94%
+Plus the ordinary suite: **1,631 tests passing of 1,753 collected**, 0 failures, 94%
 combined coverage measured in CI, `ruff` and `mypy --strict` clean over the whole
 package.
 
-Every one of the 123 skips is accounted for and none of them is silent: 65 constant
-gates tested at a single angle rather than six, 37 needing SpinQit's Python 3.10, 19
+Every one of the 122 skips is accounted for and none of them is silent: 65 constant
+gates tested at a single angle rather than six, 37 needing SpinQit's Python 3.10, 18
 documentation pages with no runnable Python, and 2 where the observable is wider than
 the circuit. CI asserts each optional SDK actually imported before running its jobs,
 because a suite guarded by `importorskip` and never given its dependency turns the job
