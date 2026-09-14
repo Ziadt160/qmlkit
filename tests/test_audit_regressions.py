@@ -208,6 +208,7 @@ def test_resources_counts_every_observable():
     `for j, obs in enumerate(self.observables)` loops. The per-observable constants are
     deliberately not re-derived here: only the missing observable factor was the bug.
     """
+    pytest.importorskip("torch")  # the layer is a torch Module; core CI has no torch
     from qmlkit.nn.models import VQC
 
     four = VQC(n_features=4, n_qubits=4, seed=0).quantum.resources()
