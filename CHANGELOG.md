@@ -6,6 +6,30 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed - threaded `search` raced on torch's global RNG
+
+`HybridModel.__init__` seeds around its own construction so a seeded model is
+reproducible down to its classical layers, and puts the previous state back so the
+caller's RNG is untouched. But `torch.manual_seed` and `torch.set_rng_state` are
+*process-global*, and `qk.search(n_jobs=4)` builds several models on a
+`ThreadPoolExecutor`. Two threads interleaving inside that save-seed-build-restore
+sequence seed over each other, and one model initialises from the other's stream.
+
+It surfaced as `test_search_gives_the_same_table_threaded_as_serial` passing in one CI
+job and failing in another **on the same commit**, with the serial column stable at
+0.475 -- matching a local run exactly -- and the threaded column moving between 0.5 and
+0.525. A difference that size is a different initialisation, not float
+non-associativity.
+
+The sequence is now behind a lock. Construction is cheap next to training, so
+serialising it costs nothing worth measuring.
+
+Not reproduced locally, with or without the lock: CPython's GIL makes the interleaving
+window narrow enough that this machine never hit it in 80 concurrent builds. The
+mechanism is nevertheless real and the lock is correct independently of whether it is
+the whole story -- which CI, not this note, is the test of.
+
+
 ### Fixed - `QMeans.fit(X, seed=...)` did not make a shots-based run reproducible
 
 `_kernel` always read the *constructor's* `seed`, never `fit`'s, so the run seed
