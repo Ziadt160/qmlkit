@@ -995,7 +995,7 @@ adjoint against 823 ms for parameter-shift** at `P=120`. Adjoint is not more acc
 — both are exact — it is just cheaper on a simulator, where reading the statevector
 is allowed.
 
-`hadamard` sits between them: one circuit per parameter instead of two, using an
+`hadamard` sits between them: one circuit per parameterised *slot* instead of two, using an
 ancilla and controlled generators, and unlike adjoint it is a real measurement, so it
 stays valid on hardware.
 
@@ -2107,23 +2107,70 @@ no ancilla. That matters because QNG is only as good as the metric it follows.
     qmlkit computes the exact metric, which costs no more on a simulator. The
     consequence is measurable, and it is in [Validation](../about/validation.md).
 
+## How many parameters is enough
+
+The metric has a rank, and the rank stops growing. It is capped by the dimension of
+the circuit's dynamical Lie algebra, so past some depth extra parameters can only add
+directions the state does not move along:
+
+```python
+import qmlkit as qk
+
+scan = qk.overparametrisation(lambda layers: qk.hardware_efficient(2, layers), range(1, 6))
+print(scan)
+```
+
+Measured, that saturated rank is exactly `2 * 2**n - 2` — the real dimension of
+projective Hilbert space — and it predicts what the ansatz can reach. One layer below
+saturation, `hardware_efficient(2, 1)` converges from every random start to -1.65803
+on a Hamiltonian whose true ground state is -1.77652. At saturation it finds the
+ground state exactly. The threshold is not a heuristic about depth; it is the point
+where the ansatz stops being the constraint.
+
+Being past it is also what flattens the spurious minima — on a frustrated 4-qubit
+model, the layer count that saturates the rank is the first at which 16 random starts
+all agree. Which is the trade the whole page has been circling: the depth that buys
+you a benign landscape is the same depth that drives you towards a 2-design.
+
 ## What to check before a long run
 
 ```python
 import qmlkit as qk
 
-report = qk.metrics.AnsatzReport(qk.hardware_efficient(4, 2), n_samples=300)
-print(report)
+print(qk.landscape(qk.hardware_efficient(4, 2), n_samples=60, minima=False))
 ```
 
-Look at **gradient variance** first. If it is already at `1e-4` on four qubits,
-widening the register will not help and the architecture needs changing, not more
-epochs.
+Read the **silent** count before the variance. Eleven of those sixteen parameters have
+a gradient of exactly zero against `Z(0)` — they change the state, and `Z(0)` cannot
+see them. That is not a plateau, and the fix is not the one a plateau would need:
+measure something those parameters can move, rather than reducing depth.
+
+Then the variance. If it is genuinely small, ask **which** plateau:
+
+```python
+import qmlkit as qk
+
+ansatz = qk.hardware_efficient(6, 1)
+globalz = qk.Z(0) * qk.Z(1) * qk.Z(2) * qk.Z(3) * qk.Z(4) * qk.Z(5)
+for finding in qk.plateau_mechanism(ansatz, globalz, n_samples=60):
+    print(finding.code, "->", finding.value)
+```
+
+The attribution is a controlled comparison, not a rule of thumb: that finding fires
+because re-measuring the *same circuit* against `Z(0)` returns several times the
+variance, and the gap widens with every qubit. A circuit with no such gap is reported
+clean, which is what makes the finding worth reading when it does appear.
+
+`minima=True` adds the expensive half — several optimiser runs from random starts,
+and whether they agreed. A loss curve cannot tell you that one, because the run that
+lands in the worse basin looks converged too.
 
 ---
 
-That is the tour. From here: the [guides](../guides/index.md) go deeper on the
-parameter-shift rule and on extending the library, and
+That is the tour. From here: the [case studies](../studies/index.md) run the whole
+arc on real, messy data — raw numbers, a classical bar, `diagnose`, `evaluate`, and a
+verdict that is often that the quantum model lost. The [guides](../guides/index.md) go
+deeper on the parameter-shift rule and on extending the library, and
 [Validation](../about/validation.md) covers how any of this is known to be correct.
 
 
@@ -3332,6 +3379,44 @@ Worth knowing before you commit to anything.
 - **Catalyst, pulse-level control, plugin breadth, quantum chemistry depth.** Not
   contested.
 
+## A dead parameter reads exactly like a fully collapsed plateau
+
+The standard barren-plateau recipe is to fix a parameter index and watch
+`Var[dC/dtheta_k]` as the register grows. It has a trap, and the trap does not raise.
+
+Some indices are *structurally* silent for a given circuit and observable — the
+gradient is exactly zero, not small — and which index that is moves with the depth and
+with the cost you measure. Probe one of those and the number that comes back is
+machine zero, which reads as the most collapsed plateau imaginable and is nothing of
+the kind:
+
+```python
+import qmlkit as qk
+
+n = 6
+glob = qk.Z(0)
+for i in range(1, n):
+    glob = glob * qk.Z(i)
+
+ansatz = qk.hardware_efficient(n, 1)
+stats = qk.gradient_stats(ansatz, glob, n_samples=50)
+
+print(f"parameter 0:         {stats.variance[0]:.2e}")
+print(f"best live parameter: {stats.best_variance:.2e}")
+print(f"silent parameters:   {stats.silent.size} of {stats.n_params}")
+```
+
+Thirty-two orders of magnitude between "this model is dead" and "this model is fine",
+decided by which index you happened to type. `qk.gradient_variance` carries a warning
+for exactly this case, and `qk.gradient_stats` sidesteps it by returning every
+parameter at once — one adjoint pass already computes the whole vector, so the other
+`p - 1` entries are free and they are what tells a plateau from a dead parameter.
+
+There is no equivalent warning in PennyLane, and none is implied: `qml.grad` is a
+differentiation primitive and an exact zero is the correct answer to what it was
+asked. The difference is that qmlkit ships the diagnosis on top, because this is the
+mistake the barren-plateau literature is easiest to reproduce wrongly with.
+
 ## What you get in exchange
 
 The layer that answers *is this result real*, which is the reason the library exists:
@@ -3545,7 +3630,7 @@ This page is for when you want to override it.
 |---|---|---|---|
 | `adjoint` | one backward pass | yes | no — needs the statevector |
 | `backprop` | one autograd pass | yes | no — needs the statevector |
-| `hadamard` | `P` circuits + one ancilla | yes | yes, given the connectivity |
+| `hadamard` | one circuit per parameterised *slot*, + one ancilla | yes | yes, given the connectivity |
 | `parameter-shift` | `2P` circuits, more for four-term gates | yes | yes |
 | `spsa` | 2 evaluations, any `P` | no — unbiased estimate | yes |
 | `finite-diff` | `2P` | no — `O(h²)` bias | technically, but don't |
@@ -3668,7 +3753,31 @@ once per parameter. qmlkit's adjoint is a direct NumPy sweep with no dispatch to
 amortise, so the ranking inverts. If you arrive expecting backprop to win, measure
 before switching; `method="auto"` already picks the fast one here.
 
-**`hadamard`** — one circuit per parameter instead of two, using an ancilla in `|+⟩`
+## Inside a torch layer, only three methods stay batched
+
+`QuantumLayer` and the models built on it compute a whole batch's gradient in one
+backend call. That is the difference between a training step costing one call and
+costing one per sample, and it is why `qmlkit.gradients.batch` exists at all.
+
+Only three `grad_method` values take that path:
+
+| `grad_method` | inside `QuantumLayer` |
+|---|---|
+| `auto`, `adjoint`, `parameter-shift` | **batched** — one call per observable for the whole batch |
+| `hadamard`, `spsa`, `finite-diff`, anything you registered | **per sample**, in a Python loop |
+| `backprop` | refused outright by `grad_batch`, which says so rather than falling back |
+
+The middle row is the one to watch, because nothing raises and nothing warns: the
+answer is correct and the run is quietly an order of magnitude slower. If you set
+`grad_method="hadamard"` on a `VQC` because the comparison table above says it costs
+half what parameter-shift does, you get the per-slot saving *and* lose the batching,
+which on any realistic batch size is the worse trade.
+
+The refusal on `backprop` is deliberate and worth contrasting: it needs the circuit
+inside an autograd graph, which a batched NumPy call cannot provide, so it raises
+instead of silently doing something else.
+
+**`hadamard`** — one circuit per parameterised *slot* instead of two, using an ancilla in `|+⟩`
 and a controlled generator. Unlike adjoint it is a real measurement, so it stays
 valid on hardware. The trade is an ancilla that must couple to every wire the
 generator touches; on real devices that routing cost usually eats the saving, which
@@ -3709,7 +3818,7 @@ Once registered it is a keyword everywhere the library takes `method=`, includin
 
 # Backends and conventions
 
-One circuit, eight backends, one answer. `tests/test_cross_backend.py` runs the same
+One circuit, nine backends, one answer. `tests/test_cross_backend.py` runs the same
 circuit zoo through every installed backend and asserts agreement with the NumPy
 reference on statevectors, probabilities, expectations over X/Y/Z and two-body terms,
 seeded sampling, and parameter-shift gradients.
@@ -3722,6 +3831,7 @@ seeded sampling, and parameter-shift gradients.
 | `cirq` | `cirq.Simulator` | Cirq's reference |
 | `spinqit` | SpinQit's simulator | the diploma's own SDK; Python 3.10 only |
 | `torch` | a differentiable simulator | `backprop` only |
+| `mps` | `AerSimulator(method="matrix_product_state")` | wide but lightly entangled circuits. No statevector, and exact only until the bond dimension truncates |
 | `cirq-density` · `qiskit-aer` | density matrices | noise, when you ask for it by name |
 
 ### Which one, in practice
@@ -4513,9 +4623,15 @@ for row in qk.track(rows, "rows"):
 ```
 
 `qk.track` counts an iterable as it is consumed and takes its total from `len` when
-there is one. Inside the library, `qmlkit.progress.task` is the equivalent — it hands
-back a silent stand-in when nothing is watching, so a loop never has to branch on
-whether anyone is there.
+there is one. Inside the library, `task` is the equivalent — it hands back a silent
+stand-in when nothing is watching, so a loop never has to branch on whether anyone is
+there.
+
+Reach for either of those through a direct import, `from qmlkit.progress import log,
+task`, rather than the dotted `qmlkit.progress.log`. Importing the `progress` context
+manager into the top-level namespace rebinds `qmlkit.progress` to the *function*, so
+the dotted path raises `AttributeError` — which is what this page used to tell you to
+type.
 
 Already instrumented: the pair-at-a-time kernel Gram matrix — the path that takes hours,
 used for sampled kernels, non-inversion estimators, and any backend without a
@@ -5123,7 +5239,9 @@ the [tutorials](../tutorials/index.md) are the faster route.
 
 # Core
 
-The circuit IR, gates, observables, execution and backends. Everything else in the library reads or writes these types.
+The circuit IR, gates, observables and execution — the data model everything else in
+the library reads or writes. The simulators that run it have their own page:
+[Backends](backends.md).
 
 ## `qmlkit.core.ir`
 
@@ -5135,16 +5253,88 @@ The circuit IR, gates, observables, execution and backends. Everything else in t
 
 ## `qmlkit.core.execute`
 
-## `qmlkit.core.backends.base`
-
-The protocol every backend implements. A simulator supplies `statevector`; a device
-supplies `counts`. Everything else — sampling, basis rotation, qubit-wise-commuting
-grouping, expectation values, batched execution — is derived here once, which is what
-makes agreement between backends a property rather than a coincidence.
-
-## `qmlkit.core.backends.registry`
-
 ## `qmlkit.interop`
+
+Reading circuits *in*, from OpenQASM, Qiskit, PennyLane and Cirq.
+
+
+==============================================================================
+# Reference / Backends    (source: docs/reference/backends.md)
+==============================================================================
+
+# Backends
+
+Nine simulators behind one protocol. A backend supplies a statevector — or, for a
+device, counts — and sampling, basis rotation, qubit-wise-commuting grouping,
+expectation and the whole batch stack are derived once in `base.py`. That is what makes
+agreement between them a property rather than a coincidence, and it is why adding one
+is a single `register_backend` call.
+
+The reference below was split out of [Core](core.md) because seven of the nine
+implementation modules had no entry anywhere: their constructor options, their refusals
+and their approximations were readable only in the source. A backend that silently
+truncates past a bond dimension, or refuses a GPU it cannot find, should say so on the
+page you look it up on.
+
+## Which one supports what
+
+`supports_statevector` and `supports_exact` are a contract, not metadata — they decide
+which gradients, diagnostics and metrics are even legal on a given backend. Anything
+needing a statevector (adjoint differentiation, the metric tensor, expressibility,
+`diagnose`'s structural checks) refuses rather than substituting a sampled stand-in.
+
+| Backend | statevector | exact | notes |
+|---|---|---|---|
+| `numpy` | yes | yes | the reference. Vectorised, with gate fusion; hard cap at 24 qubits |
+| `aer` | yes | yes | C++ statevector, faster above ~13 qubits |
+| `mps` | **no** | until truncation | matrix-product state; wide but lightly entangled circuits |
+| `qiskit` | yes | yes | `quantum_info.Statevector`, the slowest of the exact three |
+| `cirq` | yes | yes | Cirq's reference simulator |
+| `spinqit` | yes | yes | Python 3.10 only |
+| `torch` | yes | yes | differentiable — the only one `backprop` can use |
+| `cirq-density` | no | yes, given the noise model | density matrix |
+| `qiskit-aer` | no | yes, given the noise model | density matrix |
+
+"Exact given the noise model" is deliberate on the two mixed-state rows: they return a
+shot-free number, exact for the channel you asked for. That is not the same as the
+noiseless answer, and `diagnose` separates the two rather than reporting their product.
+
+## The protocol
+
+## The registry
+
+## Exact statevector simulators
+
+### `qmlkit.core.backends.numpy_backend`
+
+### `qmlkit.core.backends.aer_backend`
+
+### `qmlkit.core.backends.qiskit_backend`
+
+### `qmlkit.core.backends.cirq_backend`
+
+### `qmlkit.core.backends.spinqit_backend`
+
+## Differentiable
+
+### `qmlkit.core.backends.torch_backend`
+
+## Approximate
+
+### `qmlkit.core.backends.mps_backend`
+
+A matrix-product-state simulator reaches widths a statevector cannot, by keeping only
+as much entanglement as its bond dimension allows. It has no `statevector()`, so every
+route that needs one is refused rather than approximated; and past the bond dimension
+it is no longer exact, which is a different thing from noisy.
+
+## Mixed-state, for noise
+
+### `qmlkit.core.backends.noisy`
+
+### `qmlkit.core.backends.cirq_density_backend`
+
+### `qmlkit.core.backends.qiskit_aer_backend`
 
 
 ==============================================================================
@@ -5185,6 +5375,10 @@ Getting classical data into a circuit, and the scaling decisions that come first
 ## `qmlkit.encoding.angle`
 
 ## `qmlkit.encoding.amplitude`
+
+## `qmlkit.encoding.loading`
+
+What getting the data in costs, and the QRAM the exponential-speedup claims assume.
 
 ## `qmlkit.encoding.feature_maps`
 
@@ -5227,6 +5421,32 @@ Three overlap estimators, Gram matrices that stay positive semi-definite, and th
 
 ## `qmlkit.kernels.models`
 
+### What `QSVC` and `QSVR` take
+
+Both inherit their constructor and their whole interface from a shared private base,
+so the generated entries below show only `feature_map`, the solver argument (`C` or
+`epsilon`) and `**kwargs`. These are the arguments hiding in that `**kwargs`, and they
+are the ones worth knowing:
+
+| Argument | Default | What it does |
+|---|---|---|
+| `shots` | `None` | Exact by default. A shot count makes the Gram matrix noisy, which is what pushes it out of the PSD cone |
+| `backend` | `None` | Any registered backend |
+| `bandwidth` | `1.0` | Scales the feature map's angles. **The first thing to try when a kernel has concentrated** — a narrower bandwidth spreads the off-diagonal entries back out |
+| `estimator` | `"inversion"` | `inversion`, `swap` or `hadamard`. They agree on a simulator and differ in qubit count and circuit cost |
+| `repair_psd` | `"threshold"` | Shot noise costs a Gram matrix its positive semi-definiteness; `fit` repairs it by default rather than handing an SVM something it cannot solve |
+| `seed` | `None` | Seeds the sampling when `shots` is set |
+
+They also inherit `fit`, `predict`, `decision_function`, `score`, `get_params`,
+`set_params`, and the two cost counters `n_circuit_evaluations` and
+`circuits_on_hardware` — budget a device run from the second, which counts the
+pairwise circuits a simulator's statevector shortcut avoids.
+
+Storing every constructor argument under its own name, unchanged, is scikit-learn's
+one requirement for `clone` — and `clone` is what `Pipeline`, `GridSearchCV` and
+`cross_val_score` are built on. That is what lets a quantum estimator sit inside an
+ordinary scikit-learn workflow.
+
 
 ==============================================================================
 # Reference / PyTorch    (source: docs/reference/nn.md)
@@ -5268,10 +5488,36 @@ converges confidently to an energy 601 mHa wrong.
 
 ADAPT-VQE: grow the ansatz one operator at a time, chosen by gradient magnitude.
 
-**The trap worth knowing.** A molecular Hamiltonian conserves particle number, so any
-operator that does not has *exactly zero* gradient at Hartree–Fock — the generic pool
-grows an empty circuit and reports convergence. Use `chemistry_operator_pool`. This is
-physics, not a bug, and a test pins it.
+**The trap worth knowing, and it has two halves.** A molecular Hamiltonian conserves
+particle number, so any operator that does not has *exactly zero* gradient at
+Hartree–Fock — the generic pool grows an empty circuit and reports convergence. Use
+`chemistry_operator_pool`. This is physics, not a bug, and a test pins it.
+
+The second half is that the pool alone is not enough. A particle-conserving pool cannot
+*change* the particle number either, so starting from the default vacuum every
+candidate has zero gradient too, and you get the same empty circuit — reporting
+`+0.720` Ha against a true `-1.137`. Hartree–Fock is where `reference=` comes in:
+
+```python
+import qmlkit as qk
+from qmlkit.algorithms import AdaptVQE, chemistry_operator_pool, h2_hamiltonian
+
+hamiltonian, info = h2_hamiltonian()          # H2 at 0.735 A, 4 qubits
+result = AdaptVQE(
+    hamiltonian,
+    n_qubits=4,
+    pool=chemistry_operator_pool(4),
+    reference=[0, 1],                          # Hartree-Fock: two occupied spin-orbitals
+).run(seed=0)
+
+print(f"{result.energy:.8f} Ha from {len(result.operators)} operator(s)")
+# -1.13730603 Ha from 1 operator(s)
+```
+
+One operator reaches the exact ground state here, to `1e-11`. That is ADAPT's point:
+it grows only what the gradient asks for. Selecting *zero* operators now warns, because
+it is never convergence — it means nothing in the pool can move the energy off the
+reference at all.
 
 ## `qmlkit.algorithms.qaoa`
 
@@ -5306,7 +5552,33 @@ external quality because they routinely disagree — see
 
 ## `qmlkit.algorithms.rl`
 
-Variational policies for reinforcement learning.
+Variational policies for reinforcement learning. The circuit *is* the policy: an
+observation is encoded, the trainable block runs, and one expectation per action
+becomes a logit that a softmax turns into action probabilities.
+
+```python
+from qmlkit.algorithms import ContextualBandit, QuantumPolicy, train_reinforce
+
+env = ContextualBandit(seed=0)                 # 2 observations, 2 actions, reward 0 or 1
+policy = QuantumPolicy(n_observations=env.n_observations, n_actions=env.n_actions, seed=0)
+result = train_reinforce(policy, env, n_episodes=200, seed=0)
+
+print(f"{result.mean_return(50):.2f}")         # mean return over the last 50 episodes
+# 0.70
+```
+
+Read that against the bar, not in isolation: two actions and a 0/1 reward means a random
+policy averages **0.50**, and the first fifty episodes of this run do exactly that. The
+last fifty average **0.70**. That gap is the learning, and it is the number to report —
+a mean return quoted without the random baseline beside it says nothing at all.
+
+`beta` is the knob most worth understanding. Expectations live in `[-1, 1]`, which is a
+narrow range to softmax over, so `beta` sets how sharp the policy is: too low and it
+never commits, too high and it stops exploring before it has learned anything.
+
+Any environment satisfying the `Environment` protocol works — `n_observations`,
+`n_actions`, `reset()` and `step(action)`. `ContextualBandit` is the toy that keeps the
+test suite honest, not the interesting case.
 
 
 ==============================================================================
@@ -5321,6 +5593,38 @@ Measuring an ansatz rather than asserting things about it: expressibility, entan
 
 ## `qmlkit.metrics`
 
+Two halves. Expressibility, entangling capability and gradient variance describe the
+*circuit*, and [Designing an ansatz](../tutorials/04-ansatz-design.md) and
+[Trainability](../tutorials/08-trainability.md) work through them.
+
+The other half describes what the model can be expected to *learn*, and is easy to
+miss because nothing else links to it:
+
+| | |
+|---|---|
+| `generalization_bound(T, N)` | the expected train-test gap, `O(sqrt(T log T / N))` (Caro et al. 2022), for `T` trainable gates and `N` samples |
+| `samples_for_gap(T, gap)` | the same bound inverted: how much data a target gap needs |
+| `fisher_information` / `effective_dimension` | how many parameters are *usefully* independent, which is generally far fewer than the raw count |
+| `noise_survival(f, depth)` | `f**depth`, independent per-gate success compounding over a circuit |
+
+These are worth running before a long training job rather than after.
+`hardware_efficient(4, 3)` carries 24 trainable parameters; against 100 samples the
+bound is **0.87**, which for a metric in `[0, 1]` is no constraint at all. Reaching a
+gap of 0.1 would take **7,628 samples**. Go to `hardware_efficient(6, 8)` — 96
+parameters — and the bound is **2.09** and the requirement **43,818 samples**. Quantum
+datasets are rarely that large, and that arithmetic is usually the real reason a model
+that trains beautifully does not generalise.
+
+`noise_survival` is the same kind of sobriety on the hardware side: a 200-gate circuit
+at 99.9% per-gate fidelity keeps **0.819** of its amplitude, and a 2,000-gate one keeps
+0.135.
+
+## `qmlkit.landscape`
+
+Why a model is not training: gradients over every parameter, which of the four
+barren-plateau mechanisms is responsible, curvature at a stationary point, whether
+random starts agree, and where the QFIM rank saturates.
+
 ## `qmlkit.fourier`
 
 ## `qmlkit.info`
@@ -5333,9 +5637,38 @@ Measuring an ansatz rather than asserting things about it: expressibility, entan
 
 ## `qmlkit.generative`
 
+Two families, and the difference decides what you can ask of them. A **Born machine**
+(`QCBM`, `QGAN`) reads its distribution off measurement probabilities directly, so it
+samples easily and cannot score an arbitrary point. An **energy-based** model
+(`QuantumBoltzmannMachine`, `QuantumHopfield`) defines a distribution through an energy
+and a partition function, so it scores easily and samples only through a chain.
+
+`QCBM` trains against a target distribution through a sample-based loss —
+`mmd_squared`, `kl_divergence` or `total_variation`. `mmd_squared` is the usual choice:
+the other two need the target's support to cover the model's, which an untrained model
+rarely arranges.
+
+`QuantumBoltzmannMachine.grad` returns a **lower-bound** gradient, not an exact
+log-likelihood gradient — the exact one needs the quantum relative entropy's derivative,
+which is not sampled cheaply. The bound is what makes the model trainable at all; it
+also means the loss it reports is a bound rather than a likelihood, and a run that
+stops improving may have hit the bound rather than the optimum.
+
 ## `qmlkit.shadows`
 
 Classical shadows: many observables from few measurements.
+
+The trade is worth making explicit, because it is the opposite of the usual one.
+Measuring `M` observables the direct way costs one measurement setting each, and each
+setting needs enough shots to resolve its own value. A shadow takes randomised
+single-qubit measurements *once* and predicts all `M` afterwards, at a cost that grows
+with `log M` rather than `M` — but with a variance penalty that grows with each
+observable's locality, sharply. Shadows win on many *local* observables and lose on a
+few global ones.
+
+`shadow_shot_cost` prices the shadow route; `qmlkit.kernels.kernel_shot_cost` prices
+the direct one. Compare them before committing a device run, because the crossover
+moves with locality and there is no rule of thumb that survives it.
 
 ## `qmlkit.utils.shots`
 
@@ -5365,6 +5698,18 @@ The guide is [Evaluating a quantum model honestly](../guides/evaluation.md).
 
 ## `qmlkit.nn.losses`
 
+## `qmlkit.recommend`
+
+Which backend to run a circuit on, from measured crossovers rather than a rule of
+thumb. [Backends](backends.md) gives the static table; this computes the answer for
+the circuit in front of you, and will name `mps` where a statevector would not fit.
+
+## `qmlkit.parallel`
+
+Independent work — folds, seeds, sweep configurations — run on a thread pool. Not for
+parallelising *inside* one circuit, which is the backend's job. `qk.search(...,
+n_jobs=4)` dispatches through this; so can your own loops.
+
 ## `qmlkit.progress`
 
 See [Watching a run](../guides/watching-a-run.md) for the guide.
@@ -5376,6 +5721,29 @@ See [Watching a run](../guides/watching-a-run.md) for the guide.
 How every "unknown gate / backend / ansatz / method" message in the library is built.
 Worth reading before adding one, since the shape of the message is the contract:
 what was wrong, what was probably meant, and what is allowed.
+
+
+==============================================================================
+# About / About    (source: docs/about/index.md)
+==============================================================================
+
+# About
+
+The rest of the site shows you what the library does. These four pages are for
+deciding whether to believe it, and what happens to your code when it changes.
+
+| | |
+|---|---|
+| **[Validation](validation.md)** | How any of this is known to be correct: an independent reference sharing no code, cross-library parity against PennyLane, property-based fuzzing, cross-backend equivalence, and executable documentation — ordered by how much each one can prove |
+| **[API stability](stability.md)** | What is promised, what is internal, and what a version number means here |
+| **[Changelog](changelog.md)** | Every release, and — more usefully — the failures that prompted each fix, written out rather than summarised |
+| **[Releasing](releasing.md)** | The tag-to-PyPI procedure, for whoever cuts the next one |
+
+Validation is the one to read first if you are deciding whether to adopt the library
+at all. It leads with the check that can prove the most and ends with the ones that
+can prove the least, and it records where the project has had to correct itself —
+twice on its own benchmark numbers, both times in its own favour, both caught by
+someone re-running the comparison rather than trusting the table.
 
 
 ==============================================================================
@@ -5400,16 +5768,20 @@ So qmlkit leans on five checks, ordered here by how much each one can prove:
 | 4 | **Cross-backend equivalence** | One circuit zoo through every installed SDK, compared to the NumPy reference |
 | 5 | **Executable documentation** | Every snippet on this site is run by the test suite |
 
-Plus the ordinary suite: **1,434 tests passing of 1,563 collected**, 0 failures, 94%
+Plus the ordinary suite: **1,631 tests passing of 1,753 collected**, 0 failures, 94%
 combined coverage measured in CI, `ruff` and `mypy --strict` clean over the whole
 package.
 
-Every one of the 115 skips is accounted for and none of them is silent: 65 constant
-gates tested at a single angle rather than six, 27 needing SpinQit's Python 3.10, 17
-documentation pages with no runnable Python, 4 SpinQit-only, and 2 where the
-observable is wider than the circuit. CI asserts each optional SDK actually imported
-before running its jobs, because a suite guarded by `importorskip` and never given its
-dependency turns the job green by skipping.
+Every one of the 122 skips is accounted for and none of them is silent: 65 constant
+gates tested at a single angle rather than six, 37 needing SpinQit's Python 3.10, 18
+documentation pages with no runnable Python, and 2 where the observable is wider than
+the circuit. CI asserts each optional SDK actually imported before running its jobs,
+because a suite guarded by `importorskip` and never given its dependency turns the job
+green by skipping.
+
+These counts drifted once before anyone noticed — the page claimed 1,563 collected
+while the suite collected 1,729 — so `scripts/check_doc_numbers.py` now measures them
+against the repository and says which sentence has gone stale.
 
 ## The reference that shares nothing
 
@@ -5472,6 +5844,7 @@ pytest tests/test_pennylane_parity.py
 | Quantum info | reduced density matrices, von Neumann entropy, purity, mutual information, fidelity, over random states | `1e-10` |
 | Fourier | re-uploading spectra at depths 1–4 | `1e-10` |
 | Geometry | Fubini–Study metric (full and diagonal), QFIM | `1e-12` |
+| Gradient statistics | 4,800 gradient vectors — the batched sampling the barren-plateau tooling runs on, over 24 cells of `n` 4–6 × `L` ∈ {1,2,4,8} × {local `Z₀`, global `Z⊗ⁿ`}, 200 draws each | `1e-15` |
 | Optimisers | Rotosolve and QNG trajectories, step by step | `1e-10` |
 
 The **randomised** tests are the ones that matter. Hand-picked cases confirm what the
@@ -5791,8 +6164,21 @@ class EntanglerLayer(gate: 'str' = 'cx', pattern: 'str' = 'chain')
 class FeatureMap()
     Turns a feature vector into a circuit.
 
-    Subclasses implement :meth:`build`. ``adjoint`` comes free from the IR, which
-    is what the fidelity kernel's compute-uncompute test needs.
+    Subclasses implement three methods, and :meth:`build` is **not** one of them --
+    it is concrete, and composes the other three:
+
+    * :meth:`angles` — the feature vector to its rotation angles.
+    * :meth:`n_angles` — how many slots those angles occupy.
+    * :meth:`_emit` — the angles to a circuit. It receives either floats or
+      :class:`~qmlkit.core.ir.ParamRef` slots, so it must not assume arithmetic.
+
+    Optionally also :meth:`angle_jacobian`, ``d(angle)/d(feature)``, which is what
+    lets a gradient reach back through the encoding to a classical pre-net.
+    Overriding :meth:`build` instead leaves :meth:`build_parametric` calling the base
+    :meth:`_emit`, which raises -- so the torch layer breaks and nothing else does.
+
+    ``adjoint`` comes free from the IR, which is what the fidelity kernel's
+    compute-uncompute test needs.
 class FeaturePipeline(n_qubits: 'int', method: 'str' = 'pca', standardize: 'bool' = True, angle_range: 'tuple[float, float]' = (0.0, 6.283185307179586)) -> 'None'
     Standardise, reduce to ``n_qubits`` columns, and scale into rotation angles.
 
@@ -5819,12 +6205,40 @@ class Fingerprint(qmlkit: 'str', python: 'str', platform: 'str', numpy: 'str', d
     appendix. The point is that it is cheap enough to attach to every run.
 class GateDef(name: 'str', n_qubits: 'int', n_params: 'int', matrix: 'Callable[..., Matrix]', frequencies: 'tuple[float, ...]' = (), dmatrix: 'Callable[..., Matrix] | None' = None, adjoint_name: 'str | None' = None, aliases: 'tuple[str, ...]' = ()) -> None
     Everything the library needs to know about one gate.
+class GradientStats(n_qubits: 'int', n_params: 'int', n_samples: 'int', observable: 'str', variance: 'npt.NDArray[Any]', mean: 'npt.NDArray[Any]') -> None
+    Every parameter's gradient statistics, from one batch of random points.
+
+    :func:`~qmlkit.metrics.gradient_variance` probes one parameter and throws away the
+    other ``p - 1`` entries of every gradient it computes. They cost nothing extra —
+    one adjoint pass returns the whole vector — and they are what distinguishes a
+    barren plateau from a single dead parameter, so this keeps them.
+
+    ``variance`` and ``mean`` are per parameter, over ``n_samples`` draws of
+    ``theta ~ U(-pi, pi)``.
+class HessianSpectrum(eigenvalues: 'npt.NDArray[Any]', gradient_norm: 'float') -> None
+    What kind of stationary point this is, from the curvature around it.
 class HybridModel(n_features: 'int', n_outputs: 'int', n_qubits: 'int | None' = None, n_layers: 'int' = 2, feature_map: 'FeatureMap | None' = None, ansatz: 'Ansatz | None' = None, observables: 'Sequence[Observable] | None' = None, shots: 'int | None' = None, backend: 'Any' = None, grad_method: 'str' = 'auto', scale_inputs: 'bool' = True, seed: 'int | None' = None) -> 'None'
     Shared machinery: a training loop, and sensible construction defaults.
 def I() -> 'PauliString'
     The identity observable.
+class LandscapeReport(subject: 'str', gradients: 'GradientStats', findings: 'Report', minima: 'MinimaScan | None' = None) -> None
+    Gradients, mechanism, minima and curvature for one ansatz.
+class LoadingCost(method: 'str', n_features: 'int', n_qubits: 'int', two_qubit_gates: 'int', depth: 'int', exact: 'bool') -> None
+    Qubits, gates and depth to get one sample into a circuit.
+
+    ``exact`` distinguishes a counted circuit from a fitted estimate: below a few
+    hundred features :func:`loading_cost` builds the circuit and counts it, and above
+    that it extrapolates from the measured constants rather than allocating a
+    ``2^n``-amplitude statevector to find out.
+
+    ``two_qubit_gates`` is structural — every generic vector of the same length gives
+    the same count. ``depth`` moves by a percent or two with the particular angles
+    (measured: 1,458 to 1,484 over six random 256-vectors), so read it as a scale
+    rather than a guarantee.
 class MPSLayer(n_qubits: 'int', feature_map: 'FeatureMap | None' = None, observables: 'Sequence[Observable] | None' = None, filter: 'str | tuple[Any, int]' = 'ry_cx', tied: 'bool' = False, ansatz: 'Ansatz | None' = None, **kwargs: 'Any') -> 'None'
     Matrix-product-state layer — a staircase of two-qubit blocks.
+class MinimaScan(losses: 'npt.NDArray[Any]', kinds: 'tuple[str, ...]', n_steps: 'int', best_theta: 'npt.NDArray[Any]' = <factory>) -> None
+    Where independent random starts ended up, and whether they agreed.
 class NearestFidelityClassifier(feature_map: 'FeatureMap', shots: 'int | None' = None, backend: 'BackendLike' = None) -> 'None'
     Classify by fidelity to each class centroid — no solver, no sklearn.
 
@@ -5834,6 +6248,8 @@ class NumpyBackend(seed: 'int | None' = None, max_qubits: 'int' = 24) -> 'None'
     Exact statevector simulation in NumPy.
 class Op(gate: 'str', qubits: 'tuple[int, ...]', params: 'tuple[ParamLike, ...]' = ()) -> None
     One gate application.
+class Overparametrisation(n_params: 'tuple[int, ...]', ranks: 'tuple[int, ...]', layers: 'tuple[int, ...]') -> None
+    Where the QFIM rank stops growing, and what that means for the minima.
 class PCAReducer(n_components: 'int', mean_: 'npt.NDArray[Any] | None' = None, components_: 'npt.NDArray[Any] | None' = None, explained_variance_ratio_: 'npt.NDArray[Any] | None' = None) -> None
     Project features onto their leading principal components, via SVD.
 
@@ -5912,9 +6328,14 @@ class QLSTMCell(n_inputs: 'int', hidden_size: 'int', n_qubits: 'int' = 4, ansatz
     A classical projection maps ``[x, h]`` down to the qubit count first, which is
     what keeps the circuits small enough to be worth running.
 class QSVC(feature_map: 'FeatureMap', C: 'float' = 1.0, **kwargs: 'Any') -> 'None'
-    Shared plumbing: fill the Gram matrix, hand it to a precomputed-kernel solver.
+    Quantum-kernel support vector classifier.
+
+    clf = QSVC(qk.ZZFeatureMap(2)).fit(X, y)
+    clf.score(X_test, y_test)
 class QSVR(feature_map: 'FeatureMap', C: 'float' = 1.0, epsilon: 'float' = 0.1, **kwargs: 'Any') -> 'None'
     Quantum-kernel support vector regressor.
+class QramCost(n_addresses: 'int', address_qubits: 'int', memory_qubits: 'int', routing_qubits: 'int', ideal_depth: 'int', encoding: 'LoadingCost') -> None
+    What a bucket-brigade QRAM would need, against what encoding needs instead.
 class QuantumFunction(*args, **kwargs)
     Autograd boundary: forward runs circuits, backward differentiates them.
 class QuantumKernel(feature_map: 'FeatureMap', estimator: 'str' = 'inversion', shots: 'int | None' = None, backend: 'BackendLike' = None, bandwidth: 'float' = 1.0, seed: 'int | None' = None, cache: 'bool' = True) -> 'None'
@@ -6140,20 +6561,24 @@ def grad_batch(spec: 'CircuitSpec', thetas: 'ArrayLike', obs: 'Observable | None
     ``(batch, n_params)`` gradients, by whichever route fits the backend.
 def grad_circuit_cost(spec: 'CircuitSpec') -> 'int'
     Circuit evaluations for one full parameter-shift gradient.
-def gradient_cost(spec: 'CircuitSpec', method: 'str' = 'parameter-shift') -> 'int | str'
+def gradient_cost(spec: 'CircuitSpec', method: 'str' = 'parameter-shift', n_avg: 'int' = 1) -> 'int | str'
     Circuit evaluations one gradient needs under a given method.
+def gradient_stats(ansatz: 'Ansatz', obs: 'Observable | None' = None, *, n_samples: 'int' = 100, seed: 'int | None' = 0, backend: 'BackendLike' = None) -> 'GradientStats'
+    Gradient mean and variance for **every** parameter, in one batched pass.
 def gradient_variance(ansatz: 'Ansatz', obs: 'Observable | None' = None, n_samples: 'int' = 100, param_index: 'int' = 0, seed: 'int | None' = None, backend: 'BackendLike' = None) -> 'float'
     Variance of one parameter's gradient over random initialisations.
 def hadamard_grad(spec: 'CircuitSpec', theta: 'npt.NDArray[Any]', obs: 'Observable | None' = None, backend: 'BackendLike' = None, shots: 'int | None' = None, seed: 'int | None' = None) -> 'npt.NDArray[Any]'
-    Exact gradient using one extra qubit and one circuit per parameter.
+    Exact gradient using one extra qubit and one circuit per parameterised slot.
 def hadamard_test(fmap: 'FeatureMap', x: 'Sequence[float]', xp: 'Sequence[float]', part: 'str' = 'real', shots: 'int | None' = None, backend: 'BackendLike' = None, seed: 'int | None' = None) -> 'float'
     ``Re<phi(x')|phi(x)>`` (or the imaginary part) — the **signed** inner product.
 def hamiltonian_encode(x: 'Sequence[float]', t: 'float' = 1.0, steps: 'int' = 3, entanglement: 'str' = 'chain', initial_hadamard: 'bool' = True) -> 'CircuitSpec'
     Evolve under a data-dependent Ising Hamiltonian.
 def hardware_efficient(n_qubits: 'int', n_layers: 'int' = 2, rotations: 'Sequence[str]' = ('ry', 'rz'), entangler: 'str' = 'cx', pattern: 'str' = 'chain') -> 'Ansatz'
     Rotations then entanglers, repeated. General-purpose, barren-plateau prone.
-def hessian(spec: 'CircuitSpec', theta: 'Sequence[float]', obs: 'Observable | None' = None, backend: 'Backend | str | None' = None, eps: 'float' = 0.0001) -> 'npt.NDArray[Any]'
+def hessian(spec: 'CircuitSpec', theta: 'ArrayLike', obs: 'Observable | None' = None, backend: 'Backend | str | None' = None, eps: 'float' = 0.0001) -> 'npt.NDArray[Any]'
     Second derivatives, by differencing the exact gradient.
+def hessian_spectrum(spec: 'CircuitSpec', theta: 'ArrayLike', obs: 'Observable | None' = None, *, free: 'Sequence[int] | None' = None, backend: 'BackendLike' = None, eps: 'float' = 0.0001) -> 'HessianSpectrum'
+    Classify the point ``theta``: minimum, saddle, maximum, or still on a slope.
 imbalance
     Skewed classes: measuring the skew, weighting the loss, and splitting safely.
 info
@@ -6166,16 +6591,22 @@ def kernel_matrix(X: 'npt.NDArray[Any]', Y: 'npt.NDArray[Any] | None' = None, ke
     Gram matrix of ``X`` against ``Y`` (or itself, exploiting symmetry).
 kernels
     Quantum kernels: estimators, Gram matrices, PSD repair, and kernel models.
+def landscape(ansatz: 'Ansatz', obs: 'Observable | None' = None, *, x: 'ArrayLike | None' = None, n_samples: 'int' = 100, n_starts: 'int' = 6, n_steps: 'int' = 300, seed: 'int | None' = 0, backend: 'BackendLike' = None, minima: 'bool' = True) -> 'LandscapeReport'
+    Everything this module measures, for one ansatz, in one call.
 def list_ansatze() -> 'tuple[str, ...]'
+    Every registered ansatz name, including any you registered yourself.
 def list_backends() -> 'tuple[str, ...]'
     Every registered backend name, installed or not.
 def list_baselines(task: 'str | None' = None) -> 'tuple[str, ...]'
     Registered baseline names, optionally filtered to one task.
 def list_conv_filters() -> 'tuple[str, ...]'
+    Every registered QCNN two-qubit filter name. Separate from the ansatz registry.
 def list_feature_maps() -> 'tuple[str, ...]'
 def list_gates() -> 'tuple[str, ...]'
 def list_gradient_methods() -> 'tuple[str, ...]'
 def list_importers() -> 'tuple[str, ...]'
+def loading_cost(n_features: 'int', method: 'str' = 'amplitude') -> 'LoadingCost'
+    Price one sample's encoding, by counting the circuit or extrapolating from it.
 def metric_tensor(spec: 'CircuitSpec', theta: 'ArrayLike', approx: 'str | None' = 'block-diag', backend: 'BackendLike' = None, eps: 'float' = 0.0001) -> 'npt.NDArray[Any]'
     Fubini–Study metric — the curvature of parameter space.
 metrics
@@ -6183,6 +6614,8 @@ metrics
 def meyer_wallach(state: 'npt.NDArray[Any]', n_qubits: 'int | None' = None) -> 'float'
     Meyer–Wallach ``Q = 2(1 - (1/n) sum_k Tr rho_k^2)``.
 def min_eigenvalue(K: 'npt.NDArray[Any]') -> 'float'
+def minima_scan(ansatz: 'Ansatz', obs: 'Observable | None' = None, *, x: 'ArrayLike | None' = None, n_starts: 'int' = 8, n_steps: 'int' = 300, lr: 'float' = 0.1, seed: 'int | None' = 0, backend: 'BackendLike' = None, classify: 'bool' = True) -> 'MinimaScan'
+    Minimise from ``n_starts`` random points and see whether they agree.
 def minimize_qng(spec: 'CircuitSpec', theta0: 'Sequence[float]', obs: 'Observable | None' = None, n_steps: 'int' = 50, lr: 'float' = 0.1, approx: 'str' = 'block-diag', backend: 'BackendLike' = None, callback: 'Callable[[int, npt.NDArray[Any], float], None] | None' = None) -> 'tuple[npt.NDArray[Any], list[float]]'
     Minimise ``<obs>`` by quantum natural gradient descent.
 def minimize_rotosolve(f: 'LossFn', theta0: 'Sequence[float]', n_sweeps: 'int' = 20, tol: 'float' = 1e-09, callback: 'Callable[[int, npt.NDArray[Any], float], None] | None' = None) -> 'tuple[npt.NDArray[Any], list[float]]'
@@ -6197,6 +6630,8 @@ def n_qubits_for(n_values: 'int') -> 'int'
     Qubits needed to hold ``n_values`` amplitudes: ``ceil(log2 N)``.
 optim
     Optimisers that only make sense for quantum circuits.
+def overparametrisation(ansatz_factory: 'Callable[[int], Ansatz]', layer_range: 'Sequence[int]', *, probes: 'int' = 3, seed: 'int | None' = 0, backend: 'BackendLike' = None) -> 'Overparametrisation'
+    Find the overparametrisation threshold by watching the QFIM rank saturate.
 def p0_from_z(z: 'float') -> 'float'
     P(0) from <Z>.
 def parallel_map(fn: 'Callable[[T], R]', items: 'Iterable[T]', n_jobs: 'int | None' = None) -> 'list[R]'
@@ -6209,6 +6644,8 @@ def param_shift_grad_circuit(spec: 'CircuitSpec', theta: 'Sequence[float]', obs:
     Convenience wrapper: parameter-shift gradient of ``<obs>`` for a circuit.
 def plan(model: 'Any', n_samples: 'int' = 1, steps: 'int' = 1, method: 'str' = 'parameter-shift', obs: 'Observable | None' = None, shots: 'int | None' = None) -> 'Plan'
     Circuits, shots and wall-clock for a training run, plus the ways to shrink it.
+def plateau_mechanism(ansatz: 'Ansatz', obs: 'Observable | None' = None, *, n_samples: 'int' = 100, seed: 'int | None' = 0, backend: 'BackendLike' = None) -> 'list[Finding]'
+    Attribute a flat gradient to a cause, by controlled comparison.
 def probabilities(spec: 'CircuitSpec', theta: 'ArrayLike | None' = None, backend: 'BackendLike' = None) -> 'npt.NDArray[Any]'
     Exact outcome probabilities over the ``2**n`` basis states.
 def progress(live: 'bool' = True, stream: 'IO[str] | None' = None) -> 'Iterator[Progress]'
@@ -6221,6 +6658,8 @@ def qaoa_ansatz(n_qubits: 'int', edges: 'Sequence[tuple[int, int]] | None' = Non
     Cost and mixer layers — only ``2p`` parameters, whatever the width.
 def qcnn_ansatz(n_qubits: 'int', tie_weights: 'bool' = True, filter: 'str | tuple[ConvFilter, int]' = 'ry_cx', pattern: 'str' = 'chain', pool: 'str' = 'discard', keep: 'str' = 'odd') -> 'Ansatz'
     Convolution + pooling, halving the register until one qubit is left.
+def qram_cost(n_addresses: 'int') -> 'QramCost'
+    Resources a bucket-brigade QRAM would need, beside what encoding needs instead.
 def quantum_fisher_information(spec: 'CircuitSpec', theta: 'Sequence[float]', backend: 'BackendLike' = None) -> 'npt.NDArray[Any]'
     QFIM — exactly ``4 x`` the Fubini–Study metric.
 def random_layers(n_qubits: 'int', n_layers: 'int' = 2, ratio_imprimitive: 'float' = 0.3, seed: 'int | None' = None) -> 'Ansatz'

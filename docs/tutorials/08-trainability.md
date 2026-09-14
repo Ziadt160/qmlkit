@@ -154,21 +154,68 @@ no ancilla. That matters because QNG is only as good as the metric it follows.
     qmlkit computes the exact metric, which costs no more on a simulator. The
     consequence is measurable, and it is in [Validation](../about/validation.md).
 
+## How many parameters is enough
+
+The metric has a rank, and the rank stops growing. It is capped by the dimension of
+the circuit's dynamical Lie algebra, so past some depth extra parameters can only add
+directions the state does not move along:
+
+```python
+import qmlkit as qk
+
+scan = qk.overparametrisation(lambda layers: qk.hardware_efficient(2, layers), range(1, 6))
+print(scan)
+```
+
+Measured, that saturated rank is exactly `2 * 2**n - 2` — the real dimension of
+projective Hilbert space — and it predicts what the ansatz can reach. One layer below
+saturation, `hardware_efficient(2, 1)` converges from every random start to -1.65803
+on a Hamiltonian whose true ground state is -1.77652. At saturation it finds the
+ground state exactly. The threshold is not a heuristic about depth; it is the point
+where the ansatz stops being the constraint.
+
+Being past it is also what flattens the spurious minima — on a frustrated 4-qubit
+model, the layer count that saturates the rank is the first at which 16 random starts
+all agree. Which is the trade the whole page has been circling: the depth that buys
+you a benign landscape is the same depth that drives you towards a 2-design.
+
 ## What to check before a long run
 
 ```python
 import qmlkit as qk
 
-report = qk.metrics.AnsatzReport(qk.hardware_efficient(4, 2), n_samples=300)
-print(report)
+print(qk.landscape(qk.hardware_efficient(4, 2), n_samples=60, minima=False))
 ```
 
-Look at **gradient variance** first. If it is already at `1e-4` on four qubits,
-widening the register will not help and the architecture needs changing, not more
-epochs.
+Read the **silent** count before the variance. Eleven of those sixteen parameters have
+a gradient of exactly zero against `Z(0)` — they change the state, and `Z(0)` cannot
+see them. That is not a plateau, and the fix is not the one a plateau would need:
+measure something those parameters can move, rather than reducing depth.
+
+Then the variance. If it is genuinely small, ask **which** plateau:
+
+```python
+import qmlkit as qk
+
+ansatz = qk.hardware_efficient(6, 1)
+globalz = qk.Z(0) * qk.Z(1) * qk.Z(2) * qk.Z(3) * qk.Z(4) * qk.Z(5)
+for finding in qk.plateau_mechanism(ansatz, globalz, n_samples=60):
+    print(finding.code, "->", finding.value)
+```
+
+The attribution is a controlled comparison, not a rule of thumb: that finding fires
+because re-measuring the *same circuit* against `Z(0)` returns several times the
+variance, and the gap widens with every qubit. A circuit with no such gap is reported
+clean, which is what makes the finding worth reading when it does appear.
+
+`minima=True` adds the expensive half — several optimiser runs from random starts,
+and whether they agreed. A loss curve cannot tell you that one, because the run that
+lands in the worse basin looks converged too.
 
 ---
 
-That is the tour. From here: the [guides](../guides/index.md) go deeper on the
-parameter-shift rule and on extending the library, and
+That is the tour. From here: the [case studies](../studies/index.md) run the whole
+arc on real, messy data — raw numbers, a classical bar, `diagnose`, `evaluate`, and a
+verdict that is often that the quantum model lost. The [guides](../guides/index.md) go
+deeper on the parameter-shift rule and on extending the library, and
 [Validation](../about/validation.md) covers how any of this is known to be correct.

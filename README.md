@@ -44,7 +44,7 @@ Underneath that it is the ML layer quantum SDKs leave out — feature maps, an a
 vocabulary, quantum kernels, torch layers, and a general-purpose parameter-shift
 gradient you can point at *any* circuit and observable — running unchanged on
 **SpinQit**, **Qiskit**, **Cirq**, **PyTorch**, or the built-in NumPy reference, and on
-two mixed-state backends when you want to ask what noise would have done. Seven in all,
+two mixed-state backends when you want to ask what noise would have done. Nine in all,
 behind one protocol: a backend supplies a statevector, and sampling, basis rotation,
 qubit-wise-commuting grouping, expectation and the whole batch stack are derived once
 in the base class — which is what makes agreement between backends a property rather
@@ -236,134 +236,41 @@ pages and the package, committed, and checked in CI, so neither can drift.
 [Working with a coding agent](https://ziadt160.github.io/qmlkit/guides/agents/) is
 the long version; [`AGENTS.md`](https://github.com/Ziadt160/qmlkit/blob/main/AGENTS.md) is for working *on* qmlkit.
 
-## Checked against a reference that shares nothing
+## How this is known to be correct
 
-Everything below compares qmlkit against something that inherited its conventions —
-five backends against each other, or PennyLane, whose names this library's gate table
-was written by reading. Those all agree when a convention is wrong *everywhere*, and
-once they did: the torch backend reimplemented `np.moveaxis` without numpy's
+Everything a library checks itself against usually inherited its conventions — five
+backends against each other, or PennyLane, whose names this library's gate table was
+written by reading. Those all agree when a convention is wrong *everywhere*, and once
+they did: the torch backend reimplemented `np.moveaxis` without numpy's
 `sorted(zip(destination, source))`, so a two-qubit gate on descending wires permuted
 the wires it was not acting on. `Z(3)` read `-0.1288` against `-0.7374`. Nothing
 raised, `backprop` differentiated through it, and four references agreed with it.
 
 `tests/densesim.py` is 206 lines that inherited none of it — hand-written gate
-matrices, hand-derived derivatives, an explicit bit-index loop where the library uses
-`tensordot`, its own product rule, reading `spec.ops` and calling no backend. It is
-what found that bug, and four properties in `tests/test_torture.py` run it against
-randomly generated circuits.
+matrices, hand-derived derivatives, its own product rule, reading `spec.ops` and
+calling no backend. It is what found that bug.
 
 **When correctness actually matters, at least one reference must share no code and no
 conventions with the thing being checked.**
 
-## Cross-validated against PennyLane
+On top of that: **301 executed parity cases against PennyLane** (gates, random
+circuits, all four gradient routes, encodings, kernels, geometry, optimiser
+trajectories), 17 mathematical invariants fuzzed by Hypothesis, one circuit zoo through
+every installed SDK, and every snippet on the docs site executed by the suite.
+**1,608 tests passing of 1,729 collected**, 0 failures.
 
-A second, independently written implementation catches what an internal suite cannot.
-`tests/test_pennylane_parity.py` is **301 executed parity cases** across every layer
-both libraries implement, and it runs in CI like any other test:
+On speed, the honest summary is **1.7× median** over 14 cases, timed against
+PennyLane's *fastest* configuration rather than its reference one — a choice that costs
+most of the headline. That section has had to correct itself twice, both times in
+qmlkit's favour, both caught by someone re-running the comparison rather than trusting
+the table. The two margins that survive a fair comparison are algorithmic: a Gram
+matrix costs one circuit per *row* rather than per pair (10× at 20 points, growing with
+the dataset), and the exact metric tensor is closed-form (103× at `P=24`, widening with
+parameter count). JAX is not installed on the benchmark machine, so jit-compiled
+PennyLane is untested and unclaimed.
 
-```bash
-pip install pennylane
-pytest tests/test_pennylane_parity.py
-```
-
-| Layer | What is compared | Agreement |
-|---|---|---|
-| Gates | 55 matrix comparisons over all 20 gates — the 7 parametric at 6 angles each, the 13 constant once — plus 21 closed-form `dU/dθ` against a differenced PennyLane matrix | `1e-12` |
-| Circuits | 40 **randomly generated** circuits over the full gate set, 1–5 qubits — statevectors, probabilities, and random multi-term observables | `1e-12` |
-| Gradients | 5 ansätze × 4 observables; all four exact methods; PennyLane's own four methods back against ours; randomised circuits | `1e-10` |
-| Encodings | angle (X/Y/Z), amplitude, basis, IQP | `1e-12` |
-| Templates | `BasicEntanglerLayers`, `StronglyEntanglingLayers` | `1e-12` |
-| Kernels | full Gram matrices, fidelity and swap-test estimators | `1e-10` |
-| Quantum info | reduced DMs, von Neumann entropy, purity, mutual information, fidelity — over random states | `1e-10` |
-| Fourier | re-uploading spectra at depths 1–4 | `1e-10` |
-| Geometry | Fubini–Study metric (full and diagonal), QFIM | `1e-12` |
-| Optimisers | Rotosolve and QNG trajectories, step by step | `1e-10` |
-
-The randomised tests are the ones that matter. Hand-picked cases confirm what the
-author already believed; a fuzzer explores the space, and every bug found in this
-project so far has been of the plausible-wrong-number kind that only a second opinion
-catches — including two in this library's own parameter-shift implementation, and two
-in its own tests.
-
-Beyond parity, `tests/test_torture.py` states **17 invariants that hold by mathematics
-rather than by example** and lets Hypothesis hunt for circuits that break them: the four
-exact gradient routes agree, a tied weight's gradient sums over its occurrences, batched
-equals looped, `adjoint()` undoes, expectation lies inside the observable's spectrum. A
-default run generates 1,825 cases; `QMLKIT_TORTURE_EXAMPLES=1500` before a release is
-about 19,500 circuits. When one fails, Hypothesis shrinks it to the smallest circuit
-that still shows it.
-
-**Four real convention differences surfaced.** None is a bug in either library, and
-each is pinned by its own test so it stays deliberate:
-
-| Difference | Detail |
-|---|---|
-| IQP angle convention | PennyLane's `IQPEmbedding` emits `RZ(x_i)` / `MultiRZ(x_i x_j)`; qmlkit follows Qiskit and emits `Rz(2φ)`. Halving the data map reconciles them exactly |
-| Amplitude encoding phase | qmlkit builds it from uniformly-controlled rotations and drops one overall factor. Unobservable — but it stops being global inside a *controlled* block, which the docstring warns about |
-| Two-qubit "ring" | A ring on two qubits would revisit the same pair, so qmlkit collapses it to one `CX`; PennyLane's templates emit both `CNOT(0,1)` and `CNOT(1,0)` |
-| `approx="block-diag"` | PennyLane blocks the metric by *layer* and zeroes cross-layer entries. qmlkit computes the exact metric — free on a simulator — so the same keyword does not port |
-
-That last one is not just cosmetic. On a 3-qubit, 2-layer problem at equal step count
-and step size, qmlkit's QNG reaches `-2.9999999` where PennyLane's default
-`block-diag` QNG stalls at `-2.22`. Pointed at the exact metric (`approx=None`),
-PennyLane's optimiser traces qmlkit's trajectory to `1e-8`.
-
-One place qmlkit is measurably more accurate: `state_fidelity` hits the analytic
-`|⟨a|b⟩|²` to `1e-16`, while `qml.math.fidelity` takes matrix square roots of rank-1
-density matrices and loses about eight digits.
-
-## Speed
-
-`examples/benchmark_pennylane.py` times identical work on both libraries — against
-PennyLane's **fastest** configuration, not its reference one. `pennylane-lightning`
-ships with every PennyLane install, so `lightning.qubit` is always available, and
-`qml.adjoint_metric_tensor` is an `O(P)` route sitting next to the `O(P²)` Hadamard-test
-`qml.metric_tensor`. Benchmarking against the slow option when the fast one is one
-string away would flatter the author.
-
-| Operation | qmlkit | PennyLane (best) | | vs the naive route |
-|---|---|---|---|---|
-| Expectation, 12 qubits | 3.8 ms | 4.7 ms `lightning` | 1.2× | 3.0× |
-| Gradient, 8 qubits, `P=96` | 10.9 ms | 10.8 ms `lightning-adjoint` | 1.01× *slower* | 6.0× |
-| Parameter-shift, 6 qubits, `P=72` | 303 ms | 333 ms `lightning` | 1.1× | 3.7× |
-| 20×20 kernel Gram matrix | 0.31 ms | 3.1 ms `broadcast` | **10×** | 654× |
-| Exact metric tensor, `P=24` | 6.7 ms | 691 ms `adjoint_metric` | **103×** | 271× |
-
-qmlkit is ahead on 14 of 14 cases, median **1.7×**.
-
-**The comparison is deliberately the unflattering one.** `pennylane-lightning` is a
-dependency of PennyLane, so the C++ `lightning.qubit` is in every install whether the
-user asked for it or not; `qml.adjoint_metric_tensor` is an `O(P)` algorithm sitting
-right beside the `O(P^2)` Hadamard-test route; and `default.qubit` *broadcasts* when it
-is handed a stacked array, which turns a Gram matrix into one call rather than one per
-pair. Timing against the slow option in any of those three would be timing an opponent
-nobody runs. This file has done exactly that twice — it reported 6.1× before
-`lightning` was used, and **69× on the Gram row before the broadcast path was**. The
-naive column is still printed above, so the size of the difference stays visible rather
-than being taken on trust. The 8-qubit gradient is a dead tie that falls either way
-between machines, and the table quotes the run where it falls against qmlkit.
-
-`examples/benchmark_pennylane.py` checks that both libraries produce the *same number*
-before quoting any speedup. An acceleration that changes the answer is not an
-acceleration.
-
-**What that means.** The first three rows are dispatch and interpreter overhead rather
-than arithmetic: qmlkit does less per call, so it leads at small register sizes and the
-gap closes as `2ⁿ` starts to dominate — the 8-qubit gradient is a tie. Anyone quoting
-the naive column as qmlkit's speed advantage is quoting the wrong number.
-
-Two results are algorithmic, and those are the ones worth planning around. The **kernel
-Gram matrix** costs one circuit per *row* rather than one per *pair*, because the
-inversion test's `P(0…0)` is exactly `|⟨ψ(x′)|ψ(x)⟩|²` and a simulator can hand back the
-state — linear in the dataset instead of quadratic, which is 10× against PennyLane
-broadcasting and widens as the dataset grows (53× at 128 points). That shortcut needs a
-statevector, so a device still pays the pairwise count and `circuits_on_hardware` reports
-it. And the **metric tensor** is closed-form differentiation of the state, `P` derivative
-states from one forward sweep, agreeing with PennyLane's own routes to `1.7e-16` and
-*widening* with parameter count (50× at `P=12`, 103× at `P=24`) rather than narrowing.
-
-JAX is not installed on the benchmark machine, so jit-compiled PennyLane is untested and
-unclaimed; it would narrow the overhead rows further.
+→ [Validation](docs/about/validation.md) has the full tables, the four convention
+differences, and where qmlkit is *less* accurate.
 
 ## Install
 
@@ -386,10 +293,12 @@ behind an environment marker and resolves cleanly to nothing on newer Pythons.
 ## Backends
 
 ```python
-qk.backend_report()
+print(qk.backend_report())     # it returns the summary; it does not print it
 # qmlkit backends:
+#   [ok]      aer
 #   [ok]      cirq
 #   [ok]      cirq-density
+#   [ok]      mps
 #   [ok]      numpy
 #   [ok]      qiskit
 #   [ok]      qiskit-aer
@@ -397,128 +306,35 @@ qk.backend_report()
 #   [ok]      torch
 
 qk.expectation(spec, qk.Z(0), backend="qiskit")   # per call
-qk.set_default_backend("spinqit")                  # for the session
+qk.set_default_backend("aer")                      # for the session
 ```
 
-`QMLKIT_BACKEND=cirq python train.py` switches an existing script without editing
-it. Asking for a backend whose SDK is missing raises `BackendNotAvailable` with an
-install command — never an `ImportError` traceback.
-
-Each backend also exposes its native circuit, so you can draw, transpile or hand
-it to that SDK's own tooling:
-
-```python
-qk.get_backend("qiskit").to_qiskit(spec).draw()
-qk.get_backend("cirq").to_cirq(spec)
-qk.get_backend("spinqit").to_spinqit(spec)
-```
-
-### Noise, when you ask for it by name
-
-Two backends evolve a density matrix instead of a state, so a circuit can be run on a
-simulator that makes mistakes:
-
-```python
-import cirq
-backend = qk.get_backend("cirq-density", noise=cirq.depolarize(0.01))
-qk.expectation(spec, qk.Z(0), backend=backend)
-```
-
-`qiskit-aer` does the same with a `qiskit_aer.noise.NoiseModel`, including one lifted
-off real hardware with `NoiseModel.from_backend(...)`. Aer is a separate distribution
-from Qiskit: `pip install 'qmlkit[aer]'`.
+Nine simulators behind one protocol: a backend supplies a statevector, and sampling,
+basis rotation, qubit-wise-commuting grouping, expectation and the whole batch stack
+are derived once. Adding one is a single `register_backend` call.
 
 **Noise never picks a simulator for you.** `get_backend(noise=...)` without naming a
-mixed-state backend raises and lists the ones that would work. A noisy run costs more,
-refuses two of the gradient methods, and answers a different question — so which
-simulator produced a number stays written down in the code that produced it.
+mixed-state backend raises and lists the ones that would work — because a noisy run
+costs more, refuses two of the gradient methods, and answers a different question, so
+which simulator produced a number stays written down in the code that produced it.
 
-**Two error sources, kept separate.** `shots=None` still means shot-free: the density
-matrix is evolved exactly, so the answer is exact *given the noise model*. Decoherence
-and sampling error both pull a number around, and studying one with the other layered
-on top means never knowing which you are looking at. Ask for `shots=N` when you want
-both — that is what a device gives you.
+**Circuits come back in, too**: `from_qasm`, `from_qiskit`, `from_pennylane`,
+`from_cirq`. Building that translation layer turned up three real discrepancies,
+including SpinQit's `CY` applying `-iY` rather than `Y` to the control-1 subspace — a
+*relative* phase between control branches, so it changes measurement statistics rather
+than cancelling as a global phase. All three are handled, and
+`tests/test_cross_backend.py` holds them handled.
 
-**What is refused, and why.** There is no statevector, so `adjoint` and `backprop`
-decline: they would have differentiated a *noiseless* circuit and returned a
-machine-precision gradient to someone asking about a noisy one. `parameter-shift` and
-`grad_batch` work, because a shift rule never inspects a state.
-
-With no noise model these backends reproduce the pure-state ones to machine precision
-— the case that makes the noisy numbers trustworthy, and one the tests assert across
-circuits, observables and both SDKs. Depolarizing noise is checked against the closed
-form `cos(θ)(1 − 4p/3)`, not only against itself.
-
-What noise does to trainability is the number worth knowing before the experiment. On
-a 3-qubit, 3-layer ansatz the gradient *direction* survives — correlation above 0.99
-with the noiseless one at `p = 0.05` — while the norm falls to 0.36 of it, and to 0.14
-at `p = 0.1`. [The noise guide](https://ziadt160.github.io/qmlkit/guides/noise/) has
-the table, the traps, and the boundary: error mitigation belongs to
-[Mitiq](https://mitiq.readthedocs.io) and error correction to
-[Stim](https://github.com/quantumlib/Stim).
-
-### And circuits come back in
-
-One-way interop is the difference between a library someone *tries* and one someone
-*adopts*: an existing project has circuits already.
-
-```python
-qk.from_qasm(text)          # OpenQASM 2.0 -- standard library only, no extras needed
-qk.from_qiskit(circuit)     # a QuantumCircuit, unbound Parameters included
-qk.from_pennylane(qnode)    # a tape, QNode or quantum function; templates decompose
-qk.from_cirq(circuit)       # a cirq.Circuit, sympy symbols included
-```
-
-`from_qasm` takes no dependency on anything: Qiskit, Cirq, Braket, t|ket> and Q# all
-export QASM 2.0, so one stdlib parser reaches all of them. The other three exist
-alongside it because QASM cannot carry a *free parameter*: `from_qiskit` maps unbound
-`Parameter`s onto `ParamRef` in Qiskit's own order, and `from_cirq` does the same for
-`sympy` symbols — `cirq.rx(2 * t)` arrives as `ParamRef(i, scale=2.0)`, since `ParamRef`
-carries `scale * theta + offset` and that is exactly the linear form Cirq produces.
-
-Cirq is the importer with nothing to look up: `cirq.S`, `cirq.T` and `cirq.rz` are all
-a `ZPowGate`, separated only by exponent and `global_shift`, so it classifies rather
-than reads a name. One asymmetry worth knowing: Cirq has no declared register, so a
-qubit no operation touches is not in the circuit — the same logical circuit imports
-two qubits wide from Qiskit and one from Cirq.
-
-Qubit order is where importers actually break, so it is what the tests check:
-`from_qiskit(to_qiskit(spec))` reproduces the **statevector** to `1e-12` across
-randomly generated circuits, not merely the same list of gates. Qiskit and QASM are
-little-endian and get flipped; PennyLane is big-endian like qmlkit and does not — and
-that claim is asserted against PennyLane's own simulator rather than assumed.
-
-A gate qmlkit has no definition for is refused by name, never approximated. The one
-exception is the `u`/`u3` family, decomposed into rotations with a warning that an
-overall phase was dropped — unobservable alone, observable inside a controlled block.
-
-### Why the translations are trustworthy
-
-`tests/test_cross_backend.py` runs the same circuit zoo through every installed
-backend and asserts agreement with the NumPy reference on statevectors,
-probabilities, expectations over X/Y/Z and two-body terms, seeded sampling, and
-parameter-shift gradients. The zoo deliberately targets where SDKs differ —
-endianness, controlled-gate qubit order, idle qubits, basis rotations.
-
-Three findings from building it, all now handled:
-
-| Finding | Handling |
-|---|---|
-| Qiskit is little-endian; qmlkit is big-endian | qmlkit qubit `i` maps to Qiskit qubit `n-1-i` at build time, so the index conventions coincide and no vector reversal is needed |
-| Cirq silently drops qubits a circuit never touches | an explicit `qubit_order` is always passed |
-| **SpinQit's `CY` applies `-iY`**, not `Y`, to the control-1 subspace | emitted as `Sd·CX·S` instead. This is a *relative* phase between control branches, so it changes measurement statistics — not a harmless global phase. SpinQit's single-qubit `Y` is correct |
-
-SpinQit's simulator also carries a precision floor near `1e-10` rather than machine
-precision, so it is compared at a looser tolerance. `verify_conventions()` re-checks
-bit order and gate definitions against a live install in one call.
+→ [Backends and conventions](docs/guides/backends.md) · [Running under noise](docs/guides/noise.md) · [Backend reference](docs/reference/backends.md)
 
 ## What it does today
 
 - **A backend-neutral circuit IR.** A circuit is data — a list of `Op`. Backends
   compile it; gradients, resource counting and drawing all read it.
-- **Seven backends behind one protocol** — five pure-state (NumPy exact
-  reference, SpinQit, Qiskit, Cirq, Torch) and two mixed-state (`cirq-density`,
-  `qiskit-aer`) — with a cross-backend equivalence suite proving they agree.
+- **Nine backends behind one protocol** — seven pure-state (NumPy exact
+  reference, Aer, MPS, SpinQit, Qiskit, Cirq, Torch) and two mixed-state
+  (`cirq-density`, `qiskit-aer`) — with a cross-backend equivalence suite
+  proving they agree.
   A backend supplies a statevector; sampling, basis rotation, qubit-wise-commuting
   grouping, expectation and the whole batch stack are defined once in the base
   class, which is what makes agreement between backends a property rather than a
@@ -620,90 +436,23 @@ qk.grad(spec, theta, obs)                        # auto: adjoint when it can, sh
 qk.grad(spec, theta, obs, method="parameter-shift", shots=4096)
 ```
 
-| Method | Cost | Exact | On hardware |
-|---|---|---|---|
-| `adjoint` | one backward pass | yes | no — needs the statevector |
-| `backprop` | one autograd pass (torch) | yes | no — needs the statevector |
-| `hadamard` | `P` circuits, one ancilla | yes | yes, if the ancilla can reach every wire |
-| `parameter-shift` | `2P` circuits (more for multi-frequency gates) | yes | yes |
-| `spsa` | 2 evaluations, any `P` | no — unbiased estimate | yes |
-| `finite-diff` | `2P` | no — `O(h²)` bias | debugging only |
+Six methods — `adjoint`, `backprop`, `parameter-shift`, `hadamard`, `spsa`,
+`finite-diff`. `auto` takes adjoint when the backend can hand back a statevector and
+every gate declares a closed-form derivative, and parameter-shift otherwise. Asking for
+one that cannot be honoured **raises and names the alternative**, rather than quietly
+substituting a simulator-only route and returning a number that could never come off
+hardware.
 
-All four exact methods agree to machine precision — they are four independent
-routes to the same number, which is exactly why disagreement between them is a
-useful bug detector. Measured on a 5-qubit hardware-efficient ansatz with a
-two-term observable:
+**Two things about parameter-shift produce a plausible wrong number rather than an
+exception**, and both are handled here. Shift rules belong to the *gate*, not the call:
+a rule follows from the unique positive gaps between a generator's eigenvalues, so `ry`
+takes the familiar two-term ±π/2 rule while `crz` has two frequencies and needs four
+terms — a circuit mixing them needs both, looked up per gate. And a tied parameter
+driving several gate occurrences must shift **one occurrence at a time** and sum; shift
+them together and you get a directional derivative along the wrong axis, smooth and
+finite and wrong.
 
-| `P` | `adjoint` | `backprop` | `hadamard` | `parameter-shift` | `finite-diff` |
-|---|---|---|---|---|---|
-| 20 | **2.2 ms** | 8.5 ms | 15 ms | 28 ms | 29 ms |
-| 60 | **6.2 ms** | 24 ms | 109 ms | 213 ms | 226 ms |
-| 120 | **12.6 ms** | 50 ms | 404 ms | 823 ms | 870 ms |
-
-Adjoint is the default on a simulator because its cost does not grow with `P` —
-**65× faster than parameter-shift at `P=120`**, and the gap widens from there.
-`hadamard` halves the circuit count against parameter-shift, and on a simulator
-that shows up as roughly half the wall-clock too; the trade is an ancilla that
-must couple to every wire the generator touches. On real hardware that routing
-cost usually eats the saving, which is why parameter-shift stays the default
-there. `backprop` needs `pip install 'qmlkit[torch]'` and exists mainly so a
-circuit can sit inside an autograd graph — for a standalone gradient, adjoint is
-both faster and lighter on memory.
-
-Second derivatives come from differencing the *exact* gradient, so only the outer
-derivative is approximate:
-
-```python
-qk.hessian(spec, theta, obs)               # (P, P), symmetric
-qk.gradient_cost(spec, "parameter-shift")  # circuits one gradient would cost
-```
-
-## The parameter-shift rule, done properly
-
-Two things about parameter-shift produce a *plausible wrong number* rather than an
-exception. Both are handled here, and both have tests.
-
-**Shift rules belong to the gate, not the call.** A gate's rule is determined by
-the unique positive gaps between its generator's eigenvalues. `ry` has one
-frequency (the familiar ±π/2, ±½ rule); `crz` has two and needs four terms. A
-circuit mixing them needs both, looked up per gate:
-
-```python
-qc = qk.QCircuit(2)
-qc.ry(0, qk.ParamRef(0))
-qc.crz(0, 1, qk.ParamRef(1))
-spec = qc.to_spec()
-
-qk.grad_circuit_cost(spec)     # 6, not 2*2 -- the CRZ costs four evaluations
-qk.param_shift_grad_circuit(spec, theta, qk.Z(1))
-```
-
-Rules are **derived**, not transcribed: declare a gate's `frequencies` and the
-right rule is solved for. A gate with no declared frequencies is refused rather
-than differentiated incorrectly.
-
-**Shared parameters shift one occurrence at a time.** When one logical parameter
-drives several gates — weight tying, as in a QCNN's shared convolution block — the
-derivative is the *sum over occurrences*, each shifted on its own. Shifting them
-together computes something else entirely:
-
-```python
-qc = qk.QCircuit(3)
-shared = qc.param()
-qc.rotation_layer(("ry",), shared=shared)   # one parameter, three gates
-spec = qc.to_spec()
-
-len(spec.occurrences_of(0))    # 3
-qk.param_shift_grad_circuit(spec, [0.7], qk.Z(0) + qk.Z(1) + qk.Z(2))
-```
-
-**Gradients flow through the encoding too.** `∂f/∂x` is available from the same
-rule, which is what lets a classical pre-net in a hybrid stack actually train:
-
-```python
-spec = qk.angle_encode([0.4, 1.1], trainable=True)
-qk.param_shift_grad_circuit(spec, [0.4, 1.1], qk.Z(0))   # -> [-sin(0.4), 0]
-```
+→ [Choosing a gradient method](docs/guides/choosing-a-gradient.md) · [The parameter-shift rule](docs/guides/parameter-shift.md)
 
 ## Encoding
 
@@ -717,30 +466,13 @@ fm.build(x)                               # U(x)
 fm.adjoint(x)                             # U(x)^dagger -- the other half of a kernel
 ```
 
-The compute-uncompute kernel falls straight out of `adjoint()`, and matches the
-exact overlap to machine precision:
+Amplitude encoding compresses — 1024 features into 10 qubits — and the qubits are not
+what you pay in: preparing that state costs **4,052 CNOTs at depth 6,027**, about four
+two-qubit gates per feature. Loading is linear in the data, which is the number every
+exponential-speedup claim over classical data has to get past.
+`qk.loading_cost` and `qk.qram_cost` price it.
 
-```python
-k = qk.probabilities(fm.build(x).compose(fm.adjoint(xp)))[0]   # P(all zeros) IS k(x, x')
-```
-
-**`PauliFeatureMap` is built from its two pieces, and both are public.** A Pauli
-feature map needs a basis change that diagonalises each string and a data map that
-turns features into angles; they are usually left implicit inside one function. Here
-they are `basis_change` and `default_data_map`, so either can be replaced without
-rewriting the map — and the maps are tested against the analytic kernels they are
-supposed to induce rather than against themselves: the angle map's `cos²((x−x')/2)`,
-the Z map's factorisation, and the ZZ map's failure to factorise.
-
-**Amplitude encoding is built from uniformly-controlled rotations**, not a backend
-state-preparation primitive. So it emits only `ry`/`rz`/`cx`, runs identically on
-every backend, and its exponential gate cost is visible rather than hidden inside
-an SDK call.
-
-```python
-qk.reduce_to_qubits(X, n_qubits=3)   # PCA (plain SVD) + rescale into [0, 2pi)
-qk.AngleScaler().fit(X_train).transform(X_test)   # one range for both splits
-```
+→ [Getting data in](docs/tutorials/02-encoding-data.md) · [Re-uploading and Fourier](docs/tutorials/07-reuploading.md)
 
 ## Shots are opt-in
 

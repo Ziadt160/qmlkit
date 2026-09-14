@@ -20,7 +20,7 @@ This page is for when you want to override it.
 |---|---|---|---|
 | `adjoint` | one backward pass | yes | no — needs the statevector |
 | `backprop` | one autograd pass | yes | no — needs the statevector |
-| `hadamard` | `P` circuits + one ancilla | yes | yes, given the connectivity |
+| `hadamard` | one circuit per parameterised *slot*, + one ancilla | yes | yes, given the connectivity |
 | `parameter-shift` | `2P` circuits, more for four-term gates | yes | yes |
 | `spsa` | 2 evaluations, any `P` | no — unbiased estimate | yes |
 | `finite-diff` | `2P` | no — `O(h²)` bias | technically, but don't |
@@ -143,7 +143,31 @@ once per parameter. qmlkit's adjoint is a direct NumPy sweep with no dispatch to
 amortise, so the ranking inverts. If you arrive expecting backprop to win, measure
 before switching; `method="auto"` already picks the fast one here.
 
-**`hadamard`** — one circuit per parameter instead of two, using an ancilla in `|+⟩`
+## Inside a torch layer, only three methods stay batched
+
+`QuantumLayer` and the models built on it compute a whole batch's gradient in one
+backend call. That is the difference between a training step costing one call and
+costing one per sample, and it is why `qmlkit.gradients.batch` exists at all.
+
+Only three `grad_method` values take that path:
+
+| `grad_method` | inside `QuantumLayer` |
+|---|---|
+| `auto`, `adjoint`, `parameter-shift` | **batched** — one call per observable for the whole batch |
+| `hadamard`, `spsa`, `finite-diff`, anything you registered | **per sample**, in a Python loop |
+| `backprop` | refused outright by `grad_batch`, which says so rather than falling back |
+
+The middle row is the one to watch, because nothing raises and nothing warns: the
+answer is correct and the run is quietly an order of magnitude slower. If you set
+`grad_method="hadamard"` on a `VQC` because the comparison table above says it costs
+half what parameter-shift does, you get the per-slot saving *and* lose the batching,
+which on any realistic batch size is the worse trade.
+
+The refusal on `backprop` is deliberate and worth contrasting: it needs the circuit
+inside an autograd graph, which a batched NumPy call cannot provide, so it raises
+instead of silently doing something else.
+
+**`hadamard`** — one circuit per parameterised *slot* instead of two, using an ancilla in `|+⟩`
 and a controlled generator. Unlike adjoint it is a real measurement, so it stays
 valid on hardware. The trade is an ancilla that must couple to every wire the
 generator touches; on real devices that routing cost usually eats the saving, which

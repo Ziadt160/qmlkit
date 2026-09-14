@@ -117,6 +117,44 @@ Worth knowing before you commit to anything.
 - **Catalyst, pulse-level control, plugin breadth, quantum chemistry depth.** Not
   contested.
 
+## A dead parameter reads exactly like a fully collapsed plateau
+
+The standard barren-plateau recipe is to fix a parameter index and watch
+`Var[dC/dtheta_k]` as the register grows. It has a trap, and the trap does not raise.
+
+Some indices are *structurally* silent for a given circuit and observable — the
+gradient is exactly zero, not small — and which index that is moves with the depth and
+with the cost you measure. Probe one of those and the number that comes back is
+machine zero, which reads as the most collapsed plateau imaginable and is nothing of
+the kind:
+
+```python
+import qmlkit as qk
+
+n = 6
+glob = qk.Z(0)
+for i in range(1, n):
+    glob = glob * qk.Z(i)
+
+ansatz = qk.hardware_efficient(n, 1)
+stats = qk.gradient_stats(ansatz, glob, n_samples=50)
+
+print(f"parameter 0:         {stats.variance[0]:.2e}")
+print(f"best live parameter: {stats.best_variance:.2e}")
+print(f"silent parameters:   {stats.silent.size} of {stats.n_params}")
+```
+
+Thirty-two orders of magnitude between "this model is dead" and "this model is fine",
+decided by which index you happened to type. `qk.gradient_variance` carries a warning
+for exactly this case, and `qk.gradient_stats` sidesteps it by returning every
+parameter at once — one adjoint pass already computes the whole vector, so the other
+`p - 1` entries are free and they are what tells a plateau from a dead parameter.
+
+There is no equivalent warning in PennyLane, and none is implied: `qml.grad` is a
+differentiation primitive and an exact zero is the correct answer to what it was
+asked. The difference is that qmlkit ships the diagnosis on top, because this is the
+mistake the barren-plateau literature is easiest to reproduce wrongly with.
+
 ## What you get in exchange
 
 The layer that answers *is this result real*, which is the reason the library exists:

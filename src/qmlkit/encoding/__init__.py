@@ -24,6 +24,7 @@ from qmlkit.encoding.hamiltonian import (
     trotter_rz_angle,
     trotter_zz_angle,
 )
+from qmlkit.encoding.loading import LoadingCost, QramCost, loading_cost, qram_cost
 from qmlkit.encoding.pipeline import FeaturePipeline, SklearnCompatible
 from qmlkit.encoding.scaling import (
     AngleScaler,
@@ -38,6 +39,10 @@ __all__ = [
     "basis_index",
     "n_qubits_for",
     "amplitude_encode",
+    "LoadingCost",
+    "loading_cost",
+    "qram_cost",
+    "QramCost",
     "pad_to_power_of_two",
     "uniformly_controlled_rotation",
     "state_preparation_angles",

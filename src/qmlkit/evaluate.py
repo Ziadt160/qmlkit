@@ -24,7 +24,8 @@ table. Nothing here needs scikit-learn; everything here is cross-checked against
 scikit-learn in the test suite, the same way the library is cross-checked against
 PennyLane.
 
-Four tasks are covered: :func:`classification`, :func:`regression`,
+Five tasks are covered: :func:`classification`, :func:`selective` (a classifier that
+may abstain, scored with :func:`risk_coverage`), :func:`regression`,
 :func:`clustering` and :func:`generative`.
 """
 

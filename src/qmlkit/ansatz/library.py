@@ -98,6 +98,19 @@ class Ansatz:
                 "way, so the total is their sum and not any single map's angle count. "
                 "Leave n_inputs unset and it is inferred."
             )
+        if not self.feature_maps and n_inputs:
+            # Without an encoding there is nothing to consume the slots, so every one
+            # of them is inert: `bind(x, weights)` would accept any `x` at all and
+            # produce the same state, losing the data with no error. The check above
+            # cannot catch this -- it needs a declared count to disagree with, and
+            # there is none.
+            raise ValueError(
+                f"{name!r} was given n_inputs={n_inputs}, but its block contains no "
+                "EncodingLayer, so nothing would ever read those slots: bind(x, weights) "
+                "would accept any x and return the same circuit. Compose an "
+                "EncodingLayer(feature_map) into the block -- which also makes n_inputs "
+                "unnecessary, since it is then inferred -- or drop n_inputs."
+            )
         widths = {int(m.n_features) for m in self.feature_maps}
         if len(widths) > 1:
             raise ValueError(
@@ -266,6 +279,7 @@ def get_ansatz(name: str, **kwargs: object) -> Ansatz:
 
 
 def list_ansatze() -> tuple[str, ...]:
+    """Every registered ansatz name, including any you registered yourself."""
     return tuple(sorted(_REGISTRY))
 
 
@@ -384,6 +398,7 @@ def register_conv_filter(name: str, fn: ConvFilter, n_params: int) -> None:
 
 
 def list_conv_filters() -> tuple[str, ...]:
+    """Every registered QCNN two-qubit filter name. Separate from the ansatz registry."""
     return tuple(sorted(_FILTERS))
 
 

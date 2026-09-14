@@ -224,7 +224,11 @@ def render(run: Progress, title: str = "qmlkit run") -> str:
         if charts
         else "<h2>What the run did</h2><p class='empty'>No series were logged. "
         "A training loop logs its loss here; anything else can call "
-        "<code>qmlkit.progress.log(name, value)</code>.</p>"
+        # `from qmlkit.progress import log`, not `qmlkit.progress.log`: importing the
+        # `progress` context manager into the package namespace rebinds the attribute
+        # to the function, so the dotted path raises AttributeError.
+        "<code>from qmlkit.progress import log</code>, then "
+        "<code>log(name, value)</code>.</p>"
     )
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">

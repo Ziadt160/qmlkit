@@ -15,6 +15,7 @@ If you want the layer without the training loop, use
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Sequence
 from typing import Any
 
@@ -33,6 +34,11 @@ from qmlkit.progress import log as progress_log
 from qmlkit.progress import task as progress_task
 
 __all__ = ["HybridModel", "VQC", "VQRegressor"]
+
+
+#: Guards torch's process-global RNG while a model seeds around its own construction.
+#: Global state plus a thread pool is a race; see `HybridModel.__init__`.
+_TORCH_RNG_LOCK = threading.Lock()
 
 
 class HybridModel(nn.Module):
@@ -79,28 +85,37 @@ class HybridModel(nn.Module):
         # Linear ones did not. Seeding around their construction and putting the
         # global state back leaves no side effect on the caller's own RNG - which
         # `torch.manual_seed(seed)` here would not.
-        rng_state = torch.get_rng_state() if seed is not None else None
-        if seed is not None:
-            torch.manual_seed(seed)
+        # ...and because that state is global rather than thread-local, the whole
+        # save-seed-build-restore has to be atomic. `qk.search(n_jobs=4)` builds several
+        # models on a ThreadPoolExecutor, and two threads interleaving here seed over
+        # each other: one initialises from the other's stream and the run stops being
+        # reproducible. It showed as `test_search_gives_the_same_table_threaded_as_serial`
+        # passing in one CI job and failing in another on the identical commit, with the
+        # serial column stable and the threaded one moving. Construction is cheap next
+        # to training, so serialising it costs nothing worth measuring.
+        with _TORCH_RNG_LOCK:
+            rng_state = torch.get_rng_state() if seed is not None else None
+            if seed is not None:
+                torch.manual_seed(seed)
 
-        # a classical projection only when the widths genuinely differ
-        self.pre: nn.Module = (
-            nn.Sequential(nn.Linear(n_features, n_qubits), nn.Tanh())
-            if n_features != n_qubits
-            else nn.Identity()
-        )
-        self.quantum = QuantumLayer(
-            self.feature_map,
-            self.ansatz,
-            obs,
-            shots=shots,
-            backend=backend,
-            grad_method=grad_method,
-            init_seed=seed,
-        )
-        self.head = nn.Linear(len(obs), n_outputs)
-        if rng_state is not None:
-            torch.set_rng_state(rng_state)
+            # a classical projection only when the widths genuinely differ
+            self.pre: nn.Module = (
+                nn.Sequential(nn.Linear(n_features, n_qubits), nn.Tanh())
+                if n_features != n_qubits
+                else nn.Identity()
+            )
+            self.quantum = QuantumLayer(
+                self.feature_map,
+                self.ansatz,
+                obs,
+                shots=shots,
+                backend=backend,
+                grad_method=grad_method,
+                init_seed=seed,
+            )
+            self.head = nn.Linear(len(obs), n_outputs)
+            if rng_state is not None:
+                torch.set_rng_state(rng_state)
         self.scaler = AngleScaler() if scale_inputs else None
         self.history_: list[float] = []
         #: The seed shuffling uses, kept so that `fit` is reproducible. Without it the

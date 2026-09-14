@@ -137,9 +137,17 @@ class DataReuploadEncoder:
         # A trainable block that COMMUTES with the encoding is a silent trap:
         # Ry(x) Ry(t1) Ry(x) Ry(t2) = Ry(2x + t1 + t2), so the model collapses to a
         # single frequency and every weight becomes a phase shift. Measured: with
-        # W = Ry only, L uploads give exactly one frequency (amplitude 1.0); with
-        # W = Rz Ry Rz they give the full 0..L spectrum.
-        if set(self.rotations) <= {self.encoding_rotation}:
+        # W = Ry only and no entangler, L uploads give exactly one frequency
+        # (amplitude 1.0); with W = Rz Ry Rz they give the full 0..L spectrum.
+        #
+        # That identity holds on one wire with nothing in between, so the entangler
+        # this class applies by default breaks it -- exactly as `_commutes_with_
+        # encoding` in qmlkit.ansatz.reupload already accounts for. Warning anyway
+        # told the caller their default-constructed model was broken when it was not:
+        # measured at n_features=2, entanglement="chain" reaches frequencies 0..3,
+        # the same spectrum as the supposedly-safe ("rz","ry","rz") block.
+        entangled = bool(self.entanglement) and self.n_qubits > 1
+        if not entangled and set(self.rotations) <= {self.encoding_rotation}:
             warnings.warn(
                 f"rotations={self.rotations} commutes with encoding_rotation="
                 f"{self.encoding_rotation!r}, so the uploads collapse into a single "

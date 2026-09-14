@@ -20,6 +20,7 @@ mid-optimisation is a list append here, not a rebuild.
 from __future__ import annotations
 
 import itertools
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -148,6 +149,28 @@ class AdaptVQE:
         backend: BackendLike = None,
         reference: Sequence[int] | None = None,
     ) -> None:
+        """Grow an ansatz operator by operator, largest commutator gradient first.
+
+        Parameters
+        ----------
+        hamiltonian, n_qubits
+            What to minimise, and how wide.
+        pool
+            Candidate generators. :func:`default_operator_pool` is generic;
+            :func:`chemistry_operator_pool` conserves particle number, which is what a
+            molecular Hamiltonian needs.
+        optimizer
+            A name in :data:`~qmlkit.algorithms.vqe.OPTIMIZERS` or a callable with the
+            same contract. The gradient is injected for the two that need it.
+        reference
+            **Which wires start in** ``|1>``. The default is an empty list, i.e. the
+            vacuum ``|0...0>`` — and for a *chemistry* pool that is almost never what
+            you want. A particle-conserving pool cannot change the particle number, so
+            from the vacuum every candidate has zero gradient, no operator is ever
+            selected, and the run returns the vacuum energy looking converged. For H2
+            in a minimal basis the Hartree-Fock reference is ``[0, 1]``; passing it is
+            the difference between ``-1.137`` Ha and ``+0.720``.
+        """
         self.hamiltonian = hamiltonian
         self.n_qubits = n_qubits
         self.pool = list(pool) if pool is not None else default_operator_pool(n_qubits)
@@ -200,6 +223,23 @@ class AdaptVQE:
             scores = [self._commutator_gradient(operators, theta, p) for p in self.pool]
             best = int(np.argmax(scores))
             if scores[best] < gradient_tol:
+                if not operators:
+                    # Stopping on the first iteration is not convergence: it means no
+                    # operator in the pool can move the energy away from the reference
+                    # state at all. Returning the reference energy here is the
+                    # plausible-wrong-number failure this library exists to refuse --
+                    # measured on H2, it reports +0.720 Ha against a true -1.137.
+                    warnings.warn(
+                        f"ADAPT selected no operators: the largest commutator gradient in a "
+                        f"pool of {len(self.pool)} was {scores[best]:.2e}, below "
+                        f"gradient_tol={gradient_tol:g}, at the very first step. The energy "
+                        f"below is the reference state's, not a converged result. The usual "
+                        f"cause is a particle-conserving pool starting from the vacuum: pass "
+                        f"reference=[...] naming the occupied wires (Hartree-Fock is [0, 1] "
+                        f"for H2 in a minimal basis). A generic pool that still selects "
+                        f"nothing means the reference is already a stationary point.",
+                        stacklevel=2,
+                    )
                 break  # nothing left in the pool moves the energy
             operators.append(self.pool[best])
             picked_gradients.append(float(scores[best]))

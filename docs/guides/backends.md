@@ -1,6 +1,6 @@
 # Backends and conventions
 
-One circuit, eight backends, one answer. `tests/test_cross_backend.py` runs the same
+One circuit, nine backends, one answer. `tests/test_cross_backend.py` runs the same
 circuit zoo through every installed backend and asserts agreement with the NumPy
 reference on statevectors, probabilities, expectations over X/Y/Z and two-body terms,
 seeded sampling, and parameter-shift gradients.
@@ -13,6 +13,7 @@ seeded sampling, and parameter-shift gradients.
 | `cirq` | `cirq.Simulator` | Cirq's reference |
 | `spinqit` | SpinQit's simulator | the diploma's own SDK; Python 3.10 only |
 | `torch` | a differentiable simulator | `backprop` only |
+| `mps` | `AerSimulator(method="matrix_product_state")` | wide but lightly entangled circuits. No statevector, and exact only until the bond dimension truncates |
 | `cirq-density` · `qiskit-aer` | density matrices | noise, when you ask for it by name |
 
 ### Which one, in practice

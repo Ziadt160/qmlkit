@@ -18,7 +18,7 @@ everywhere the library takes ``method=``:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -207,15 +207,18 @@ def _backprop(spec, theta, obs, *, backend=None, shots=None, **kw):  # type: ign
 
 def hessian(
     spec: CircuitSpec,
-    theta: Sequence[float],
+    theta: ArrayLike,
     obs: Observable | None = None,
     backend: Backend | str | None = None,
     eps: float = 1e-4,
 ) -> npt.NDArray[Any]:
     """Second derivatives, by differencing the exact gradient.
 
-    The gradient itself is exact (adjoint), so only the outer derivative is
-    approximated — far more accurate than differencing the expectation twice.
+    The inner gradient is exact — whichever route :func:`choose_method` picks, they all
+    are — so only the outer derivative is approximated, which is far more accurate than
+    differencing the expectation twice. (It is not necessarily *adjoint*: no ``method``
+    is pinned here, so a backend without a statevector gets parameter-shift, equally
+    exact and rather more expensive.)
     """
     obs = Z(0) if obs is None else obs
     arr = np.asarray(theta, dtype=float).ravel()
@@ -231,8 +234,18 @@ def hessian(
     return 0.5 * (out + out.T)  # symmetrise away the differencing asymmetry
 
 
-def gradient_cost(spec: CircuitSpec, method: str = "parameter-shift") -> int | str:
-    """Circuit evaluations one gradient needs under a given method."""
+def gradient_cost(spec: CircuitSpec, method: str = "parameter-shift", n_avg: int = 1) -> int | str:
+    """Circuit evaluations one gradient needs under a given method.
+
+    ``n_avg`` is SPSA's averaging count and is the only argument that changes an
+    answer here: SPSA costs two evaluations *per average*, so the cheap headline of 2
+    is the cost at ``n_avg=1`` and nothing else. Reporting the constant regardless
+    understated the tutorial's own example -- which calls ``spsa`` with ``n_avg=50``,
+    i.e. 100 evaluations -- by a factor of fifty.
+
+    Note that parameter-shift and hadamard count *slots*, not logical parameters: a
+    weight tied across three gate occurrences is shifted once per occurrence.
+    """
     from qmlkit.gradients.hadamard import hadamard_grad_cost
     from qmlkit.gradients.parameter_shift import grad_circuit_cost
 
@@ -242,6 +255,6 @@ def gradient_cost(spec: CircuitSpec, method: str = "parameter-shift") -> int | s
         "hadamard": hadamard_grad_cost(spec),
         "parameter-shift": grad_circuit_cost(spec),
         "finite-diff": 2 * spec.n_params,
-        "spsa": 2,
+        "spsa": 2 * max(int(n_avg), 1),
     }
     return costs.get(method, "unknown")

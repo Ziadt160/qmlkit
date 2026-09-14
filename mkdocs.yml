@@ -15,6 +15,7 @@ theme:
     - navigation.tracking
     - navigation.sections
     - navigation.top
+    - navigation.footer
     - navigation.indexes
     - toc.follow
     - content.code.copy
@@ -131,6 +132,7 @@ nav:
   - Reference:
       - reference/index.md
       - Core: reference/core.md
+      - Backends: reference/backends.md
       - Gradients: reference/gradients.md
       - Encoding: reference/encoding.md
       - Ansatz: reference/ansatz.md
@@ -140,6 +142,7 @@ nav:
       - Analysis: reference/analysis.md
       - Evaluation: reference/evaluation.md
   - About:
+      - about/index.md
       - Validation: about/validation.md
       - API stability: about/stability.md
       - Changelog: about/changelog.md

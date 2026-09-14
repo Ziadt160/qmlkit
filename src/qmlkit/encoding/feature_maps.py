@@ -116,8 +116,21 @@ def pauli_terms(
 class FeatureMap:
     """Turns a feature vector into a circuit.
 
-    Subclasses implement :meth:`build`. ``adjoint`` comes free from the IR, which
-    is what the fidelity kernel's compute-uncompute test needs.
+    Subclasses implement three methods, and :meth:`build` is **not** one of them --
+    it is concrete, and composes the other three:
+
+    * :meth:`angles` — the feature vector to its rotation angles.
+    * :meth:`n_angles` — how many slots those angles occupy.
+    * :meth:`_emit` — the angles to a circuit. It receives either floats or
+      :class:`~qmlkit.core.ir.ParamRef` slots, so it must not assume arithmetic.
+
+    Optionally also :meth:`angle_jacobian`, ``d(angle)/d(feature)``, which is what
+    lets a gradient reach back through the encoding to a classical pre-net.
+    Overriding :meth:`build` instead leaves :meth:`build_parametric` calling the base
+    :meth:`_emit`, which raises -- so the torch layer breaks and nothing else does.
+
+    ``adjoint`` comes free from the IR, which is what the fidelity kernel's
+    compute-uncompute test needs.
     """
 
     n_features: int

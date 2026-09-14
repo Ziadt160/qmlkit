@@ -15,6 +15,7 @@ loop is the real interface, and these tests hold it to three promises:
 from __future__ import annotations
 
 import doctest
+import importlib
 import importlib.util
 import re
 from pathlib import Path
@@ -33,7 +34,13 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def test_the_examples_in_these_modules_run() -> None:
     """Their docstrings show output, so the output has to be real."""
-    for module in (errors, _aliases):
+    # import_module, not `from qmlkit import landscape`: the top-level export of the
+    # same name shadows the submodule, as it does for draw, progress, recommend and
+    # search. The function is the one people want; the module is the one doctest does.
+    extra = [
+        importlib.import_module(name) for name in ("qmlkit.landscape", "qmlkit.encoding.loading")
+    ]
+    for module in (errors, _aliases, *extra):
         result = doctest.testmod(module, verbose=False)
         assert result.attempted > 0, f"{module.__name__} has no runnable examples"
         assert result.failed == 0, f"{module.__name__} has failing examples"

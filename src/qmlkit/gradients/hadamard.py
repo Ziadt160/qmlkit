@@ -1,4 +1,4 @@
-r"""Hadamard-test gradient — one circuit per parameter instead of two.
+r"""Hadamard-test gradient — one circuit per parameterised slot instead of two.
 
 For :math:`U_k = e^{-i\theta_k P_k/2}` inserted at position :math:`k`, write
 :math:`|\varphi\rangle` for the state you get by applying :math:`P_k` right after
@@ -62,7 +62,11 @@ def hadamard_grad(
     shots: int | None = None,
     seed: int | None = None,
 ) -> npt.NDArray[Any]:
-    """Exact gradient using one extra qubit and one circuit per parameter."""
+    """Exact gradient using one extra qubit and one circuit per parameterised slot.
+
+    Slot, not logical parameter: a weight tied across three gate occurrences costs
+    three circuits, not one. :func:`hadamard_grad_cost` is the number to budget from.
+    """
     obs = Z(0) if obs is None else obs
     if not supports_hadamard_grad(spec):
         offenders = sorted({s.gate for s in spec.slots() if s.gate not in _GENERATOR})

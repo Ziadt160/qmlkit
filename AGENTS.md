@@ -11,17 +11,17 @@ wrong.
 
 ## The map
 
-19,000 lines over 79 modules, 196 names in the top-level `__all__`. Two halves:
+21,000 lines over 85 modules, 214 names in the top-level `__all__`. Two halves:
 
 ```
 src/qmlkit/
   core/          the IR, and only the IR: ir · builder · gates · observables · execute
-  core/backends/ seven of them. base.py supplies the semantics; a backend supplies
+  core/backends/ nine of them. base.py supplies the semantics; a backend supplies
                  statevector() and inherits sampling, grouping, expectation, batching
   ansatz/  encoding/  gradients/  kernels/  nn/      the ML layer
   algorithms/    VQE · ADAPT · QAOA · chemistry · autoencoder · clustering · rl
-  *.py           the honesty layer — diagnostics · baselines · budget · evaluate ·
-                 imbalance · provenance · search · progress · report · metrics
+  *.py           the honesty layer — diagnostics · landscape · baselines · budget ·
+                 evaluate · imbalance · provenance · search · progress · report · metrics
   utils/errors.py  how every "unknown X" error in the library is built
   _aliases.py      PennyLane and Qiskit names, answered with the qmlkit one
 ```

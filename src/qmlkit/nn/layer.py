@@ -331,16 +331,31 @@ class QuantumLayer(nn.Module):
         )
 
     def resources(self) -> dict[str, object]:
-        """Circuit cost, and what a batch costs under each gradient method."""
+        """Circuit cost, and what a batch costs under each gradient method.
+
+        The per-sample figures count **every observable**. Both `forward_batch` and
+        `backward_batch` loop once per observable with no sharing between them, so a
+        layer reading four wires costs four times a layer reading one — and the default
+        for a `VQC` is one `Z(i)` per qubit. Reporting the single-observable number
+        here understated a default 4-qubit classifier by 4x (41 circuits against a real
+        164 under parameter-shift), which is the opposite of what a cost estimate is
+        for.
+
+        The per-observable constants are unchanged: one forward evaluation plus the
+        gradient circuits under parameter-shift, one adjoint pass under adjoint. Only
+        the observable factor was missing.
+        """
         from qmlkit.gradients.parameter_shift import grad_circuit_cost
 
         spec = self._runner.spec
+        n_obs = len(self._runner.observables)
         out = dict(spec.resources())
         out["grad_method"] = self._runner.grad_method
         out["shots"] = self._runner.shots
         out["n_outputs"] = self.n_outputs
-        out["circuits_per_sample_parameter_shift"] = 1 + grad_circuit_cost(spec)
-        out["passes_per_sample_adjoint"] = 1
+        out["n_observables"] = n_obs
+        out["circuits_per_sample_parameter_shift"] = n_obs * (1 + grad_circuit_cost(spec))
+        out["passes_per_sample_adjoint"] = n_obs
         return out
 
     def extra_repr(self) -> str:

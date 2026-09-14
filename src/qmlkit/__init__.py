@@ -113,6 +113,7 @@ from qmlkit.encoding import (
     reduce_to_qubits,
     to_angle_range,
 )
+from qmlkit.encoding.loading import LoadingCost, QramCost, loading_cost, qram_cost
 from qmlkit.gradients import (
     SPSASchedule,
     adjoint_grad,
@@ -184,6 +185,19 @@ from qmlkit.kernels import (
     swap_test_kernel,
     target_alignment,
     threshold_matrix,
+)
+from qmlkit.landscape import (
+    GradientStats,
+    HessianSpectrum,
+    LandscapeReport,
+    MinimaScan,
+    Overparametrisation,
+    gradient_stats,
+    hessian_spectrum,
+    landscape,
+    minima_scan,
+    overparametrisation,
+    plateau_mechanism,
 )
 from qmlkit.metrics import (
     AnsatzReport,
@@ -376,6 +390,23 @@ __all__ = [
     "generalization_bound",
     "AnsatzReport",
     "compare_ansatze",
+    # data loading
+    "loading_cost",
+    "LoadingCost",
+    "qram_cost",
+    "QramCost",
+    # landscape
+    "gradient_stats",
+    "GradientStats",
+    "plateau_mechanism",
+    "hessian_spectrum",
+    "HessianSpectrum",
+    "minima_scan",
+    "MinimaScan",
+    "overparametrisation",
+    "Overparametrisation",
+    "landscape",
+    "LandscapeReport",
     # optimisers
     "minimize_rotosolve",
     "rotosolve_step",
