@@ -30,7 +30,9 @@ from qmlkit.ansatz.library import Ansatz
 from qmlkit.core.backends.registry import require_statevector
 from qmlkit.core.execute import BackendLike, statevector
 from qmlkit.core.observables import Observable, Z
+from qmlkit.gradients.batch import grad_batch
 from qmlkit.info import purity
+from qmlkit.utils.errors import wrong_size
 
 __all__ = [
     "haar_fidelity_pdf",
@@ -261,23 +263,48 @@ def fisher_information(
     obs: Observable | None = None,
     backend: BackendLike = None,
 ) -> npt.NDArray[Any]:
-    """Classical Fisher information of the model output, averaged over inputs.
+    r"""Classical Fisher information of the model output, averaged over inputs.
 
     This is the *classical* FIM of the output distribution — the object effective
     dimension is built on. Not to be confused with the quantum Fisher information,
     which is ``4 x`` the Fubini–Study metric and is what natural gradient uses.
-    """
-    from qmlkit.gradients.dispatch import grad
 
+    .. math::  F(\theta) = \frac{1}{|X|} \sum_{x \in X}
+               \nabla_\theta f(x, \theta)\, \nabla_\theta f(x, \theta)^{\top}
+
+    The average is over the **data**, which is what makes the matrix more than
+    rank one: a single input contributes a single outer product, so an FIM that
+    ignores ``X`` has rank 1 whatever you pass it, and the effective dimension
+    built on it is ``~1`` for every model and every dataset. ``theta`` is the
+    weights alone; the row supplies the input slots through the ansatz's own
+    feature maps, so this is the Fisher information of the model you are training
+    rather than of the ansatz in isolation.
+    """
     obs = Z(0) if obs is None else obs
     spec = ansatz.build()
-    p = len(theta)
-    total = np.zeros((p, p))
+    weights = np.asarray(theta, dtype=float).ravel()
     rows = np.atleast_2d(np.asarray(X, dtype=float))
-    for _ in rows:
-        g = grad(spec, theta, obs, backend=backend)
-        total += np.outer(g, g)
-    return total / max(len(rows), 1)
+
+    if ansatz.n_inputs == 0:
+        raise ValueError(
+            f"{ansatz.name!r} reserves no input slots, so X cannot reach the circuit and "
+            "the Fisher information would be the same rank-1 matrix for any data you "
+            "passed. Build the model's ansatz with an EncodingLayer (or hand this the "
+            "ansatz a QuantumLayer/VQC holds, not a bare variational block), so that "
+            "each row changes the gradient."
+        )
+    if weights.size != ansatz.n_weights:
+        raise wrong_size(
+            f"theta for {ansatz.name!r}",
+            ansatz.n_weights,
+            weights.size,
+            unit="weight",
+            hint="Pass the weights alone -- the input slots come from each row of X.",
+        )
+
+    thetas = np.stack([np.concatenate([ansatz.angles(row), weights]) for row in rows])
+    grads = grad_batch(spec, thetas, obs, backend=backend)[:, ansatz.n_inputs :]
+    return np.asarray(grads.T @ grads / len(rows), dtype=float)
 
 
 def effective_dimension(
