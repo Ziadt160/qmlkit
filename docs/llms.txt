@@ -77,7 +77,7 @@ What is worth knowing before writing any of it:
 - [Coming from PennyLane](https://ziadt160.github.io/qmlkit/guides/from-pennylane/): You do not have to migrate anything to use this library, and the cheapest way to start is not to.
 - [The parameter-shift rule](https://ziadt160.github.io/qmlkit/guides/parameter-shift/): It is correct — for a gate whose generator has a single frequency, differentiated one occurrence at a time.
 - [Choosing a gradient method](https://ziadt160.github.io/qmlkit/guides/choosing-a-gradient/): Six methods, and qk.grad(spec, theta, obs) with no method picks a sensible one.
-- [Backends and conventions](https://ziadt160.github.io/qmlkit/guides/backends/): One circuit, eight backends, one answer. tests/testcrossbackend.py runs the same circuit zoo through every installed backend and asserts agreement with the NumPy reference on statevectors, probabilities, expectations over X/Y/Z and two-body terms, seeded sampling, and parameter-shift gradients.
+- [Backends and conventions](https://ziadt160.github.io/qmlkit/guides/backends/): One circuit, nine backends, one answer. tests/testcrossbackend.py runs the same circuit zoo through every installed backend and asserts agreement with the NumPy reference on statevectors, probabilities, expectations over X/Y/Z and two-body terms, seeded sampling, and parameter-shift gradients.
 - [Running under noise](https://ziadt160.github.io/qmlkit/guides/noise/): qmlkit is simulator-only, but a simulator does not have to be a perfect one.
 - [Evaluating a model honestly](https://ziadt160.github.io/qmlkit/guides/evaluation/): Three things go wrong between a trained model and a reported result, and none of them raises an exception.
 - [Watching a run](https://ziadt160.github.io/qmlkit/guides/watching-a-run/): qk.plan says what a run will cost before it starts. qk.diagnose says what went wrong after it finishes.
@@ -87,7 +87,8 @@ What is worth knowing before writing any of it:
 ## Reference
 
 - [Reference](https://ziadt160.github.io/qmlkit/reference/): Generated from the docstrings in the source, so it cannot drift from the code.
-- [Core](https://ziadt160.github.io/qmlkit/reference/core/): The circuit IR, gates, observables, execution and backends. Everything else in the library reads or writes these types.
+- [Core](https://ziadt160.github.io/qmlkit/reference/core/): The circuit IR, gates, observables and execution — the data model everything else in the library reads or writes.
+- [Backends](https://ziadt160.github.io/qmlkit/reference/backends/): Nine simulators behind one protocol. A backend supplies a statevector — or, for a device, counts — and sampling, basis rotation, qubit-wise-commuting grouping, expectation and the whole batch stack are derived once in base.py.
 - [Gradients](https://ziadt160.github.io/qmlkit/reference/gradients/): Six estimators behind one grad(), plus the shift-rule machinery they share.
 - [Encoding](https://ziadt160.github.io/qmlkit/reference/encoding/): Getting classical data into a circuit, and the scaling decisions that come first.
 - [Ansatz](https://ziadt160.github.io/qmlkit/reference/ansatz/): A block vocabulary, the templates written in it, and re-uploading as a composition.
@@ -99,6 +100,7 @@ What is worth knowing before writing any of it:
 
 ## About
 
+- [About](https://ziadt160.github.io/qmlkit/about/): The rest of the site shows you what the library does. These four pages are for deciding whether to believe it, and what happens to your code when it changes.
 - [Validation](https://ziadt160.github.io/qmlkit/about/validation/): A library's own test suite can only catch the bugs its author thought of.
 - [API stability](https://ziadt160.github.io/qmlkit/about/stability/): Research code outlives the version it was written against. A script from last year that no longer runs is not a small inconvenience — it is a result nobody can reproduce, and it is the most common complaint about every library in this field.
 - [Changelog](https://ziadt160.github.io/qmlkit/about/changelog/)

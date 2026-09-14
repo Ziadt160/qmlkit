@@ -10,6 +10,12 @@ Getting classical data into a circuit, and the scaling decisions that come first
 
 ::: qmlkit.encoding.amplitude
 
+## `qmlkit.encoding.loading`
+
+What getting the data in costs, and the QRAM the exponential-speedup claims assume.
+
+::: qmlkit.encoding.loading
+
 ## `qmlkit.encoding.feature_maps`
 
 ::: qmlkit.encoding.feature_maps

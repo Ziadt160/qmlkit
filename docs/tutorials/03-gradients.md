@@ -177,7 +177,7 @@ adjoint against 823 ms for parameter-shift** at `P=120`. Adjoint is not more acc
 — both are exact — it is just cheaper on a simulator, where reading the statevector
 is allowed.
 
-`hadamard` sits between them: one circuit per parameter instead of two, using an
+`hadamard` sits between them: one circuit per parameterised *slot* instead of two, using an
 ancilla and controlled generators, and unlike adjoint it is a real measurement, so it
 stays valid on hardware.
 

@@ -20,7 +20,7 @@ This page is for when you want to override it.
 |---|---|---|---|
 | `adjoint` | one backward pass | yes | no — needs the statevector |
 | `backprop` | one autograd pass | yes | no — needs the statevector |
-| `hadamard` | `P` circuits + one ancilla | yes | yes, given the connectivity |
+| `hadamard` | one circuit per parameterised *slot*, + one ancilla | yes | yes, given the connectivity |
 | `parameter-shift` | `2P` circuits, more for four-term gates | yes | yes |
 | `spsa` | 2 evaluations, any `P` | no — unbiased estimate | yes |
 | `finite-diff` | `2P` | no — `O(h²)` bias | technically, but don't |
@@ -143,7 +143,7 @@ once per parameter. qmlkit's adjoint is a direct NumPy sweep with no dispatch to
 amortise, so the ranking inverts. If you arrive expecting backprop to win, measure
 before switching; `method="auto"` already picks the fast one here.
 
-**`hadamard`** — one circuit per parameter instead of two, using an ancilla in `|+⟩`
+**`hadamard`** — one circuit per parameterised *slot* instead of two, using an ancilla in `|+⟩`
 and a controlled generator. Unlike adjoint it is a real measurement, so it stays
 valid on hardware. The trade is an ancilla that must couple to every wire the
 generator touches; on real devices that routing cost usually eats the saving, which

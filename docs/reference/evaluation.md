@@ -33,6 +33,22 @@ The guide is [Evaluating a quantum model honestly](../guides/evaluation.md).
 
 ::: qmlkit.nn.losses
 
+## `qmlkit.recommend`
+
+Which backend to run a circuit on, from measured crossovers rather than a rule of
+thumb. [Backends](backends.md) gives the static table; this computes the answer for
+the circuit in front of you, and will name `mps` where a statevector would not fit.
+
+::: qmlkit.recommend
+
+## `qmlkit.parallel`
+
+Independent work — folds, seeds, sweep configurations — run on a thread pool. Not for
+parallelising *inside* one circuit, which is the backend's job. `qk.search(...,
+n_jobs=4)` dispatches through this; so can your own loops.
+
+::: qmlkit.parallel
+
 ## `qmlkit.progress`
 
 See [Watching a run](../guides/watching-a-run.md) for the guide.

@@ -6,6 +6,367 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed - errors that named the wrong thing, and counts that understated
+
+The second pass over the audit findings. None of these returned a wrong number; each
+one either failed in a way that pointed somewhere else, or reported a cost that was not
+the cost.
+
+**`QAOA` did not check its ansatz against the problem**, though `VQE` does. A 2-qubit
+ansatz on a 4-node graph constructed happily and failed inside `run()` with
+`IndexError: tuple index out of range`. It now says which width it got and which it
+wanted, in the same words VQE uses.
+
+**`QAOA` required edge tuples specifically.** `isinstance(problem[0], tuple)` sent a
+list-of-lists down the *observable* branch, where it died on `'list' object has no
+attribute 'support'` - an error about the wrong thing entirely. Any pair-shaped
+sequence is now an edge; an `Observable` still routes to the observable branch, and a
+test holds that guard.
+
+**`Ansatz(..., n_inputs=N)` on a block with no `EncodingLayer` created inert slots.**
+Nothing read them, so `bind(x, weights)` accepted any `x` and returned the same
+circuit - verified: two different feature vectors, identical statevectors, no error.
+The existing check could not catch it, because it needs a declared encoding to disagree
+with and there is none. Refused now, naming the fix.
+
+**`gradient_cost(spec, "spsa")` was hardcoded to 2**, ignoring `n_avg`. SPSA costs two
+evaluations *per average*, so tutorial 3's own example - which calls it with
+`n_avg=50`, i.e. 100 evaluations - printed a cost fifty times too small directly
+beneath the call it was describing. The function now takes `n_avg`.
+
+**`VQEResult.n_evaluations` counted loss calls only.** Every gradient the optimiser
+asked for was free, so ten steps of gradient descent reported 11 - the same number
+whatever the gradient method. It now adds each gradient's real circuit cost: 21 under
+adjoint, 251 under parameter-shift, for the identical run.
+
+### Fixed - four docstrings that described something other than the code
+
+- **`FeatureMap`** said "subclasses implement `build`". `build` is concrete and no
+  shipped subclass overrides it; the abstract three are `angles`, `n_angles` and
+  `_emit`. Following the old advice leaves `build_parametric` calling the base
+  `_emit`, which raises - so the torch layer breaks and nothing else does.
+- **`qmlkit.evaluate`** said "four tasks" while exporting five: `selective` and
+  `risk_coverage` were missing from its own count, and the evaluation guide had copied
+  the undercount.
+- **`qmlkit.optim`** opened with "Adam and SGD come from torch" immediately above its
+  own NumPy Adam - which is what every `qmlkit.algorithms` solver means by
+  `optimizer="adam"`.
+- **The Hadamard gradient** was described as "one circuit per parameter" in its own
+  module docstring, the gradient guide and tutorial 3. It is one per parameterised
+  *slot*: a weight tied across three occurrences costs three circuits, not one. This is
+  the same slot-versus-parameter distinction the parameter-shift guide devotes a
+  section to.
+
+### Added - the constructor `QSVC` and `QSVR` actually have
+
+Both inherit everything from a private base, so the generated reference showed
+`feature_map`, a solver argument and `**kwargs` - with `shots`, `backend`, `bandwidth`,
+`estimator`, `repair_psd` and `seed` invisible. `bandwidth` matters most: the source
+calls it "the first thing to try when a kernel has concentrated", and it appeared
+nowhere in the docs. Now a table on the kernels reference page, alongside the inherited
+methods and the `clone` contract that lets these sit inside a scikit-learn `Pipeline`.
+
+
+### Fixed - ADAPT-VQE reported the reference energy as a converged result
+
+Following the documented chemistry recipe exactly - `chemistry_operator_pool`, no
+`reference=` - returned **+0.720 Ha against a true -1.137**. An error of 1.86 Ha, about
+1,165 kcal/mol where chemical accuracy is 1, with no warning of any kind.
+
+The cause is that a particle-conserving pool cannot change the particle number, so from
+the default vacuum every candidate has exactly zero gradient, the selection loop breaks
+on its first pass, and the reference energy is returned looking converged. The docs
+said the pool avoids the particle-number trap "at Hartree-Fock" - but reaching
+Hartree-Fock needs `reference=[0, 1]`, and `AdaptVQE.__init__` had no docstring at all.
+
+Selecting **zero** operators is now a warning, because it is never convergence: it means
+nothing in the pool can move the energy off the reference state. `reference` is
+documented, with the two numbers above in it. The default is unchanged - the vacuum is
+right for a generic pool, and ADAPT cannot infer an electron count.
+
+### Fixed - the quantum autoencoder honoured two of the four optimisers it advertised
+
+`QuantumAutoencoder.fit(optimizer="adam")` and `"gradient-descent"` raised
+`TypeError: _adam() missing 1 required keyword-only argument: 'grad'`. VQE, QAOA and
+ADAPT all inject the gradient; this class never did, and `tests/test_optimizer_wiring.py`
+- written for exactly this bug class, after `optimizer="adam"` once raised from all
+three - parametrises over those three and not this one.
+
+`gradient_of_loss` now supplies it. The trash projector expands to an ordinary Pauli
+sum specifically so the loss is a plain expectation value that `qk.grad` can
+differentiate, which is what `_trash_projector`'s docstring has always said the design
+was for; the method it implies was simply never written. It agrees with finite
+differences to `8e-11`.
+
+### Fixed - the re-uploading collapse warning fired on correct circuits
+
+`DataReuploadEncoder` warned that "the uploads collapse into a single rotation" whenever
+the trainable rotations shared the encoding's generator - without checking its own
+`entanglement` parameter, which defaults to `"chain"`.
+
+`Ry(x) Ry(t) Ry(x)` only composes on one wire with nothing in between. Measured at
+`n_features=2`: with no entangler the model does reach one frequency and the warning is
+right; with the default `"chain"` it reaches the full `0..3` spectrum and the warning
+was telling the caller to redesign a circuit that was correct. `_commutes_with_encoding`
+in `qmlkit.ansatz.reupload` already reasons this out for the other implementation of the
+same idea; this one now matches it.
+
+A false positive here is worse than a false negative - it teaches people to ignore the
+tool - so the new test asserts the warning stays **quiet** on the default configuration,
+and separately that the frequencies it claims are the frequencies actually reached.
+
+### Fixed - two documented call paths raised AttributeError
+
+`qmlkit.progress.log(name, value)` cannot work. Importing the `progress` context manager
+into the top-level namespace rebinds `qmlkit.progress` to the *function*, so the dotted
+path resolves to a function attribute that does not exist - and it stays rebound even
+after an explicit `import qmlkit.progress`.
+
+That exact path was printed in two places: `docs/guides/watching-a-run.md`, and the
+"No series were logged" panel of every generated HTML run report. Both now say
+`from qmlkit.progress import log`, and the guide says why the dotted form does not work.
+
+### Fixed - `resources()` understated circuit cost by the observable count
+
+`QuantumLayer.resources()` reported the single-observable figure. Both `forward_batch`
+and `backward_batch` loop once per observable with no sharing, so a default 4-qubit
+`VQC` - which reads one `Z(i)` per qubit - cost **164 circuit evaluations per sample
+under parameter-shift against the 41 reported**.
+
+Both figures now carry the observable factor. The per-observable constants are
+unchanged: only the factor was missing, and that much is readable straight off the two
+`for j, obs in enumerate(self.observables)` loops rather than inferred from a
+measurement. `resources()` exists, in its own docstring's words, "so nobody discovers
+it an hour in"; being wrong by 4x for the default configuration is the opposite of
+that.
+
+
+### Fixed - four documentation claims that had drifted away from the library
+
+A six-way audit of every subsystem against its docs. The counts had gone stale in the
+one direction nobody checks, because `docs/llms.txt` is generated and CI fails on a
+stale copy, while the numbers written into prose had no such gate:
+
+| Claim | Said | Measured |
+|---|---|---|
+| `validation.md` test suite | 1,563 collected | **1,731** |
+| `AGENTS.md` map | "seven" backends | **nine** |
+| `guides/backends.md` | "eight backends" | **nine** |
+| `README.md` backend listing | seven, no `aer`/`mps` | **nine** |
+
+The README's `backend_report()` example was wrong twice over: a stale listing, and
+written as a bare call when the function *returns* the summary rather than printing it,
+so a reader who copied it saw nothing at all. It is now `print(qk.backend_report())`
+and matches the real output.
+
+`scripts/check_doc_numbers.py` measures these against the repository and names the
+sentence that has gone stale. It does not rewrite the prose - a number here carries an
+argument around it, and a script that edited those sentences would flatten the voice
+they are written in. It caught its own first regression immediately: adding two pages
+added two documentation tests, and the freshly-corrected 1,729 was already 1,731.
+
+### Fixed - `QSVC` shipped with no docstring at all
+
+The class docstring sat *below* `_estimator_type = "classifier"`, so Python never
+assigned it to `__doc__` - `qk.QSVC.__doc__` was `None`, and the generated reference
+page rendered the library's headline kernel classifier with no description. `QSVR`,
+directly beneath it, was fine, which is what made it an ordering slip rather than a
+choice.
+
+### Added - a reference page for the backends, and the nine are all on it
+
+Seven of the nine backend modules had no reference entry anywhere: `MPSBackend` was
+absent from every table and every page, and `AerBackend(device="GPU")`,
+`SpinQitBackend(compiler=...)` and `NumpyBackend`'s hard 24-qubit cap were readable
+only in the source. A backend that silently truncates past a bond dimension, or refuses
+a GPU it cannot find, should say so on the page you look it up on.
+
+`docs/reference/backends.md` now carries one entry per module plus the capability
+matrix that previously had to be reconstructed from three separate guides - which is
+how `mps` went missing from all of them.
+
+### Added - `recommend()` and `parallel_map()` reached zero documentation pages
+
+Both are in `qmlkit.__all__`, and `about/stability.md` therefore promises them stable.
+Neither appeared on any reference page, guide or tutorial - a direct violation of this
+project's own rule that anything public gets a reference entry. With them added, **every
+one of the 214 public names is now covered by a reference page**, up from 210.
+
+### Changed - the README stopped being a second copy of the documentation site
+
+821 lines, of which roughly 460 restated `guides/agents.md`, `guides/backends.md`,
+`guides/noise.md`, `guides/parameter-shift.md`, `guides/choosing-a-gradient.md`,
+`tutorials/02-encoding-data.md` and `about/validation.md` - the long version living in
+the file that gets read most and maintained least. That is exactly the seam the backend
+count drifted through: the guide was updated for `aer`, the README was not, and nothing
+was updated for `mps`.
+
+Now 553 lines. Each cut section keeps the one fact that earns its place - the torch
+`moveaxis` bug, the 1.7x median timed against PennyLane's fastest configuration, the
+4,052 CNOTs to load 1024 amplitudes, SpinQit's `CY` phase - and links to the page that
+carries the rest. Nothing was deleted that does not have a better-linked home.
+
+### Added - the connective tissue between sections
+
+`docs/about/index.md`, so About no longer drops a reader straight into a page with no
+orientation while every other section has a landing page. `navigation.footer` enabled,
+so the 7 of 8 case studies with no forward link get a mechanical previous/next. And the
+tutorial sequence now ends by pointing at the case studies, which it never did - a
+reader following every "Next:" link in order reached the end without being told the
+worked, messy, real-data examples existed.
+
+
+### Added - cross-library parity now covers the sampling, not just single gradients
+
+Every PennyLane parity row until now compared one gradient at one point. The
+barren-plateau tooling does not run on one gradient: it runs on a batch of several
+hundred random `theta`, reduced to a variance, and a pipeline can agree on every
+individual number and still disagree once sampling and reduction are layered on top.
+
+So the table gains a row for the thing that actually runs: 4,800 gradient vectors over
+24 cells of `n` 4-6 x `L` in {1,2,4,8} x {local `Z0`, global `Z^n`}, 200 draws each,
+qmlkit's batched adjoint against PennyLane's `lightning.qubit` adjoint on a
+hand-matched identical circuit. **Max elementwise difference 1.0e-15** - float
+roundoff, across all of them.
+
+### Added - a dead parameter reads exactly like a fully collapsed plateau
+
+New section in the PennyLane migration guide, because this is the mistake the
+barren-plateau literature is easiest to reproduce wrongly with, and it does not raise.
+
+Fix a parameter index, watch its gradient variance as the register grows, and you have
+the standard recipe. But some indices are *structurally* silent for a given circuit and
+observable, and which one moves with depth and with the cost. Measured on
+`hardware_efficient(6, 1)` against a global `Z^6`: parameter 0 returns `2.5e-33` while
+the best live parameter returns `1.8e-01`. Thirty-two orders of magnitude between "this
+model is dead" and "this model is fine", decided by which index you happened to type.
+
+`gradient_variance` already warns here; `gradient_stats` sidesteps it by returning
+every parameter at once, which one adjoint pass has already computed. The guide says
+plainly that no equivalent warning is implied of PennyLane - `qml.grad` is a
+differentiation primitive and an exact zero is the correct answer to what it was asked.
+
+
+### Fixed - the classical Fisher information averaged over data it never read
+
+`metrics.fisher_information` took an `X`, looped `for _ in rows`, and computed the
+same gradient at the same parameters every iteration. The row was discarded. Every
+dataset therefore produced the identical rank-1 matrix:
+
+```python
+f1 = fisher_information(ansatz, one_row,        theta)
+f2 = fisher_information(ansatz, fifty_other_rows, theta)
+np.allclose(f1, f2)          # True, for any two datasets
+np.linalg.matrix_rank(f2)    # 1, always
+```
+
+`effective_dimension` is built on that matrix, so it reported roughly one usefully
+independent parameter for every model anyone ever passed it - a plausible-looking
+number, never a measured one.
+
+The row now supplies the ansatz's input slots through its own feature maps, and
+`theta` is the weights alone. On a 3-qubit re-uploading model with 12 weights the FIM
+comes back rank 6 from 60 rows, for an effective dimension of 2.6 - which is the kind
+of number the function was always supposed to produce.
+
+An ansatz with no input slots cannot be reached by `X` at all, and now raises instead
+of returning the rank-1 matrix silently. Gradients are batched, so the fix is also
+faster than the loop it replaces.
+
+### Added - `qmlkit.landscape`, and which of the four barren plateaus you have
+
+A model that will not train gives you a flat loss curve, and a flat loss curve has
+four causes with four different fixes. "Barren plateau" names all of them, which is
+why the advice attached to it so often fails to help.
+
+`landscape(ansatz)` measures every parameter's gradient in one batched pass - the old
+`gradient_variance` probed one parameter and threw away the other `p - 1` entries of
+each gradient it computed - and then attributes any flatness by controlled comparison
+rather than by rule of thumb. Cost globality is tested by re-measuring the same
+circuit against `Z(0)`; noise by re-measuring it on an exact backend. Expressibility
+and entanglement are correlations rather than experiments, so they are only reported
+when there is a small gradient for them to explain, and a healthy circuit reports
+nothing at all.
+
+The separation that matters most is the cheapest: a parameter with **no** gradient is
+not on a plateau. `hardware_efficient(4, 2)` measured against `Z(0)` has 11 of its 16
+parameters at exactly zero - they change the state and `Z(0)` cannot see them - and
+calling that a plateau sends you to reduce depth when the fix is to measure something
+else.
+
+Also `minima_scan`, which runs the optimiser from several random starts and reports
+whether they agreed, and `hessian_spectrum`, which separates a genuine minimum from a
+saddle the optimiser stalled on. Both answer questions a loss curve cannot.
+
+### Fixed - the minima scan was grading the optimiser, not the landscape
+
+Found by running the new tools on a real classifier rather than a fixture, which is
+the only way this class of thing turns up.
+
+`minima_scan` spent its whole step budget at one learning rate. Adam at a fixed step
+does not settle: on a 4-qubit re-uploading model, five of six runs still had a gradient
+norm around `1e-2` after 3,000 steps, while their losses had not moved since step 400.
+They were orbiting a basin, not descending a slope, and every endpoint came back
+`not-stationary` however long the run.
+
+Two things were wrong underneath:
+
+- **The budget was spent at one rate.** It is now split over three decreasing ones.
+  Same total steps, gradient norms two orders of magnitude lower, losses unchanged.
+- **Stationarity was an absolute cut on `|g|`.** It is now the outstanding Newton step
+  `|g| / lambda_max`, in radians. An absolute threshold called the same point converged
+  under `Z(0)` and unconverged under `sum_i Z(i)`, purely because the second observable
+  is four times larger.
+
+`SPURIOUS_MINIMA` is now gated on `converged`: a scan whose runs were still descending
+reports `MINIMA_SCAN_INCONCLUSIVE` and says to raise `n_steps`, because part of that
+spread is unspent budget and the two are not separable from the outside. On the model
+above the verdict survives the gate: the spread is 0.1898 at 400 steps and 0.1897 at
+5,000, so those minima are real rather than unspent budget. The basin *count* did move
+with the budget, 6 at 400 steps and 5 from 1,000 on, so one of the six was the
+artefact and the other five were not.
+
+### Added - `overparametrisation`, and the threshold it finds
+
+The QFIM rank saturates at the dimension of the circuit's dynamical Lie algebra, and
+past that point extra parameters add flat directions rather than uphill ones. Measured
+on `hardware_efficient`, the saturated rank is exactly `2 * 2^n - 2` - the real
+dimension of projective Hilbert space - reached at 8 parameters on 2 qubits, 18 on 3
+and 32 on 4.
+
+It predicts behaviour, not just geometry. On a 2-qubit Hamiltonian the ansatz one
+layer below saturation converged from every start to -1.65803 against a true ground
+state of -1.77652; the first ansatz at saturated rank hit the ground state exactly. On
+a frustrated 4-qubit model, 4 layers is both where the rank saturates and the first
+depth at which 16 random starts all land in one basin - 1, 2 and 3 layers each leave
+two, spreading 3.78, 0.11 and 0.11 in final loss.
+
+One scan at one width is not a proof, and `minima_scan` reports the spread rather than
+a verdict for that reason.
+
+### Added - what loading the data costs, and the QRAM it would take not to
+
+`loading_cost` prices the encoders against each other, and the number that matters is
+not the qubit count. Amplitude encoding puts 1024 features into 10 qubits and spends
+4,052 CNOTs at depth 6,027 doing it - 3.96 two-qubit gates per feature, converging on
+`4N`. Loading the data is linear in the data, so an algorithm that then runs in
+`O(polylog N)` has moved the linear cost into state preparation rather than removed
+it. `Theta(n)` two-qubit gates is a lower bound for an arbitrary state, so there is no
+better circuit to find.
+
+`qram_cost` prices the device those speedup claims assume. Bucket-brigade QRAM is
+`O(log N)` in **depth** and `Theta(N)` in everything else: 1024 addresses need 1024
+memory cells and 1023 routing components, all coherent at once. Either way the
+`Theta(N)` is paid somewhere.
+
+qmlkit does not ship a QRAM, and the module says why rather than leaving the omission
+to be inferred.
+
+A real, non-negative vector needs no phase preparation and costs exactly half - 2,026
+CNOTs against 4,052. The cost model reports the generic figure, because counting the
+cheap case and quoting it as the price is how a cost model flatters.
+
+
 ### Fixed - the REINFORCE test was seeded everywhere except where it mattered
 
 `test_policy_gradient_learns_a_bandit_with_a_known_optimum` seeded the bandit and the

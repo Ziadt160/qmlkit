@@ -1,6 +1,8 @@
 # Core
 
-The circuit IR, gates, observables, execution and backends. Everything else in the library reads or writes these types.
+The circuit IR, gates, observables and execution — the data model everything else in
+the library reads or writes. The simulators that run it have their own page:
+[Backends](backends.md).
 
 ## `qmlkit.core.ir`
 
@@ -22,19 +24,8 @@ The circuit IR, gates, observables, execution and backends. Everything else in t
 
 ::: qmlkit.core.execute
 
-## `qmlkit.core.backends.base`
-
-The protocol every backend implements. A simulator supplies `statevector`; a device
-supplies `counts`. Everything else — sampling, basis rotation, qubit-wise-commuting
-grouping, expectation values, batched execution — is derived here once, which is what
-makes agreement between backends a property rather than a coincidence.
-
-::: qmlkit.core.backends.base
-
-## `qmlkit.core.backends.registry`
-
-::: qmlkit.core.backends.registry
-
 ## `qmlkit.interop`
+
+Reading circuits *in*, from OpenQASM, Qiskit, PennyLane and Cirq.
 
 ::: qmlkit.interop

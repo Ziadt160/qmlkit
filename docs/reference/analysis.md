@@ -10,6 +10,14 @@ Measuring an ansatz rather than asserting things about it: expressibility, entan
 
 ::: qmlkit.metrics
 
+## `qmlkit.landscape`
+
+Why a model is not training: gradients over every parameter, which of the four
+barren-plateau mechanisms is responsible, curvature at a stationary point, whether
+random starts agree, and where the QFIM rank saturates.
+
+::: qmlkit.landscape
+
 ## `qmlkit.fourier`
 
 ::: qmlkit.fourier

@@ -115,9 +115,15 @@ for row in qk.track(rows, "rows"):
 ```
 
 `qk.track` counts an iterable as it is consumed and takes its total from `len` when
-there is one. Inside the library, `qmlkit.progress.task` is the equivalent — it hands
-back a silent stand-in when nothing is watching, so a loop never has to branch on
-whether anyone is there.
+there is one. Inside the library, `task` is the equivalent — it hands back a silent
+stand-in when nothing is watching, so a loop never has to branch on whether anyone is
+there.
+
+Reach for either of those through a direct import, `from qmlkit.progress import log,
+task`, rather than the dotted `qmlkit.progress.log`. Importing the `progress` context
+manager into the top-level namespace rebinds `qmlkit.progress` to the *function*, so
+the dotted path raises `AttributeError` — which is what this page used to tell you to
+type.
 
 Already instrumented: the pair-at-a-time kernel Gram matrix — the path that takes hours,
 used for sampled kernels, non-inversion estimators, and any backend without a

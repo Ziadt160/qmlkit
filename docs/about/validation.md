@@ -16,16 +16,20 @@ So qmlkit leans on five checks, ordered here by how much each one can prove:
 | 4 | **Cross-backend equivalence** | One circuit zoo through every installed SDK, compared to the NumPy reference |
 | 5 | **Executable documentation** | Every snippet on this site is run by the test suite |
 
-Plus the ordinary suite: **1,434 tests passing of 1,563 collected**, 0 failures, 94%
+Plus the ordinary suite: **1,630 tests passing of 1,753 collected**, 0 failures, 94%
 combined coverage measured in CI, `ruff` and `mypy --strict` clean over the whole
 package.
 
-Every one of the 115 skips is accounted for and none of them is silent: 65 constant
-gates tested at a single angle rather than six, 27 needing SpinQit's Python 3.10, 17
-documentation pages with no runnable Python, 4 SpinQit-only, and 2 where the
-observable is wider than the circuit. CI asserts each optional SDK actually imported
-before running its jobs, because a suite guarded by `importorskip` and never given its
-dependency turns the job green by skipping.
+Every one of the 123 skips is accounted for and none of them is silent: 65 constant
+gates tested at a single angle rather than six, 37 needing SpinQit's Python 3.10, 19
+documentation pages with no runnable Python, and 2 where the observable is wider than
+the circuit. CI asserts each optional SDK actually imported before running its jobs,
+because a suite guarded by `importorskip` and never given its dependency turns the job
+green by skipping.
+
+These counts drifted once before anyone noticed — the page claimed 1,563 collected
+while the suite collected 1,729 — so `scripts/check_doc_numbers.py` now measures them
+against the repository and says which sentence has gone stale.
 
 ## The reference that shares nothing
 
@@ -88,6 +92,7 @@ pytest tests/test_pennylane_parity.py
 | Quantum info | reduced density matrices, von Neumann entropy, purity, mutual information, fidelity, over random states | `1e-10` |
 | Fourier | re-uploading spectra at depths 1–4 | `1e-10` |
 | Geometry | Fubini–Study metric (full and diagonal), QFIM | `1e-12` |
+| Gradient statistics | 4,800 gradient vectors — the batched sampling the barren-plateau tooling runs on, over 24 cells of `n` 4–6 × `L` ∈ {1,2,4,8} × {local `Z₀`, global `Z⊗ⁿ`}, 200 draws each | `1e-15` |
 | Optimisers | Rotosolve and QNG trajectories, step by step | `1e-10` |
 
 The **randomised** tests are the ones that matter. Hand-picked cases confirm what the
