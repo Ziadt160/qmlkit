@@ -35,6 +35,15 @@ from qmlkit.optim import supports_rotosolve
 __all__ = ["QAOA", "QAOAResult"]
 
 
+def _is_edge(item: Any) -> bool:
+    """A pair of integers, however it is spelled -- tuple, list or array row."""
+    return (
+        isinstance(item, (list, tuple, np.ndarray))
+        and len(item) == 2
+        and all(isinstance(v, (int, np.integer)) for v in item)
+    )
+
+
 @dataclass
 class QAOAResult:
     """The angles, and — more usefully — the bitstring they point at."""
@@ -100,7 +109,10 @@ class QAOA:
                 "QAOA needs a problem: an edge list for MaxCut, or a cost observable. "
                 "An empty edge list defines nothing to optimise."
             )
-        if isinstance(problem, (list, tuple)) and isinstance(problem[0], tuple):
+        # An edge is any pair-shaped sequence. Testing for `tuple` specifically sent a
+        # list-of-lists down the observable branch, where it failed with
+        # "'list' object has no attribute 'support'" -- an error about the wrong thing.
+        if isinstance(problem, (list, tuple)) and _is_edge(problem[0]):
             edges = [(int(a), int(b)) for a, b in problem]
             width = n_qubits or max(max(e) for e in edges) + 1
             self.cost: Observable = max_cut_hamiltonian(edges)
@@ -113,6 +125,15 @@ class QAOA:
 
         self.n_qubits = width
         self.p = p
+        # VQE checks this and QAOA did not, so a mismatched ansatz failed several
+        # frames later with "IndexError: tuple index out of range" instead of saying
+        # what was wrong.
+        if ansatz is not None and ansatz.n_qubits != width:
+            raise ValueError(
+                f"the ansatz has {ansatz.n_qubits} qubits but the problem acts on {width}. "
+                f"Build it at the problem's width, e.g. qk.hardware_efficient({width}, ...), "
+                f"or pass n_qubits={ansatz.n_qubits} if the problem really is that narrow."
+            )
         self.ansatz = ansatz or qaoa_ansatz(width, edges=self.edges, p=p, mixer=mixer)
         self.optimizer = optimizer
         self.backend = backend
@@ -133,8 +154,15 @@ class QAOA:
         )
 
     def gradient_of_energy(self, theta: Sequence[float]) -> npt.NDArray[Any]:
-        from qmlkit.gradients.dispatch import grad
+        """The cost gradient, counted into ``n_evaluations`` like every other circuit.
 
+        One gradient is not one evaluation -- see :meth:`~qmlkit.algorithms.VQE.
+        gradient_of_energy`, which had the same undercount.
+        """
+        from qmlkit.gradients.dispatch import grad, gradient_cost
+
+        cost = gradient_cost(self._spec)
+        self.n_evaluations += cost if isinstance(cost, int) else 1
         return grad(
             self._spec,
             np.asarray(theta, dtype=float),

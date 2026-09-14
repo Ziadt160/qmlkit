@@ -151,8 +151,17 @@ class VQE:
         return float(value)
 
     def gradient_of_energy(self, theta: Sequence[float]) -> npt.NDArray[Any]:
-        from qmlkit.gradients.dispatch import grad
+        """The energy gradient, counted into ``n_evaluations`` like every other circuit.
 
+        One gradient is not one evaluation: under parameter-shift it is two circuits
+        per parameterised slot, and a gradient-based run spends most of its budget
+        here. Counting only :meth:`energy` reported 11 evaluations for a 10-step
+        gradient-descent run that had really submitted hundreds.
+        """
+        from qmlkit.gradients.dispatch import grad, gradient_cost
+
+        cost = gradient_cost(self._spec, self.gradient)
+        self.n_evaluations += cost if isinstance(cost, int) else 1
         return grad(
             self._spec,
             np.asarray(theta, dtype=float),

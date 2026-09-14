@@ -123,13 +123,13 @@ class _KernelEstimator(SklearnCompatible):
 
 
 class QSVC(_KernelEstimator):
-    _estimator_type = "classifier"
-
     """Quantum-kernel support vector classifier.
 
     clf = QSVC(qk.ZZFeatureMap(2)).fit(X, y)
     clf.score(X_test, y_test)
     """
+
+    _estimator_type = "classifier"
 
     def __init__(self, feature_map: FeatureMap, C: float = 1.0, **kwargs: Any) -> None:
         super().__init__(feature_map, **kwargs)

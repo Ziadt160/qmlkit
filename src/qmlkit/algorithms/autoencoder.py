@@ -129,6 +129,26 @@ class QuantumAutoencoder:
         """One minus the trash fidelity. No decoder is ever built to train this."""
         return 1.0 - self.trash_fidelity(theta, states)
 
+    def gradient_of_loss(self, theta: ArrayLike, states: Sequence[CircuitSpec]) -> npt.NDArray[Any]:
+        """``d(loss)/d(theta)``, exact, summed over the training states.
+
+        The trash projector expands to an ordinary Pauli sum, so the loss is a plain
+        expectation value and :func:`~qmlkit.grad` differentiates it directly. That is
+        the whole reason :meth:`_trash_projector` builds a projector rather than
+        optimising purity; without this method the two gradient-based optimisers this
+        class advertises could not be honoured.
+        """
+        from qmlkit.gradients.dispatch import grad
+
+        arr = np.asarray(theta, dtype=float)
+        projector = self._trash_projector()
+        total = np.zeros(arr.size)
+        for prep in states:
+            composed = prep.compose(self._spec)
+            total += np.asarray(grad(composed, arr, projector, backend=self.backend), dtype=float)
+        # loss = 1 - fidelity, so the loss gradient is the negated fidelity gradient
+        return -total / len(states)
+
     # -------------------------------------------------------------------- fit --
     def fit(
         self,
@@ -143,6 +163,11 @@ class QuantumAutoencoder:
             else self.encoder.init("small", seed=seed)
         )
         fn = OPTIMIZERS[self.optimizer] if isinstance(self.optimizer, str) else self.optimizer
+        # Both gradient optimisers need the gradient injected. VQE, QAOA and ADAPT all
+        # learned this; this class was left out of the fix and out of the regression
+        # test, so optimizer="adam" raised TypeError for every caller who tried it.
+        if fn in (OPTIMIZERS["adam"], OPTIMIZERS["gradient-descent"]):
+            optimizer_kwargs.setdefault("grad", lambda t: self.gradient_of_loss(t, states))
         if fn is OPTIMIZERS["spsa"]:
             optimizer_kwargs.setdefault("seed", seed)
         theta, history = fn(lambda t: self.loss(t, states), start, **optimizer_kwargs)

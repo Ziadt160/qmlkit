@@ -1,6 +1,9 @@
 r"""Optimisers that only make sense for quantum circuits.
 
-Adam and SGD come from torch. These three do not exist there, because they exploit
+In a torch model, Adam and SGD come from torch. Outside one there is no autograd to
+hand them, so this module also carries a small NumPy Adam -- it is what every
+:mod:`qmlkit.algorithms` solver means by ``optimizer="adam"``. The three below are the
+reason the module exists, though: none of them exists in torch, because each exploits
 structure a general optimiser cannot see:
 
 * **Rotosolve** — a circuit expectation is a *sinusoid* in any single Pauli-rotation
