@@ -36,7 +36,7 @@ against the repository and says which sentence has gone stale.
 This is the check that matters most, and it is the newest.
 
 Everything else here compares qmlkit against something that inherited its conventions —
-five backends against each other, or against PennyLane, which qmlkit's gate table was
+six backends against each other, or against PennyLane, which qmlkit's gate table was
 written by reading. Those agree when a convention is wrong *everywhere*. `densesim.py`
 inherited none of them: hand-written gate matrices, hand-derived derivative matrices,
 an explicit bit-index loop where the library uses `tensordot`, its own product rule.

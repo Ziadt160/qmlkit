@@ -82,6 +82,10 @@ register_backend("aer", _lazy("aer_backend", "AerBackend"), "qiskit_aer", "aer")
 # cannot reach when the circuit does not entangle much. Exact while the bond dimension
 # holds, approximate past it - which is why it reports one.
 register_backend("mps", _lazy("mps_backend", "MPSBackend"), "qiskit_aer", "aer")
+# OpenQARP. The distribution is ``openqarp`` and the module it installs is ``qarp``,
+# which is why the two strings below differ - ``requires`` is what gets imported,
+# ``extra`` is what gets typed.
+register_backend("openqarp", _lazy("openqarp_backend", "OpenQARPBackend"), "qarp", "openqarp")
 
 #: The backends that accept a ``noise`` argument. Noise never selects a simulator for
 #: you: a mixed-state run costs more, refuses the state-based gradients, and answers a

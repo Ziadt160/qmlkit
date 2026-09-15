@@ -102,10 +102,10 @@ frequencies matter.
 The obvious worry: Qiskit and Cirq have their own gate tables, and your gate is not in
 either. So what happens when you ask for `backend="qiskit"`?
 
-It works. Neither SDK has heard of your gate, so it is emitted **as its matrix** —
-`UnitaryGate` on Qiskit, `MatrixGate` on Cirq — built by calling the `matrix=` you
-registered. Nothing else about your circuit changes, and the result agrees with the
-NumPy reference to machine precision.
+It works. No SDK here has heard of your gate, so it is emitted **as its matrix** —
+`UnitaryGate` on Qiskit, `MatrixGate` on Cirq, a Quantum Shannon decomposition on
+OpenQARP — built by calling the `matrix=` you registered. Nothing else about your
+circuit changes, and the result agrees with the NumPy reference to machine precision.
 
 ```python
 # docs: skip
@@ -120,14 +120,15 @@ The subtlety this hides is qubit order, and it is the kind that does not raise. 
 is big-endian and Qiskit is little-endian, so `to_qiskit` already maps qubit `i` to
 `n-1-i` — but a raw matrix carries its qubit order in its *basis* rather than in its
 wire list, so the basis has to be reversed as well or a two-qubit gate on `(a, b)`
-quietly acts as though it were on `(b, a)`. Cirq needs no reversal at all, being
+quietly acts as though it were on `(b, a)`. OpenQARP is little-endian too and
+reverses the *wire list* for the same reason. Cirq needs no reversal at all, being
 big-endian like qmlkit. Rather than reason about that, the cross-backend suite asserts
 it against the NumPy reference over ascending, descending and non-adjacent wire
 orders, and over a three-qubit custom gate.
 
 | Backend | A registered gate |
 |---|---|
-| `numpy` · `qiskit` · `cirq` · `aer` | **works**, to machine precision |
+| `numpy` · `qiskit` · `cirq` · `aer` · `openqarp` | **works**, to machine precision |
 | `cirq-density` · `qiskit-aer` | **works** — they inherit the same translation |
 | `spinqit` | refuses. Its builder takes named gates, not an arbitrary matrix |
 | `torch` | refuses for `backprop`. It differentiates *through* the gate, which needs a torch-native form; your `matrix=` is NumPy and no gradient flows through it. `parameter-shift` works, because a shift rule never inspects a state |

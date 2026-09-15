@@ -6,6 +6,65 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added - an OpenQARP backend, and the batched expectation it brings with it
+
+`backend="openqarp"` runs qmlkit circuits on Fujitsu's Open Quantum Application
+Research Package -- a Python framework over a compiled C++ core, released September
+2026 under Apache-2.0. `pip install "qmlkit[openqarp]"`, Python 3.11+ (OpenQARP
+publishes no wheel below it, so the extra is gated by an environment marker and
+resolves to nothing on 3.10 rather than failing, the same treatment SpinQit gets in
+the other direction).
+
+Every other statevector backend here answers an expectation the same way: build the
+state, hand it back, contract it in `base.py`. This one contracts inside the simulator,
+and sweeps a whole batch of parameter vectors without returning to Python between rows
+-- which is the shape of most of what this library asks a backend for. A batched
+parameter-shift gradient is `2P x batch` circuits behind one call, and so is every
+forward pass of `QuantumLayer`. (An adjoint gradient and a fidelity kernel are not:
+those ask for statevectors, and on those this backend is ordinary -- faster than the
+reference above about twelve qubits, slower below.)
+
+| 256 rows, 3-layer `ry`/`rz` ring | `numpy` | `aer` | `openqarp` |
+|---|---|---|---|
+| 8 qubits | 52 ms | 556 ms | **17 ms** |
+| 10 qubits | 217 ms | 723 ms | **38 ms** |
+| 12 qubits | 1043 ms | 972 ms | **156 ms** |
+| 14 qubits | 2591 ms | 1498 ms | **626 ms** |
+
+Two derived quantities computed by an SDK rather than by the base class is two chances
+for a backend to disagree with the rest, so both are pinned against the NumPy reference
+by `tests/test_cross_backend.py`, and `native_expectations=False` asks the same backend
+for the same numbers by the ordinary statevector route -- `tests/test_openqarp_backend.py`
+runs both and compares. Sampling is *not* native: shots stay with the shared estimator,
+so a seed still reproduces the reference's own counts.
+
+Endianness is handled the way the Qiskit backend handles it -- qmlkit qubit `i` maps to
+qarp qubit `n-1-i` at build time, so no vector is ever reversed. That is also the faster
+choice here: `qarp.endianness.lsb_to_msb_statevector` builds its permutation from a
+Python loop over `2**n` formatted strings, 40 ms at 16 qubits against the 11 ms
+simulation it would have been decorating.
+
+`docs/guides/openqarp.md` is the guide for it - what the translation is made of, where
+the endianness map shows up in the block's own QASM, how a registered gate crosses as a
+Quantum Shannon decomposition, and every measurement below with the script that
+produced it. `scripts/probe_openqarp.py` is that script: it measures agreement first
+and speed second, and refuses to time a route whose gradient does not already match the
+reference.
+
+`qk.recommend()` mentions it from eight qubits up, as a note rather than a
+recommendation: the three crossovers that pick a backend there were measured on
+statevector work, where this one is unremarkable, and a note is the honest width of
+what has actually been measured. `qk.fingerprint()` records the installed version
+alongside Qiskit's, Cirq's and SpinQit's, under the name you install rather than the
+module you import.
+
+Two things it will not do. A registered gate whose angle is a *parameter* cannot be
+swept -- it reaches qarp as a matrix and a matrix carries no symbol -- so those fall
+back to the base class's per-row loop rather than binding the wrong thing. And a
+non-Hermitian observable goes to the base class too, because
+`QarpSimulator.expectation` returns `Re <psi|H|psi>` whatever it is handed, and this
+library refuses that rather than returning a plausible real number.
+
 ### Fixed - threaded `search` raced on torch's global RNG
 
 `HybridModel.__init__` seeds around its own construction so a seeded model is

@@ -88,7 +88,7 @@ print(f"cost      = 1 pass (adjoint) vs {qk.gradient_cost(spec, 'parameter-shift
 
 | | |
 |---|---|
-| **Backends** | NumPy (reference), SpinQit, Qiskit, Cirq, Torch — one circuit, one answer, checked against each other |
+| **Backends** | NumPy (reference), SpinQit, Qiskit, Cirq, OpenQARP, Torch — one circuit, one answer, checked against each other |
 | **Gradients** | adjoint, backprop, Hadamard-test, parameter-shift, SPSA, finite differences, behind one `grad()` |
 | **Encoding** | angle, amplitude, basis, Hamiltonian, and Pauli feature maps, with input gradients |
 | **Ansätze** | a composable block vocabulary plus ten templates written in it |

@@ -18,16 +18,17 @@ import qmlkit as qk
 from qmlkit.core.backends.registry import available_backends, is_available
 
 #: every backend except the reference itself
-OTHER_BACKENDS = ["spinqit", "qiskit", "cirq", "aer"]
+OTHER_BACKENDS = ["spinqit", "qiskit", "cirq", "aer", "openqarp"]
 
 #: Per-backend numerical tolerance.
 #:
-#: Qiskit and Cirq agree with the NumPy reference to machine precision. SpinQit's
-#: simulator carries a floor around 1e-10 - a single-qubit Ry(0.7) expectation
-#: lands ~5.6e-11 off the analytic cos(0.7) - so it gets a looser bound. This is a
+#: Qiskit, Cirq and OpenQARP agree with the NumPy reference to machine precision.
+#: SpinQit's simulator carries a floor around 1e-10 - a single-qubit Ry(0.7)
+#: expectation lands ~5.6e-11 off the analytic cos(0.7) - so it gets a looser
+#: bound. This is a
 #: property of that simulator, not a translation error, and it is worth knowing
 #: before anyone reports a "gradient mismatch" that is really accumulated noise.
-TOLERANCE = {"spinqit": 1e-7, "qiskit": 1e-9, "cirq": 1e-9, "aer": 1e-9}
+TOLERANCE = {"spinqit": 1e-7, "qiskit": 1e-9, "cirq": 1e-9, "aer": 1e-9, "openqarp": 1e-9}
 
 pytestmark = pytest.mark.parametrize(
     "backend_name",
@@ -190,6 +191,7 @@ def test_backend_roundtrips_to_its_native_circuit(backend_name):
         "aer": "to_qiskit",
         "cirq": "to_cirq",
         "spinqit": "to_spinqit",
+        "openqarp": "to_openqarp",
     }[backend_name]
     native = getattr(be, exporter)(spec)
     assert native is not None

@@ -9,11 +9,11 @@
 > Underneath: reusable feature maps, a composable ansatz vocabulary, quantum
 > kernels, PyTorch layers, and one `grad()` that points at any circuit and
 > observable. The same circuit runs on the built-in NumPy reference, SpinQit,
-> Qiskit, Cirq or Torch, and on two mixed-state backends under noise.
+> Qiskit, Cirq, OpenQARP or Torch, and on two mixed-state backends under noise.
 
 Install with `pip install qmlkit`. The core depends on NumPy and nothing else;
 every SDK is an optional extra (`qmlkit[torch]`, `[qiskit]`, `[cirq]`, `[spinqit]`,
-`[sklearn]`).
+`[openqarp]`, `[sklearn]`).
 
 What is worth knowing before writing any of it:
 
@@ -137,7 +137,7 @@ print(f"cost      = 1 pass (adjoint) vs {qk.gradient_cost(spec, 'parameter-shift
 
 | | |
 |---|---|
-| **Backends** | NumPy (reference), SpinQit, Qiskit, Cirq, Torch — one circuit, one answer, checked against each other |
+| **Backends** | NumPy (reference), SpinQit, Qiskit, Cirq, OpenQARP, Torch — one circuit, one answer, checked against each other |
 | **Gradients** | adjoint, backprop, Hadamard-test, parameter-shift, SPSA, finite differences, behind one `grad()` |
 | **Encoding** | angle, amplitude, basis, Hamiltonian, and Pauli feature maps, with input gradients |
 | **Ansätze** | a composable block vocabulary plus ten templates written in it |
@@ -229,6 +229,19 @@ imports any of them — a missing SDK produces an install command, not a traceba
     pip install "qmlkit[cirq]"
     ```
 
+=== "OpenQARP"
+
+    ```bash
+    pip install "qmlkit[openqarp]"
+    ```
+
+    Adds the OpenQARP backend, whose C++ core contracts expectations itself and sweeps
+    a batch of them in one call — several times faster than anything else here for
+    expectation-heavy work above about eight qubits, and no faster at all below it.
+    Python 3.11+ only: OpenQARP publishes no wheel below it, so on 3.10 the extra
+    resolves to nothing rather than failing. It is also the heaviest extra in this
+    list — SciPy, SymPy, NetworkX, Matplotlib and IPython come with it.
+
 === "SpinQit"
 
     ```bash
@@ -267,6 +280,7 @@ qmlkit backends:
   [ok]      torch
   [missing] cirq     -> pip install 'qmlkit[cirq]'
   [missing] qiskit   -> pip install 'qmlkit[qiskit]'
+  [missing] openqarp -> pip install 'qmlkit[openqarp]'
   [missing] spinqit  -> pip install 'qmlkit[spinqit]'
 ```
 
@@ -3247,6 +3261,7 @@ when a particular question comes up.
 | **[The parameter-shift rule](parameter-shift.md)** | Why the famous two-term formula is not the whole story, and how qmlkit derives a rule per gate instead of transcribing one |
 | **[Choosing a gradient method](choosing-a-gradient.md)** | Six options, a decision table, and measured costs |
 | **[Backends and conventions](backends.md)** | Endianness, controlled-gate ordering, precision floors, and three upstream discrepancies worth knowing about |
+| **[Integrating OpenQARP](openqarp.md)** | What qmlkit takes from Fujitsu's C++ engine, how the translation works, and the measurements that decide when to reach for it |
 | **[Running under noise](noise.md)** | Mixed-state backends, why noise never picks a simulator for you, and what a noise model does to a gradient |
 | **[Extending qmlkit](extending.md)** | Adding a gate, an ansatz, a gradient estimator or a backend — every extension point is a registry |
 | **[Evaluating a model honestly](evaluation.md)** | Metrics that say when they mislead, skewed classes, the classical bar, and whether a number can be trusted or reproduced |
@@ -3818,7 +3833,7 @@ Once registered it is a keyword everywhere the library takes `method=`, includin
 
 # Backends and conventions
 
-One circuit, nine backends, one answer. `tests/test_cross_backend.py` runs the same
+One circuit, ten backends, one answer. `tests/test_cross_backend.py` runs the same
 circuit zoo through every installed backend and asserts agreement with the NumPy
 reference on statevectors, probabilities, expectations over X/Y/Z and two-body terms,
 seeded sampling, and parameter-shift gradients.
@@ -3829,6 +3844,7 @@ seeded sampling, and parameter-shift gradients.
 | `aer` | `AerSimulator(method="statevector")` | **above ~13 qubits** — C++, and it does not degrade the way a Python gate loop does |
 | `qiskit` | `quantum_info.Statevector` | Qiskit's reference. Exact, no extra install, and the slowest of the three |
 | `cirq` | `cirq.Simulator` | Cirq's reference |
+| `openqarp` | OpenQARP's `QarpSimulator` | **batched expectations** — swept in C++, several times faster than anything else here above ~8 qubits |
 | `spinqit` | SpinQit's simulator | the diploma's own SDK; Python 3.10 only |
 | `torch` | a differentiable simulator | `backprop` only |
 | `mps` | `AerSimulator(method="matrix_product_state")` | wide but lightly entangled circuits. No statevector, and exact only until the bond dimension truncates |
@@ -3867,6 +3883,70 @@ same one. They move independently: making the batched kernel a BLAS `gemm` moved
 `aer` is deliberately a separate name rather than a silent upgrade to `qiskit`, so the
 simulator that produced a number stays visible in the code that produced it.
 
+### When the answer is an expectation
+
+Every backend above answers an expectation the same way: produce the statevector, hand
+it back, contract it here. `openqarp` is the one that does not. It contracts inside the
+simulator, and it will sweep a whole batch of parameter vectors without returning to
+Python between rows — which is the shape of nearly everything this library asks a
+backend for. A batched parameter-shift gradient is `2P × batch` circuits behind one
+call, and so is every forward pass of `QuantumLayer`.
+
+| 256 rows, 3-layer `ry`/`rz` ring | `numpy` | `aer` | `openqarp` |
+|---|---|---|---|
+| 8 qubits | 52 ms | 556 ms | **17 ms** |
+| 10 qubits | 217 ms | 723 ms | **38 ms** |
+| 12 qubits | 1043 ms | 972 ms | **156 ms** |
+| 14 qubits | 2591 ms | 1498 ms | **626 ms** |
+
+*(one `expectation_over_slots` call on `Z0 + Z0·Z(n−1) + 0.3·X1`; exact throughout, all
+three agreeing to `1e-15`.)*
+
+For a single statevector it is a different picture — competitive to about 16 qubits and
+behind Aer above that — so this is the backend to reach for when the work is
+expectations, which in this library it usually is.
+
+```python
+# docs: requires qarp
+import numpy as np
+
+import qmlkit as qk
+
+spec = qk.hardware_efficient(4, 2).build()
+thetas = np.random.default_rng(0).uniform(-np.pi, np.pi, (32, spec.n_params))
+print(qk.get_backend("openqarp").expectation_over(spec, thetas, qk.Z(0)).shape)
+```
+
+Where it does not win is worth knowing too, and both places are structural. The NumPy
+reference carries a batch as a *leading axis* and contracts gate by gate, so anything
+that asks for many statevectors at once — an adjoint gradient, a fidelity kernel —
+gets a whole batch in one contraction there and one row at a time here: 256 states of
+an eight-qubit ansatz cost 104 ms on this backend against 45 ms on the reference. That
+reverses between eight and ten qubits (150 ms against 212 ms at ten), for the same
+reason the Aer crossover exists. And at four or five qubits nothing here matters next
+to Python overhead per call, so a small `VQC` trains no faster — with a second of SDK
+import before the first circuit runs.
+
+So: reach for it when the answer is an expectation and the register is wide enough to
+notice. `grad_method="parameter-shift"` is where it shows most, because that method is
+made of expectations; `adjoint`, which is the default, is made of statevectors and
+lands roughly where the reference does.
+
+Because the number now comes out of the SDK rather than out of this library's own
+contraction, there are two routes to it and `native_expectations=False` is the other
+one — same backend, same circuit, expectation derived from the statevector instead.
+`tests/test_openqarp_backend.py` runs both and compares, which is the only reason to
+trust the fast one.
+
+The install is `pip install "qmlkit[openqarp]"`, Python 3.11+ — OpenQARP publishes no
+wheel below it, so the extra is gated by an environment marker and resolves to nothing
+on 3.10 rather than failing. It is also the heaviest dependency here: the compiled core
+arrives with SciPy, SymPy, NetworkX, Matplotlib and IPython behind it.
+
+**[Integrating OpenQARP](openqarp.md)** is the long form — what the translation is made
+of, where the endianness map shows up in the block's own QASM, how a registered gate
+survives the crossing, and every measurement above with the script that produced it.
+
 ```python
 import qmlkit as qk
 
@@ -3884,9 +3964,13 @@ produces an install command rather than an `ImportError`. Set the default with
 means qubit 0 measured `|0⟩`, qubit 1 `|1⟩`, qubit 2 `|1⟩`. This matches SpinQit and
 PennyLane.
 
-Qiskit is little-endian. Rather than reversing statevectors after the fact, the
-Qiskit backend maps qmlkit qubit `i` to Qiskit qubit `n−1−i` **at build time**, so
-the index conventions coincide and no reversal is needed anywhere downstream.
+Qiskit and OpenQARP are little-endian. Rather than reversing statevectors after
+the fact, both backends map qmlkit qubit `i` to that SDK's qubit `n−1−i` **at build
+time**, so the index conventions coincide and no reversal is needed anywhere
+downstream. On OpenQARP that is also the faster of the two: its own
+`lsb_to_msb_statevector` builds the permutation from a Python loop over `2**n`
+formatted strings, 40 ms at 16 qubits against the 11 ms simulation it would be
+decorating.
 
 ## Three upstream discrepancies
 
@@ -3911,7 +3995,7 @@ translation error, and it is worth knowing before anyone reports a "gradient
 mismatch" that is really accumulated simulator noise.
 
 ```text
-TOLERANCE = {"spinqit": 1e-7, "qiskit": 1e-9, "cirq": 1e-9}
+TOLERANCE = {"spinqit": 1e-7, "qiskit": 1e-9, "cirq": 1e-9, "openqarp": 1e-9}
 ```
 
 ## Native circuits
@@ -3928,7 +4012,29 @@ qc.h(0).cx(0, 1)
 print(type(qk.get_backend("qiskit").to_qiskit(qc.to_spec())).__name__)
 ```
 
-`to_qiskit`, `to_cirq` and `to_spinqit` are the three.
+`to_qiskit`, `to_cirq`, `to_spinqit` and `to_openqarp` are the four.
+
+An OpenQARP block brings its own exporters with it, which makes the way back a
+one-liner:
+
+```python
+# docs: requires qarp
+import numpy as np
+
+import qmlkit as qk
+
+qc = qk.QCircuit(2)
+qc.h(0).cx(0, 1).ry(1, 0.7)
+spec = qc.to_spec()
+block = qk.get_backend("openqarp").to_openqarp(spec)
+back = qk.from_qasm(block.to_qasm2())
+print(np.allclose(qk.statevector(spec), qk.statevector(back)))
+```
+
+qarp writes little-endian QASM, the same convention Qiskit's exporter uses, and
+`from_qasm` already inverts that — so the `n−1−i` map applied on the way out is undone
+on the way back, and the circuit returns as the one you started with rather than as its
+mirror image.
 
 ## Reading circuits in
 
@@ -4042,6 +4148,308 @@ as well. CI runs both.
 `method="backprop"` possible. It is the least physical backend here — deliberately —
 and exists because a circuit inside an autograd graph is genuinely useful, not
 because it could ever run anywhere but a simulator.
+
+
+==============================================================================
+# Guides / Integrating OpenQARP    (source: docs/guides/openqarp.md)
+==============================================================================
+
+# Integrating OpenQARP
+
+[OpenQARP](https://github.com/OpenQARP/openqarp) — Fujitsu's Open Quantum Application
+Research Package, open-sourced in September 2026 under Apache-2.0 — is a Python
+framework over a compiled C++ core. It is assembled from three interchangeable layers:
+**blocks** describe circuits, **primitives** say what to extract from them, and
+**engines** say how they run, with some seventy building blocks and twenty-odd
+ready-to-run algorithms on top.
+
+qmlkit takes one layer of that: the **engine**, `qarpx.QarpSimulator`. This library
+already has the feature maps, the ansatz vocabulary, the kernels, the gradients and the
+torch bridge; what it wanted from OpenQARP is a fast place to run them — and two entry
+points that no other backend here offers.
+
+```bash
+pip install "qmlkit[openqarp]"
+```
+
+```python
+# docs: requires qarp
+import numpy as np
+
+import qmlkit as qk
+
+spec = qk.hardware_efficient(6, 2).build()
+thetas = np.random.default_rng(0).uniform(-np.pi, np.pi, (64, spec.n_params))
+print(qk.get_backend("openqarp").expectation_over(spec, thetas, qk.Z(0)).shape)
+```
+
+Nothing else in a script changes: `backend="openqarp"` per call, `QMLKIT_BACKEND` per
+session, `qk.set_default_backend("openqarp")` for the process. Python 3.11+, because
+OpenQARP publishes no wheel below it.
+
+## What a backend owes qmlkit, and what this one supplies
+
+A backend supplies *primitives*; [`base.py`](../reference/backends.md) supplies
+*semantics*. Sampling, basis rotation, qubit-wise-commuting grouping, expectation and
+the whole batch stack are derived **once**, above the SDK. That is what makes agreement
+between ten backends a property rather than a coincidence, and it is why most backends
+here implement exactly one method.
+
+This one implements three, because the engine can do two things the protocol otherwise
+derives:
+
+| qmlkit asks for | OpenQARP answers with | why it is worth crossing the boundary |
+|---|---|---|
+| `statevector(spec)` | `QarpSimulator.statevector(commands, n)` | the primitive every simulator backend supplies |
+| `expectation(spec, obs)` | `QarpSimulator.expectation(commands, n, terms)` | ⟨O⟩ contracted in C++ — the `2**n` vector is never built on the Python side |
+| `expectation_over_slots(spec, rows, obs)` | `QarpSimulator.batch_expectation(commands, n, terms, param_sets)` | one circuit, many parameter vectors, no return to Python between rows |
+| `counts(spec, shots, seed)` | **nothing — deliberately** | shots stay with the shared estimator, so a seed reproduces the *same* counts on every backend |
+
+The last row is the important one. It would have been easy to hand sampling to
+OpenQARP as well, and the cost would have been silent: `tests/test_cross_backend.py`
+asserts that `counts(spec, shots=2048, seed=42)` is identical on every backend, and a
+second shot-drawing implementation cannot keep that promise.
+
+## The translation
+
+### Gates, one table, no transpiler
+
+Twenty qmlkit gate names map one-to-one onto `SimpleBlock` methods — `phase` is qarp's
+`p`, `i` is its `id`, and the rest carry their own names. Wires come first and the
+angle last, which is the opposite of Qiskit's order and the kind of thing that is right
+until it is not, so every entry is asserted against the NumPy reference rather than
+argued for.
+
+Nothing is transpiled on the way in. OpenQARP simulates this library's gate set
+directly, so a transpiler pass would cost more than it could save.
+
+### Endianness: the map, not the reversal
+
+qarp indexes amplitudes **LSB-first** — qubit `q` carries bit `q` — which is the
+opposite of qmlkit. The fix is the one the Qiskit backend uses: qmlkit qubit `i` is
+emitted as qarp qubit `n−1−i` **at build time**, so the two index conventions coincide
+and nothing downstream reverses anything. You can see the map in the block's own QASM:
+
+```python
+# docs: requires qarp
+qc = qk.QCircuit(3)
+qc.h(0).cx(0, 1).ry(2, 0.7)
+block = qk.get_backend("openqarp").to_openqarp(qc.to_spec())
+print(block.to_qasm2())
+```
+
+```text
+// qmlkit
+OPENQASM 2.0;
+include "qelib1.inc";
+
+qreg q[3];
+
+h q[2];
+cx q[2], q[1];
+ry(0.7) q[0];
+```
+
+qmlkit's qubit 0 is qarp's `q[2]`, and the statevector index is then the same integer
+on both sides. The alternative — simulate, then bit-reverse the vector — is both easier
+to get quietly wrong and slower: `qarp.endianness.lsb_to_msb_statevector` builds its
+permutation from a Python loop over `2**n` formatted strings, which costs 40 ms at 16
+qubits against the 11 ms simulation it would be decorating.
+
+The same `n−1−i` map is applied to observable terms, which is the only other place a
+qubit index crosses the boundary.
+
+### A gate no SDK has heard of
+
+`qk.register_gate` promises that a gate you invent works everywhere. On OpenQARP it
+arrives as a **matrix**: the run of named gates around it closes into one `SimpleBlock`,
+the custom gate becomes a `SynthesizedUnitaryBlock` — qarp's C++ Quantum Shannon
+decomposition, exact including global phase — and the two are wired together as a
+`CompositeBlock`.
+
+```python
+# docs: skip
+qc = qk.QCircuit(3)
+qc.h(0).apply("xy", (2, 0), 0.7)          # "xy" registered with register_gate
+block = qk.get_backend("openqarp").to_openqarp(qc.to_spec())
+
+print(type(block).__name__, block.n_gates())            # CompositeBlock 25
+print([type(c).__name__ for c in block.children()])     # SimpleBlock, SynthesizedUnitaryBlock
+```
+
+Two operations became twenty-five gates, which is what a Shannon decomposition of an
+arbitrary two-qubit unitary costs. The subtle part is not the decomposition but the
+**wire order**: a matrix carries its qubit order in its *basis* rather than in a wire
+list, qmlkit writes the op's first wire as the most significant bit, and a qarp
+sub-block reads its own local qubit 0 as the least significant — so the wire list is
+reversed on top of the `n−1−i` map. Get that wrong and the circuit still runs, with the
+operands swapped. `tests/test_cross_backend.py` pins it against the reference over
+ascending, descending and non-adjacent wire orders, and over a three-qubit custom gate.
+
+### Parameters: slots, not parameters
+
+The sweep is where the integration gets interesting. A qmlkit circuit has `n_params`
+logical parameters, but those map onto **slots** — one per (operation, parameter
+position) — and a weight-tied parameter fills several. A shift rule moves one *slot* at
+a time, so the batch a gradient hands the backend is a batch of slot-angle vectors, not
+parameter vectors.
+
+The translation therefore names one qarp symbol per slot, `qmlkit_slot_0`,
+`qmlkit_slot_1`, …, binds them through `batch_expectation`'s parameter sets, and lets
+the C++ kernel do the substitution. Naming them per *logical parameter* instead would
+still build, still run, and still return numbers in range — with every occurrence of a
+tied weight forced to the same shift. That is precisely the failure the slot
+abstraction exists to prevent, so it is asserted where the binding happens, in
+`tests/test_openqarp_backend.py`.
+
+## Does it agree?
+
+Speed is worth nothing if the answers move. Every number below is `max |difference|`
+against the NumPy reference, over a three-layer `ry`/`rz` ring:
+
+| qubits | statevector | ⟨O⟩ contracted | ⟨O⟩ swept | parameter-shift gradient |
+|---|---|---|---|---|
+| 4 | 1.7e-16 | 2.8e-17 | 6.7e-16 | 4.6e-16 |
+| 6 | 1.2e-16 | 1.1e-16 | 7.8e-16 | 4.0e-16 |
+| 8 | 1.1e-16 | 4.3e-16 | 9.1e-16 | 3.3e-16 |
+| 10 | 8.4e-17 | 2.8e-16 | 1.2e-15 | 7.4e-16 |
+
+That is machine precision, not a tolerance chosen to pass. The backend also runs the
+whole cross-backend zoo — endianness probes, every non-parametric gate, controlled
+rotations, idle qubits, basis rotations, seeded sampling, registered gates at six wire
+orders — 33 cases, plus 12 of its own.
+
+## What it buys
+
+### The call it exists for
+
+One `expectation_over_slots` of 256 rows, `Z0 + Z0·Z(n−1) + 0.3·X1`:
+
+| qubits | `openqarp` | `numpy` | `aer` | vs the reference |
+|---|---|---|---|---|
+| 4 | 5.3 ms | **3.1 ms** | 316 ms | 0.6× |
+| 6 | 11.7 ms | **10.0 ms** | 397 ms | 0.9× |
+| 8 | **20.8 ms** | 48.3 ms | 523 ms | 2.3× |
+| 10 | **37.3 ms** | 237 ms | 666 ms | 6.4× |
+| 12 | **164 ms** | 1085 ms | 874 ms | 6.6× |
+| 14 | **646 ms** | 2687 ms | 1484 ms | 4.2× |
+
+The crossover is between six and eight qubits, and the reference wins below it — which
+is the same story as Aer's crossover and for the same reason: below it, this library is
+bound by per-call overhead rather than arithmetic.
+
+### Where the win comes from
+
+Not from the C++ kernel alone. Against this backend's *own* row-by-row path — same
+engine, same circuit, binding done in Python and the block rebuilt per row — the sweep
+is worth:
+
+| qubits | swept | row by row | ratio | |
+|---|---|---|---|---|
+| 8 | 16.4 ms | 107 ms | 6.5× | bit-identical |
+| 12 | 165 ms | 297 ms | 1.8× | bit-identical |
+| 14 | 635 ms | 786 ms | 1.2× | bit-identical |
+
+So most of the eight-qubit win is *translation* that the sweep pays once instead of 256
+times, and by fourteen qubits the simulation dominates and the two converge. The two
+paths agree to the last bit, because it is the same circuit either way — asserted with
+`np.array_equal`, not a tolerance.
+
+### One expectation at a time
+
+| qubits | contracted | derived from the statevector | `numpy` | `aer` |
+|---|---|---|---|---|
+| 10 | **0.39 ms** | 0.54 ms | 2.05 ms | 3.14 ms |
+| 12 | **0.91 ms** | 1.09 ms | 3.72 ms | 4.75 ms |
+| 14 | **2.77 ms** | 3.45 ms | 9.15 ms | 10.32 ms |
+| 16 | 16.96 ms | 13.92 ms | 26.94 ms | **13.39 ms** |
+
+Contracting inside the kernel is worth about 25% up to fourteen qubits and stops paying
+by sixteen, where Aer catches both. The other reason to contract there is not in the
+table: nothing allocates `2**n` amplitudes on the Python side.
+
+## Where it does not win
+
+The NumPy reference carries a batch as a **leading axis** and contracts gate by gate,
+which is a different kind of fast. Anything asking for many statevectors at once — an
+adjoint gradient, a fidelity kernel — gets a whole batch in one contraction there and
+one row at a time here:
+
+| qubits | 256 statevectors, `openqarp` | `numpy` |
+|---|---|---|
+| 6 | 78.1 ms | **6.7 ms** |
+| 8 | 104 ms | **45.3 ms** |
+| 10 | **150 ms** | 212 ms |
+| 12 | **284 ms** | 975 ms |
+
+Which shows up exactly where you would expect it to, in a batched gradient of 32
+samples:
+
+| qubits | method | `openqarp` | `numpy` | |
+|---|---|---|---|---|
+| 8 | parameter-shift | **93 ms** | 322 ms | 3.5× |
+| 8 | adjoint | 17.4 ms | **10.8 ms** | 0.6× |
+| 10 | parameter-shift | **263 ms** | 1779 ms | 6.8× |
+| 10 | adjoint | 37.0 ms | 33.5 ms | 0.9× |
+| 12 | parameter-shift | **1260 ms** | 8589 ms | 6.8× |
+| 12 | adjoint | **301 ms** | 356 ms | 1.2× |
+
+`parameter-shift` is made of expectations and gains the whole factor; `adjoint`, which
+is the default, is made of statevectors and lands where the reference does. Both return
+the same gradient to `1e-9` — the probe asserts that before it times anything.
+
+**The rule of thumb.** Reach for this backend when the answer is an expectation and the
+register is wide enough to notice — eight qubits and up. Below that, and for
+statevector-shaped work under about ten qubits, the reference is still the right
+default. And the first `get_backend("openqarp")` pays a second of SDK import, which
+matters for a script that evaluates one circuit and exits.
+
+## Two routes to every number
+
+Handing an observable to an SDK is a second implementation of something this library
+otherwise defines once, and a second implementation is a second chance to be wrong. So
+the backend keeps both:
+
+```python
+# docs: requires qarp
+native = qk.get_backend("openqarp")                              # contracted in C++
+derived = qk.get_backend("openqarp", native_expectations=False)  # from the statevector
+
+bound = spec.bind(thetas[0])
+obs = qk.Z(0) + 0.5 * qk.X(1)
+print(abs(native.expectation(bound, obs) - derived.expectation(bound, obs)) < 1e-12)
+```
+
+`native_expectations=False` is not a fallback for when something breaks. It is how the
+suite asks one backend the same question by two routes that share the circuit
+translation and no arithmetic, and compares the answers — and it is there for you to do
+the same when a result surprises you. `qk.selfcheck` reaches for it too, since it runs
+every installed backend against the reference.
+
+## The block is yours
+
+`to_openqarp` hands back a real qarp block, not an internal handle, so OpenQARP's own
+tooling — its plotting, its exporters, its algorithm library — is one call away. And
+because qarp writes little-endian QASM, the same convention Qiskit's exporter uses,
+`from_qasm` inverts the build-time map and the circuit comes back as itself:
+
+```python
+# docs: requires qarp
+back = qk.from_qasm(block.to_qasm2())
+print(np.allclose(qk.statevector(qc.to_spec()), qk.statevector(back)))
+```
+
+## Reproduce it
+
+Every number on this page comes out of one script, on one machine (Windows, Python
+3.14, OpenQARP 0.1.0). The ratios travel; the milliseconds do not.
+
+```bash
+python scripts/probe_openqarp.py
+```
+
+It measures agreement first and speed second, and it refuses to report a timing for a
+route whose gradient does not already match the reference.
 
 
 ==============================================================================
@@ -4746,10 +5154,10 @@ frequencies matter.
 The obvious worry: Qiskit and Cirq have their own gate tables, and your gate is not in
 either. So what happens when you ask for `backend="qiskit"`?
 
-It works. Neither SDK has heard of your gate, so it is emitted **as its matrix** —
-`UnitaryGate` on Qiskit, `MatrixGate` on Cirq — built by calling the `matrix=` you
-registered. Nothing else about your circuit changes, and the result agrees with the
-NumPy reference to machine precision.
+It works. No SDK here has heard of your gate, so it is emitted **as its matrix** —
+`UnitaryGate` on Qiskit, `MatrixGate` on Cirq, a Quantum Shannon decomposition on
+OpenQARP — built by calling the `matrix=` you registered. Nothing else about your
+circuit changes, and the result agrees with the NumPy reference to machine precision.
 
 ```python
 # docs: skip
@@ -4764,14 +5172,15 @@ The subtlety this hides is qubit order, and it is the kind that does not raise. 
 is big-endian and Qiskit is little-endian, so `to_qiskit` already maps qubit `i` to
 `n-1-i` — but a raw matrix carries its qubit order in its *basis* rather than in its
 wire list, so the basis has to be reversed as well or a two-qubit gate on `(a, b)`
-quietly acts as though it were on `(b, a)`. Cirq needs no reversal at all, being
+quietly acts as though it were on `(b, a)`. OpenQARP is little-endian too and
+reverses the *wire list* for the same reason. Cirq needs no reversal at all, being
 big-endian like qmlkit. Rather than reason about that, the cross-backend suite asserts
 it against the NumPy reference over ascending, descending and non-adjacent wire
 orders, and over a three-qubit custom gate.
 
 | Backend | A registered gate |
 |---|---|
-| `numpy` · `qiskit` · `cirq` · `aer` | **works**, to machine precision |
+| `numpy` · `qiskit` · `cirq` · `aer` · `openqarp` | **works**, to machine precision |
 | `cirq-density` · `qiskit-aer` | **works** — they inherit the same translation |
 | `spinqit` | refuses. Its builder takes named gates, not an arbitrary matrix |
 | `torch` | refuses for `backprop`. It differentiates *through* the gate, which needs a torch-native form; your `matrix=` is NumPy and no gradient flows through it. `parameter-shift` works, because a shift rule never inspects a state |
@@ -5264,17 +5673,17 @@ Reading circuits *in*, from OpenQASM, Qiskit, PennyLane and Cirq.
 
 # Backends
 
-Nine simulators behind one protocol. A backend supplies a statevector — or, for a
+Ten simulators behind one protocol. A backend supplies a statevector — or, for a
 device, counts — and sampling, basis rotation, qubit-wise-commuting grouping,
 expectation and the whole batch stack are derived once in `base.py`. That is what makes
 agreement between them a property rather than a coincidence, and it is why adding one
 is a single `register_backend` call.
 
 The reference below was split out of [Core](core.md) because seven of the nine
-implementation modules had no entry anywhere: their constructor options, their refusals
-and their approximations were readable only in the source. A backend that silently
-truncates past a bond dimension, or refuses a GPU it cannot find, should say so on the
-page you look it up on.
+implementation modules that existed then had no entry anywhere: their constructor
+options, their refusals and their approximations were readable only in the source.
+A backend that silently truncates past a bond dimension, or refuses a GPU it cannot
+find, should say so on the page you look it up on.
 
 ## Which one supports what
 
@@ -5290,6 +5699,7 @@ needing a statevector (adjoint differentiation, the metric tensor, expressibilit
 | `mps` | **no** | until truncation | matrix-product state; wide but lightly entangled circuits |
 | `qiskit` | yes | yes | `quantum_info.Statevector`, the slowest of the exact three |
 | `cirq` | yes | yes | Cirq's reference simulator |
+| `openqarp` | yes | yes | C++ core; contracts expectations itself and sweeps a batch of them without returning to Python |
 | `spinqit` | yes | yes | Python 3.10 only |
 | `torch` | yes | yes | differentiable — the only one `backprop` can use |
 | `cirq-density` | no | yes, given the noise model | density matrix |
@@ -5312,6 +5722,16 @@ noiseless answer, and `diagnose` separates the two rather than reporting their p
 ### `qmlkit.core.backends.qiskit_backend`
 
 ### `qmlkit.core.backends.cirq_backend`
+
+### `qmlkit.core.backends.openqarp_backend`
+
+The one statevector backend here that does not stop at the statevector: it contracts
+expectations inside OpenQARP's C++ kernel and sweeps a batch of parameter vectors in
+one call. That is two derived quantities computed by an SDK rather than by
+`base.py`, so both are pinned against the NumPy reference — and
+`native_expectations=False` asks the same backend for the other route.
+[Integrating OpenQARP](../guides/openqarp.md) walks through the translation and the
+measurements; `scripts/probe_openqarp.py` reproduces them.
 
 ### `qmlkit.core.backends.spinqit_backend`
 
@@ -5788,7 +6208,7 @@ against the repository and says which sentence has gone stale.
 This is the check that matters most, and it is the newest.
 
 Everything else here compares qmlkit against something that inherited its conventions —
-five backends against each other, or against PennyLane, which qmlkit's gate table was
+six backends against each other, or against PennyLane, which qmlkit's gate table was
 written by reading. Those agree when a convention is wrong *everywhere*. `densesim.py`
 inherited none of them: hand-written gate matrices, hand-derived derivative matrices,
 an explicit bit-index loop where the library uses `tensordot`, its own product rule.

@@ -26,7 +26,7 @@ def test_fingerprint_records_the_stack_that_decides_the_number():
     assert got.numpy == np.__version__
     assert got.seed == 7
     assert got.default_backend in qk.list_backends()
-    assert set(got.backends) == {"qiskit", "cirq", "spinqit"}
+    assert set(got.backends) == {"qiskit", "cirq", "spinqit", "openqarp"}
 
 
 def test_fingerprint_is_json_serialisable():

@@ -40,6 +40,19 @@ imports any of them — a missing SDK produces an install command, not a traceba
     pip install "qmlkit[cirq]"
     ```
 
+=== "OpenQARP"
+
+    ```bash
+    pip install "qmlkit[openqarp]"
+    ```
+
+    Adds the OpenQARP backend, whose C++ core contracts expectations itself and sweeps
+    a batch of them in one call — several times faster than anything else here for
+    expectation-heavy work above about eight qubits, and no faster at all below it.
+    Python 3.11+ only: OpenQARP publishes no wheel below it, so on 3.10 the extra
+    resolves to nothing rather than failing. It is also the heaviest extra in this
+    list — SciPy, SymPy, NetworkX, Matplotlib and IPython come with it.
+
 === "SpinQit"
 
     ```bash
@@ -78,6 +91,7 @@ qmlkit backends:
   [ok]      torch
   [missing] cirq     -> pip install 'qmlkit[cirq]'
   [missing] qiskit   -> pip install 'qmlkit[qiskit]'
+  [missing] openqarp -> pip install 'qmlkit[openqarp]'
   [missing] spinqit  -> pip install 'qmlkit[spinqit]'
 ```
 

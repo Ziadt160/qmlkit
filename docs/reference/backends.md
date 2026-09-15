@@ -1,16 +1,16 @@
 # Backends
 
-Nine simulators behind one protocol. A backend supplies a statevector — or, for a
+Ten simulators behind one protocol. A backend supplies a statevector — or, for a
 device, counts — and sampling, basis rotation, qubit-wise-commuting grouping,
 expectation and the whole batch stack are derived once in `base.py`. That is what makes
 agreement between them a property rather than a coincidence, and it is why adding one
 is a single `register_backend` call.
 
 The reference below was split out of [Core](core.md) because seven of the nine
-implementation modules had no entry anywhere: their constructor options, their refusals
-and their approximations were readable only in the source. A backend that silently
-truncates past a bond dimension, or refuses a GPU it cannot find, should say so on the
-page you look it up on.
+implementation modules that existed then had no entry anywhere: their constructor
+options, their refusals and their approximations were readable only in the source.
+A backend that silently truncates past a bond dimension, or refuses a GPU it cannot
+find, should say so on the page you look it up on.
 
 ## Which one supports what
 
@@ -26,6 +26,7 @@ needing a statevector (adjoint differentiation, the metric tensor, expressibilit
 | `mps` | **no** | until truncation | matrix-product state; wide but lightly entangled circuits |
 | `qiskit` | yes | yes | `quantum_info.Statevector`, the slowest of the exact three |
 | `cirq` | yes | yes | Cirq's reference simulator |
+| `openqarp` | yes | yes | C++ core; contracts expectations itself and sweeps a batch of them without returning to Python |
 | `spinqit` | yes | yes | Python 3.10 only |
 | `torch` | yes | yes | differentiable — the only one `backprop` can use |
 | `cirq-density` | no | yes, given the noise model | density matrix |
@@ -60,6 +61,18 @@ noiseless answer, and `diagnose` separates the two rather than reporting their p
 ### `qmlkit.core.backends.cirq_backend`
 
 ::: qmlkit.core.backends.cirq_backend
+
+### `qmlkit.core.backends.openqarp_backend`
+
+The one statevector backend here that does not stop at the statevector: it contracts
+expectations inside OpenQARP's C++ kernel and sweeps a batch of parameter vectors in
+one call. That is two derived quantities computed by an SDK rather than by
+`base.py`, so both are pinned against the NumPy reference — and
+`native_expectations=False` asks the same backend for the other route.
+[Integrating OpenQARP](../guides/openqarp.md) walks through the translation and the
+measurements; `scripts/probe_openqarp.py` reproduces them.
+
+::: qmlkit.core.backends.openqarp_backend
 
 ### `qmlkit.core.backends.spinqit_backend`
 

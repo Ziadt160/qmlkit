@@ -39,6 +39,10 @@ spinqit = [
 ]
 qiskit = ["qiskit>=1.0"]
 cirq = ["cirq-core>=1.3"]
+# OpenQARP ships wheels for 3.11-3.14 and declares requires-python >=3.11, so an
+# unguarded entry would make `pip install qmlkit[openqarp]` fail outright on 3.10
+# rather than resolve to nothing. Same treatment as spinqit, opposite direction.
+openqarp = ["openqarp>=0.1; python_version>='3.11'"]
 # Aer is a separate distribution from Qiskit, and the only way to get a
 # Qiskit noise model. Installing [qiskit] does not bring it in.
 aer = ["qiskit-aer>=0.14", "qiskit>=1.0"]
@@ -79,6 +83,7 @@ markers = [
   "qiskit: needs Qiskit",
   "cirq: needs Cirq",
   "aer: needs Qiskit Aer",
+  "openqarp: needs OpenQARP (Python 3.11+)",
   "noisy: needs a mixed-state simulator (cirq or qiskit-aer)",
   "torch: needs PyTorch",
   "pennylane: cross-validation against PennyLane",
@@ -149,6 +154,8 @@ warn_unused_ignores = false
 [[tool.mypy.overrides]]
 module = [
   "spinqit.*",
+  "qarp.*",
+  "qarpx",
   "qiskit.*",
   "qiskit_aer.*",
   "cirq.*",

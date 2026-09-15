@@ -11,12 +11,12 @@ wrong.
 
 ## The map
 
-21,000 lines over 85 modules, 214 names in the top-level `__all__`. Two halves:
+21,000 lines over 86 modules, 214 names in the top-level `__all__`. Two halves:
 
 ```
 src/qmlkit/
   core/          the IR, and only the IR: ir · builder · gates · observables · execute
-  core/backends/ nine of them. base.py supplies the semantics; a backend supplies
+  core/backends/ ten of them. base.py supplies the semantics; a backend supplies
                  statevector() and inherits sampling, grouping, expectation, batching
   ansatz/  encoding/  gradients/  kernels/  nn/      the ML layer
   algorithms/    VQE · ADAPT · QAOA · chemistry · autoencoder · clustering · rl

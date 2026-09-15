@@ -124,6 +124,7 @@ nav:
       - The parameter-shift rule: guides/parameter-shift.md
       - Choosing a gradient method: guides/choosing-a-gradient.md
       - Backends and conventions: guides/backends.md
+      - Integrating OpenQARP: guides/openqarp.md
       - Running under noise: guides/noise.md
       - Evaluating a model honestly: guides/evaluation.md
       - Watching a run: guides/watching-a-run.md

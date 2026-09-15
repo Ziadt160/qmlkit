@@ -84,6 +84,16 @@ MPS_CROSSOVER = 22
 #: on 8 threads at 8 qubits, because handing out the work costs 17x the gate.
 MEMORY_BOUND_QUBITS = 16
 
+#: Where OpenQARP's swept expectation starts to be worth the install. Measured on one
+#: ``expectation_over_slots`` call of 256 rows, openqarp/numpy milliseconds: 5.5/3.1 at
+#: 4 qubits, 13/10 at 6, 20/52 at 8, 38/221 at 10, 167/1099 at 12, 647/2564 at 14 - the
+#: reference is ahead at six and behind by 2.7x at eight. It is a *different*
+#: crossover from the three above and does not move them: those were measured on
+#: statevector work, where this backend is ordinary. A batch of expectations is the
+#: workload it is extraordinary on, and also the one this library spends most of its
+#: time in.
+OPENQARP_EXPECTATION_CROSSOVER = 8
+
 
 @dataclass(frozen=True)
 class Recommendation:
@@ -289,6 +299,21 @@ def recommend(model: Any, *, shots: int | None = None, batch: int | None = None)
             "measured 0.04x on 8 threads at 8 qubits, because handing out the work "
             "costs 17x what the gate costs. Use more cores on *independent* circuits - "
             "folds, seeds, hyperparameter configurations - not inside one."
+        )
+
+    # OpenQARP does not move the crossovers above, and deliberately: those were measured
+    # on statevector work - a Gram matrix, one circuit at a time - and on that workload
+    # it lands where the others do. It earns a note rather than a recommendation because
+    # the workload the crossovers do *not* cover, a batch of expectations, is most of
+    # what this library evaluates, and there nothing else here answers it.
+    if n >= OPENQARP_EXPECTATION_CROSSOVER and is_available("openqarp"):
+        notes.append(
+            "expectation-heavy work - parameter-shift gradients, batched expectations, "
+            "a training loop made of them - is several times faster on "
+            "backend='openqarp', which contracts and sweeps them in C++: 256 rows of a "
+            "3-layer ring cost 38 ms there against 217 ms on the reference at 10 qubits, "
+            "156 ms against 1,043 ms at 12. It is *not* faster for the statevector "
+            "batches an adjoint gradient is made of"
         )
 
     if shots is not None:

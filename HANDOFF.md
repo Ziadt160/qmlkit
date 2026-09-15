@@ -115,8 +115,8 @@ so the mechanism is proven rather than hoped for. What is open is 0.2.0.
    mathematics. Depth is tunable: `QMLKIT_TORTURE_EXAMPLES=1500` before a release runs
    ~19,500 circuits and takes about ten minutes. Hypothesis shrinks a failure to the
    smallest circuit that shows it and replays it thereafter.
-4. **`tests/test_cross_backend.py`** - the NumPy reference against Qiskit and Cirq,
-   plus SpinQit on 3.10. **Not torch**, and neither density backend;
+4. **`tests/test_cross_backend.py`** - the NumPy reference against Qiskit, Cirq and
+   OpenQARP, plus SpinQit on 3.10. **Not torch**, and neither density backend;
    torch agreement is covered by `test_grad_batch.py` and `test_torture.py`
    instead. Saying 'five backends' here would name the one file that does not
    check the backend the worst 0.1.1 defect lived in.
@@ -664,6 +664,12 @@ them and disagrees.
   defaults less flexibly than the convention above wants
 - Async job submission, the other protocol-changing hardware gap; see
   `examples/toward_hardware.py`
+- **An `openqarp-density` backend.** `QarpEngine` takes a `noise_model` and
+  `qarpx.NoiseModel` exists, so the third mixed-state backend is mostly wiring:
+  subclass `NoisyBackend` beside `OpenQARPBackend` and implement `density_matrix`, the
+  way `qiskit_aer_backend.py` does. Worth doing only with a reason to prefer it over
+  the two that exist - `OpenQARPBackend` was added for its *batched expectation*, and
+  nothing about that carries over to a mixed state
 
 ---
 
@@ -679,6 +685,7 @@ python examples/toward_hardware.py       # a mock QPU with no statevector at all
 ```
 
 ```bash
+python scripts/probe_openqarp.py         # what the OpenQARP backend buys, and where it loses
 pytest tests/test_pennylane_parity.py    # 301 cross-validation cases
 ```
 

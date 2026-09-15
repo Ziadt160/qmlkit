@@ -44,11 +44,11 @@ PREAMBLE = """\
 > Underneath: reusable feature maps, a composable ansatz vocabulary, quantum
 > kernels, PyTorch layers, and one `grad()` that points at any circuit and
 > observable. The same circuit runs on the built-in NumPy reference, SpinQit,
-> Qiskit, Cirq or Torch, and on two mixed-state backends under noise.
+> Qiskit, Cirq, OpenQARP or Torch, and on two mixed-state backends under noise.
 
 Install with `pip install qmlkit`. The core depends on NumPy and nothing else;
 every SDK is an optional extra (`qmlkit[torch]`, `[qiskit]`, `[cirq]`, `[spinqit]`,
-`[sklearn]`).
+`[openqarp]`, `[sklearn]`).
 
 What is worth knowing before writing any of it:
 

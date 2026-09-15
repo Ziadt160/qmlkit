@@ -43,12 +43,12 @@ spread a result.
 Underneath that it is the ML layer quantum SDKs leave out — feature maps, an ansatz
 vocabulary, quantum kernels, torch layers, and a general-purpose parameter-shift
 gradient you can point at *any* circuit and observable — running unchanged on
-**SpinQit**, **Qiskit**, **Cirq**, **PyTorch**, or the built-in NumPy reference, and on
-two mixed-state backends when you want to ask what noise would have done. Nine in all,
-behind one protocol: a backend supplies a statevector, and sampling, basis rotation,
-qubit-wise-commuting grouping, expectation and the whole batch stack are derived once
-in the base class — which is what makes agreement between backends a property rather
-than a coincidence.
+**SpinQit**, **Qiskit**, **Cirq**, **OpenQARP**, **PyTorch**, or the built-in NumPy
+reference, and on two mixed-state backends when you want to ask what noise would have
+done. Ten in all, behind one protocol: a backend supplies a statevector, and sampling,
+basis rotation, qubit-wise-commuting grouping, expectation and the whole batch stack
+are derived once in the base class — which is what makes agreement between backends a
+property rather than a coincidence.
 
 **Simulator-only** for the whole `0.x` line. Expectations are exact unless you ask for
 shots, and two mixed-state backends take a noise model when you want to ask what a
@@ -300,6 +300,7 @@ print(qk.backend_report())     # it returns the summary; it does not print it
 #   [ok]      cirq-density
 #   [ok]      mps
 #   [ok]      numpy
+#   [ok]      openqarp
 #   [ok]      qiskit
 #   [ok]      qiskit-aer
 #   [missing] spinqit  -> pip install 'qmlkit[spinqit]'
@@ -309,7 +310,7 @@ qk.expectation(spec, qk.Z(0), backend="qiskit")   # per call
 qk.set_default_backend("aer")                      # for the session
 ```
 
-Nine simulators behind one protocol: a backend supplies a statevector, and sampling,
+Ten simulators behind one protocol: a backend supplies a statevector, and sampling,
 basis rotation, qubit-wise-commuting grouping, expectation and the whole batch stack
 are derived once. Adding one is a single `register_backend` call.
 
@@ -325,14 +326,14 @@ including SpinQit's `CY` applying `-iY` rather than `Y` to the control-1 subspac
 than cancelling as a global phase. All three are handled, and
 `tests/test_cross_backend.py` holds them handled.
 
-→ [Backends and conventions](docs/guides/backends.md) · [Running under noise](docs/guides/noise.md) · [Backend reference](docs/reference/backends.md)
+→ [Backends and conventions](docs/guides/backends.md) · [Integrating OpenQARP](docs/guides/openqarp.md) · [Running under noise](docs/guides/noise.md) · [Backend reference](docs/reference/backends.md)
 
 ## What it does today
 
 - **A backend-neutral circuit IR.** A circuit is data — a list of `Op`. Backends
   compile it; gradients, resource counting and drawing all read it.
-- **Nine backends behind one protocol** — seven pure-state (NumPy exact
-  reference, Aer, MPS, SpinQit, Qiskit, Cirq, Torch) and two mixed-state
+- **Ten backends behind one protocol** — eight pure-state (NumPy exact
+  reference, Aer, MPS, SpinQit, Qiskit, Cirq, OpenQARP, Torch) and two mixed-state
   (`cirq-density`, `qiskit-aer`) — with a cross-backend equivalence suite
   proving they agree.
   A backend supplies a statevector; sampling, basis rotation, qubit-wise-commuting

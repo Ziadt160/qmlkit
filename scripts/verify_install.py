@@ -65,6 +65,8 @@ optional = (
     "torch",
     "qiskit",
     "cirq",
+    # the module OpenQARP installs, which is not what you pip install
+    "qarp",
     "spinqit",
     "sklearn",
     "matplotlib",
@@ -80,7 +82,7 @@ check("numpy backend is available", "numpy" in qk.available_backends())
 # --------------------------------------------------------------------------- #
 print("\na missing backend explains itself")
 # --------------------------------------------------------------------------- #
-for name in ("spinqit", "qiskit", "cirq"):
+for name in ("spinqit", "qiskit", "cirq", "openqarp"):
     if qk.is_available(name):
         check(f"{name} present, so nothing to diagnose", True)
         continue

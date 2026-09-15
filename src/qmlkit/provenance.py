@@ -136,7 +136,12 @@ def fingerprint(seed: int | None = None, **extra: Any) -> Fingerprint:
         platform=f"{platform.system()} {platform.release()} ({platform.machine()})",
         numpy=np.__version__,
         default_backend=current,
-        backends={name: _version(name) for name in ("qiskit", "cirq", "spinqit")},
+        backends={
+            **{name: _version(name) for name in ("qiskit", "cirq", "spinqit")},
+            # keyed by the name you install and the backend answers to; looked up by
+            # the module that name installs, which is not the same word
+            "openqarp": _version("qarp"),
+        },
         optional={name: _version(name) for name in ("torch", "sklearn", "matplotlib")},
         seed=seed,
         extra=dict(extra),
